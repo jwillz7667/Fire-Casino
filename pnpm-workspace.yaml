@@ -39,6 +39,8 @@ catalog:
   "@nestjs/websockets": ^11.0.1
   "@nestjs/config": ^4.0.0
   "@nestjs/jwt": ^11.0.0
+  "@nestjs/throttler": ^6.4.0
+  "@nest-lab/throttler-storage-redis": ^1.1.0
   "@nestjs/bullmq": ^11.0.1
   "@nestjs/testing": ^11.0.1
   "@nestjs/cli": ^11.0.0
