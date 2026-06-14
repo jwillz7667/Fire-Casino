@@ -35,6 +35,19 @@ export async function assertLedgerIntegrity(prisma: PrismaClient): Promise<void>
   }
 }
 
+/** No operator or player account is ever negative (only named system accounts may go negative). */
+export async function assertNoOwnerNegative(prisma: PrismaClient): Promise<void> {
+  const negative = await prisma.ledgerAccount.findFirst({
+    where: { ownerType: { in: ["OPERATOR", "PLAYER"] }, balanceMinor: { lt: 0n } },
+    select: { id: true, ownerType: true, balanceMinor: true },
+  });
+  if (negative) {
+    throw new Error(
+      `owner account went negative: ${negative.ownerType} ${negative.id} = ${negative.balanceMinor.toString()}`,
+    );
+  }
+}
+
 /** Snapshot continuity (docs/03 §7.3): per account, each entry's balanceAfter
  * equals the running signed sum. Order by (createdAt, id); reliable when each
  * account gets at most one entry per transaction. Throws on a break. */
