@@ -8,6 +8,8 @@ import { AuthModule } from "./auth/auth.module";
 import { AuditModule } from "./audit/audit.module";
 import { LedgerModule } from "./ledger/ledger.module";
 import { OperatorsModule } from "./operators/operators.module";
+import { OrdersModule } from "./orders/orders.module";
+import { StorageModule } from "./storage/storage.module";
 import { HealthModule } from "./health/health.module";
 
 /**
@@ -26,8 +28,10 @@ import { HealthModule } from "./health/health.module";
     RedisModule,
     AuthModule,
     AuditModule,
+    StorageModule,
     LedgerModule,
     OperatorsModule,
+    OrdersModule,
     HealthModule,
   ],
 })
