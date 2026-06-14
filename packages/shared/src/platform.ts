@@ -17,3 +17,11 @@ export function operatorCurrency(mode: PlatformMode): Currency {
 export function redeemableCurrency(mode: PlatformMode): Currency {
   return mode === "COMPLIANCE" ? "PRIZE" : "CREDIT";
 }
+
+/**
+ * Currencies a player wallet holds: one CREDIT in OPERATOR mode; PLAY + PRIZE in
+ * COMPLIANCE mode (docs/02, docs/03 §2).
+ */
+export function walletCurrencies(mode: PlatformMode): Currency[] {
+  return mode === "COMPLIANCE" ? ["PLAY", "PRIZE"] : ["CREDIT"];
+}
