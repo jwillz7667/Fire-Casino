@@ -10,6 +10,7 @@ import { LedgerModule } from "./ledger/ledger.module";
 import { OperatorsModule } from "./operators/operators.module";
 import { OrdersModule } from "./orders/orders.module";
 import { PlayersModule } from "./players/players.module";
+import { GamesModule } from "./games/games.module";
 import { ComplianceModule } from "./compliance/compliance.module";
 import { StorageModule } from "./storage/storage.module";
 import { HealthModule } from "./health/health.module";
@@ -36,6 +37,7 @@ import { HealthModule } from "./health/health.module";
     OperatorsModule,
     OrdersModule,
     PlayersModule,
+    GamesModule,
     HealthModule,
   ],
 })
