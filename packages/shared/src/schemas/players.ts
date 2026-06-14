@@ -35,3 +35,13 @@ export const transferPlayerSchema = z.object({
   toOperatorId: z.string().min(1),
 });
 export type TransferPlayerInput = z.infer<typeof transferPlayerSchema>;
+
+/**
+ * Unified per-player timeline (docs/05 §4). Cursor is an ISO timestamp; the
+ * server merges ledger entries, game sessions, and redemptions ordered by time.
+ */
+export const playerHistoryQuerySchema = z.object({
+  cursor: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type PlayerHistoryQuery = z.infer<typeof playerHistoryQuerySchema>;

@@ -5,6 +5,8 @@ import {
   createPlayerSchema,
   type ListPlayersQuery,
   listPlayersQuerySchema,
+  type PlayerHistoryQuery,
+  playerHistoryQuerySchema,
   type ResetPlayerPasswordInput,
   resetPlayerPasswordSchema,
   type TransferPlayerInput,
@@ -48,6 +50,16 @@ export class PlayersController {
   @ScopeCheck({ playerIdFrom: [{ source: "params", key: "id" }] })
   get(@Param("id") id: string) {
     return this.players.get(id);
+  }
+
+  @Get(":id/history")
+  @RequirePermission("player.view")
+  @ScopeCheck({ playerIdFrom: [{ source: "params", key: "id" }] })
+  history(
+    @Param("id") id: string,
+    @Query(new ZodValidationPipe(playerHistoryQuerySchema)) query: PlayerHistoryQuery,
+  ) {
+    return this.players.history(id, query);
   }
 
   @Patch(":id")

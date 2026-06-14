@@ -4,12 +4,13 @@ import {
   bps,
   type Currency,
   type Env,
+  isInSubtree,
   type RechargeInput,
   type RechargeRequestInput,
   type WalletHistoryQuery,
 } from "@aureus/shared";
 import { type OperatorPrincipal, type PlayerPrincipal } from "../common/auth/principal";
-import { NotFoundError } from "../common/errors/domain-error";
+import { NotFoundError, OutOfScopeError } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
@@ -49,9 +50,13 @@ export class WalletService {
   ) {
     const player = await this.prisma.player.findUnique({
       where: { id: input.playerId },
-      select: { id: true, operatorId: true },
+      select: { id: true, operatorId: true, operator: { select: { path: true } } },
     });
     if (!player) throw new NotFoundError("Player not found");
+    // Defense-in-depth: a credit-moving op must verify subtree ownership itself,
+    // not lean only on the controller ScopeGuard (docs/04 §7 — two layers). The
+    // Prisma read extension filters reads, not this write path.
+    if (!isInSubtree(caller.path, player.operator.path)) throw new OutOfScopeError();
 
     await this.operators.assertOperatorActionable(caller.operatorId);
     await this.compliance.checkDeposit(player.id);
