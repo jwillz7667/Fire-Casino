@@ -4,6 +4,7 @@ export * from "./compliance";
 export * from "./games";
 export * from "./operators";
 export * from "./orders";
+export * from "./phoenix";
 export * from "./players";
 export * from "./realtime";
 export * from "./redemptions";
