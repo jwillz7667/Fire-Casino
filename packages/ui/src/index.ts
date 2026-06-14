@@ -1,11 +1,11 @@
-import { clsx, type ClassValue } from "clsx";
+// Public surface of @aureus/ui — the Aureus design system (docs/08).
+// One token set (theme.css), two sub-themes via [data-theme]. Money is a
+// first-class citizen: it renders only through <Money> / <BalanceChip>.
 
-/** Conditional className composer used across the design system. */
-export function cn(...inputs: ClassValue[]): string {
-  return clsx(inputs);
-}
-
-// The component library (Money, CoinMark, BalanceChip, DataTable,
-// ConfirmMoneyDialog, ...) is built in Phase 11 on these tokens (theme.css).
-export const UI_THEMES = ["console", "arcade"] as const;
-export type UiTheme = (typeof UI_THEMES)[number];
+export * from "./cn";
+export * from "./money";
+export * from "./surfaces";
+export * from "./controls";
+export * from "./overlays";
+export * from "./data-table";
+export * from "./nav";
