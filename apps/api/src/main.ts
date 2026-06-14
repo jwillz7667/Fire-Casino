@@ -3,8 +3,10 @@ import "@aureus/shared/bigint";
 import { NestFactory } from "@nestjs/core";
 import cookieParser from "cookie-parser";
 import { Logger } from "nestjs-pino";
-import { loadDotenv, loadEnv } from "@aureus/shared";
+import { loadEnv } from "@aureus/shared";
+import { loadDotenv } from "@aureus/shared/dotenv";
 import { AppModule } from "./app.module";
+import { RedisIoAdapter } from "./realtime/redis-io.adapter";
 
 async function bootstrap(): Promise<void> {
   loadDotenv();
@@ -25,8 +27,17 @@ async function bootstrap(): Promise<void> {
 
   app.enableShutdownHooks();
 
-  await app.listen(env.API_PORT);
-  logger.log(`api (web) listening on :${String(env.API_PORT)} [mode=${env.PLATFORM_MODE}]`, "Bootstrap");
+  // Socket.io realtime (docs/05 §11). The Redis adapter lets balance/order/
+  // redemption events relayed from the worker reach clients across web instances;
+  // it no-ops to the single-node adapter when SOCKET_ADAPTER !== "redis".
+  const wsAdapter = new RedisIoAdapter(app);
+  await wsAdapter.connectToRedis();
+  app.useWebSocketAdapter(wsAdapter);
+
+  // Railway (and most PaaS) inject the bound port via PORT; fall back to API_PORT.
+  const port = process.env.PORT ? Number(process.env.PORT) : env.API_PORT;
+  await app.listen(port);
+  logger.log(`api (web) listening on :${String(port)} [mode=${env.PLATFORM_MODE}]`, "Bootstrap");
 }
 
 void bootstrap();

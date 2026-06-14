@@ -175,7 +175,9 @@ export class GamesService {
     if (!game.supportedCurrencies.includes(session.currency)) {
       throw new ValidationError(undefined, "Currency not supported by this game");
     }
-    await this.compliance.checkPlay(player.playerId);
+    // Forward the bet so the WAGER/LOSS responsible-gaming limits are enforced
+    // (docs/03 §4.4, hard rule #7), not just account status + self-exclusion.
+    await this.compliance.checkPlay(player.playerId, { betMinor });
 
     const balance = await this.ledger.getBalance({ kind: "player", playerId: player.playerId, currency: session.currency });
     if (balance < betMinor) throw new ConflictError("Insufficient wallet balance");

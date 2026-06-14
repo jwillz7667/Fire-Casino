@@ -20,6 +20,8 @@ import {
   setOperatorGrantsSchema,
   type UpdateOperatorInput,
   updateOperatorSchema,
+  type WalletHistoryQuery,
+  walletHistoryQuerySchema,
 } from "@aureus/shared";
 import {
   Auth,
@@ -142,5 +144,15 @@ export class OperatorsController {
   @ScopeCheck({ operatorIdFrom: [{ source: "params", key: "id" }] })
   stats(@Param("id") id: string) {
     return this.operators.getStats(id);
+  }
+
+  @Get(":id/ledger")
+  @RequirePermission("operator.view_subtree")
+  @ScopeCheck({ operatorIdFrom: [{ source: "params", key: "id" }] })
+  ledger(
+    @Param("id") id: string,
+    @Query(new ZodValidationPipe(walletHistoryQuerySchema)) query: WalletHistoryQuery,
+  ) {
+    return this.operators.getCreditHistory(id, query.cursor, query.limit);
   }
 }

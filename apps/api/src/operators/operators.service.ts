@@ -153,9 +153,18 @@ export class OperatorsService {
   }
 
   async get(id: string) {
-    const operator = await this.system.operator.findUnique({ where: { id }, select: NODE_SELECT });
+    const operator = await this.system.operator.findUnique({
+      where: { id },
+      select: { ...NODE_SELECT, settings: true },
+    });
     if (!operator) throw new NotFoundError("Operator not found");
-    return operator;
+    const { settings, ...node } = operator;
+    // Surface the node's per-operator grants so the console grants editor can
+    // prefill the current set (grants are written only via setGrants).
+    const grants = Array.isArray((settings as { permissions?: unknown })?.permissions)
+      ? ((settings as { permissions?: string[] }).permissions ?? [])
+      : [];
+    return { ...node, grants };
   }
 
   /** Nested subtree rooted at `id`, bounded by `depth`. */
@@ -288,6 +297,40 @@ export class OperatorsService {
       select: { currency: true, balanceMinor: true },
     });
     return accounts.map((a) => ({ currency: a.currency, balanceMinor: a.balanceMinor.toString() }));
+  }
+
+  /** This node's own ledger entries (issues received, transfers in/out, recharges funded) — docs/06 §3.4. */
+  async getCreditHistory(id: string, cursor: string | undefined, limit: number) {
+    const items = await this.system.ledgerEntry.findMany({
+      where: { account: { ownerType: "OPERATOR", operatorId: id } },
+      select: {
+        id: true,
+        direction: true,
+        amountMinor: true,
+        currency: true,
+        balanceAfterMinor: true,
+        createdAt: true,
+        transaction: { select: { type: true, memo: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    const hasMore = items.length > limit;
+    const page = hasMore ? items.slice(0, limit) : items;
+    return {
+      items: page.map((e) => ({
+        id: e.id,
+        type: e.transaction.type,
+        direction: e.direction,
+        currency: e.currency,
+        amountMinor: e.amountMinor.toString(),
+        balanceAfterMinor: e.balanceAfterMinor.toString(),
+        memo: e.transaction.memo,
+        createdAt: e.createdAt,
+      })),
+      nextCursor: hasMore ? page[page.length - 1]?.id : undefined,
+    };
   }
 
   /** Scoped rollups for a node's subtree (docs/05 §2 /stats). */
