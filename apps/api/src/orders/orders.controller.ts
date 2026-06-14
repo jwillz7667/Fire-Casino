@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type CreateOrderInput,
@@ -15,6 +16,7 @@ import {
 import { Auth, CurrentUser, RequirePermission } from "../common/auth/auth.decorators";
 import { type OperatorPrincipal } from "../common/auth/principal";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { MONEY_RATE_LIMIT } from "../common/throttler/throttler.config";
 import { OrdersService } from "./orders.service";
 
 function ctxOf(req: Request): { ip?: string; userAgent?: string } {
@@ -27,6 +29,8 @@ export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
   @Post()
+  @UseGuards(ThrottlerGuard)
+  @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("order.request_up")
   request(
     @CurrentUser() caller: OperatorPrincipal,
@@ -82,6 +86,8 @@ export class OrdersController {
 
   @Post(":id/issue")
   @HttpCode(200)
+  @UseGuards(ThrottlerGuard)
+  @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("order.fulfill")
   issue(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string, @Req() req: Request) {
     return this.orders.issue(caller, id, ctxOf(req));

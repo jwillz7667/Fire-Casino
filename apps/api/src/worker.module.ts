@@ -1,9 +1,12 @@
 import { Module } from "@nestjs/common";
 import { ClsModule } from "nestjs-cls";
-import { ConfigModule } from "./config/config.module";
+import { LoggerModule } from "nestjs-pino";
+import { type Env } from "@aureus/shared";
+import { ConfigModule, ENV } from "./config/config.module";
 import { ScopeModule } from "./common/scope/scope.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./redis/redis.module";
+import { buildLoggerParams } from "./common/logging/logger.config";
 
 /**
  * Worker application module (BullMQ consumers + outbox relay). Shares the domain
@@ -14,6 +17,11 @@ import { RedisModule } from "./redis/redis.module";
  */
 @Module({
   imports: [
+    LoggerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ENV],
+      useFactory: (env: Env) => buildLoggerParams(env),
+    }),
     ClsModule.forRoot({ global: true }),
     ConfigModule,
     ScopeModule,

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, type PrismaClient } from "@aureus/db";
 import {
+  can,
   type CreateGameInput,
   type Currency,
   type SetGameStatusInput,
@@ -20,6 +21,12 @@ import { ComplianceService } from "../compliance/compliance.service";
 import { LedgerService } from "../ledger/ledger.service";
 import { generateServerSeed, hashServerSeed } from "./rgs/fairness";
 import { GAME_PROVIDER, type GameProvider } from "./rgs/provider";
+
+// Guardrail band for an RTP override (docs/05 §6 "within bounds"). Below 80% is
+// predatory; above 100% leaks money to players. A competent default — adjust per
+// jurisdiction if a tighter band is mandated.
+const RTP_MIN_BPS = 8_000;
+const RTP_MAX_BPS = 10_000;
 
 interface RoundRow {
   id: string;
@@ -77,6 +84,19 @@ export class GamesService {
   }
 
   async updateGame(caller: OperatorPrincipal, id: string, input: UpdateGameInput) {
+    if (input.rtpBps !== undefined) {
+      const current = await this.prisma.game.findUnique({ where: { id }, select: { rtpBps: true } });
+      if (!current) throw new NotFoundError("Game not found");
+      if (input.rtpBps !== current.rtpBps) {
+        // Changing RTP is a distinct, bounded privilege (docs/04 §3, docs/05 §6).
+        if (!can(caller.tier, caller.settings, "game.rtp_override")) {
+          throw new ForbiddenError("Changing RTP requires the game.rtp_override permission");
+        }
+        if (input.rtpBps < RTP_MIN_BPS || input.rtpBps > RTP_MAX_BPS) {
+          throw new ValidationError(undefined, `RTP must be between ${RTP_MIN_BPS} and ${RTP_MAX_BPS} bps`);
+        }
+      }
+    }
     const game = await this.prisma.game.update({
       where: { id },
       data: {

@@ -135,6 +135,35 @@ describe("WalletService.recharge — COMPLIANCE mode (PLAY purchase + PRIZE bonu
   });
 });
 
+describe("PlayersService.history — unified timeline (docs/05 §4)", () => {
+  it("returns the player's ledger events ordered by time", async () => {
+    await fund(storeId, "CREDIT", 1_000_000n);
+    await walletOperator.recharge(storeP, { playerId, amountMinor: 100_000n }, randomUUID(), ctx);
+
+    const history = await players.history(playerId, { limit: 50 });
+    expect(history.items.length).toBeGreaterThanOrEqual(1);
+    const recharge = history.items.find((e) => e.kind === "ledger" && e.type === "RECHARGE");
+    expect(recharge).toBeDefined();
+    expect(recharge?.kind === "ledger" && recharge.amountMinor).toBe("100000");
+  });
+});
+
+describe("Wallet — subtree isolation (docs/04 §7)", () => {
+  it("an agent cannot recharge another agent's player", async () => {
+    // store A (beforeEach, path "0") owns the player; store B is a sibling (path "1").
+    const storeB = await createOperator({ username: "storeB", tier: "STORE", pathSegment: 1 });
+    const storeBP = opPrincipal(storeB, "STORE");
+    await fund(storeB.operatorId, "CREDIT", 1_000_000n);
+
+    await expect(
+      walletOperator.recharge(storeBP, { playerId, amountMinor: 10_000n }, randomUUID(), ctx),
+    ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "OUT_OF_SCOPE");
+
+    // The cross-branch player's wallet is untouched.
+    expect(await ledger.getBalance(sel("player", playerId, "CREDIT"))).toBe(0n);
+  });
+});
+
 describe("Wallet — recharge request and compliance gate", () => {
   it("a recharge request notifies the owning agent without moving money", async () => {
     const pp = playerPrincipal(playerId, storeId, "p1");

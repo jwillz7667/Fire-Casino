@@ -7,6 +7,7 @@ import {
   type Env,
   isInSubtree,
   type ListPlayersQuery,
+  type PlayerHistoryQuery,
   type ResetPlayerPasswordInput,
   type UpdatePlayerInput,
   walletCurrencies,
@@ -22,6 +23,42 @@ import { OperatorsService } from "../operators/operators.service";
 interface ActionContext {
   ip?: string;
   userAgent?: string;
+}
+
+export type PlayerHistoryEvent =
+  | {
+      kind: "ledger";
+      id: string;
+      at: Date;
+      type: string;
+      direction: string;
+      currency: string;
+      amountMinor: string;
+      balanceAfterMinor: string;
+      memo: string | null;
+    }
+  | {
+      kind: "session";
+      id: string;
+      at: Date;
+      status: string;
+      currency: string;
+      totalBetMinor: string;
+      totalWinMinor: string;
+    }
+  | {
+      kind: "redemption";
+      id: string;
+      at: Date;
+      status: string;
+      currency: string;
+      amountMinor: string;
+      method: string | null;
+    };
+
+export interface PlayerHistoryResult {
+  items: PlayerHistoryEvent[];
+  nextCursor: string | undefined;
 }
 
 const PLAYER_SELECT = {
@@ -118,6 +155,95 @@ export class PlayersService {
     return {
       ...player,
       wallets: player.wallets.map((w) => ({ currency: w.currency, balanceMinor: w.balanceMinor.toString() })),
+    };
+  }
+
+  /**
+   * Unified per-player timeline (docs/05 §4): ledger entries (recharges, bets,
+   * wins, redemption moves), game sessions, and redemption requests, merged and
+   * ordered by time. Cursor is the ISO timestamp of the last item seen; each
+   * source is filtered to `< cursor` and over-fetched so the merge is complete
+   * for the page.
+   */
+  async history(id: string, query: PlayerHistoryQuery): Promise<PlayerHistoryResult> {
+    await this.ensureExists(id);
+    const before = query.cursor ? new Date(query.cursor) : undefined;
+    const take = query.limit + 1;
+    const when = before ? { createdAt: { lt: before } } : {};
+
+    const [entries, sessions, redemptions] = await Promise.all([
+      this.system.ledgerEntry.findMany({
+        where: { account: { ownerType: "PLAYER", playerId: id }, ...when },
+        select: {
+          id: true,
+          direction: true,
+          amountMinor: true,
+          currency: true,
+          balanceAfterMinor: true,
+          createdAt: true,
+          transaction: { select: { type: true, memo: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take,
+      }),
+      this.system.gameSession.findMany({
+        where: { playerId: id, ...(before ? { startedAt: { lt: before } } : {}) },
+        select: {
+          id: true,
+          status: true,
+          currency: true,
+          totalBetMinor: true,
+          totalWinMinor: true,
+          startedAt: true,
+        },
+        orderBy: { startedAt: "desc" },
+        take,
+      }),
+      this.system.redemptionRequest.findMany({
+        where: { playerId: id, ...when },
+        select: { id: true, status: true, amountMinor: true, currency: true, method: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take,
+      }),
+    ]);
+
+    const events: PlayerHistoryEvent[] = [
+      ...entries.map((e) => ({
+        kind: "ledger" as const,
+        id: e.id,
+        at: e.createdAt,
+        type: e.transaction.type,
+        direction: e.direction,
+        currency: e.currency,
+        amountMinor: e.amountMinor.toString(),
+        balanceAfterMinor: e.balanceAfterMinor.toString(),
+        memo: e.transaction.memo,
+      })),
+      ...sessions.map((s) => ({
+        kind: "session" as const,
+        id: s.id,
+        at: s.startedAt,
+        status: s.status,
+        currency: s.currency,
+        totalBetMinor: s.totalBetMinor.toString(),
+        totalWinMinor: s.totalWinMinor.toString(),
+      })),
+      ...redemptions.map((r) => ({
+        kind: "redemption" as const,
+        id: r.id,
+        at: r.createdAt,
+        status: r.status,
+        currency: r.currency,
+        amountMinor: r.amountMinor.toString(),
+        method: r.method,
+      })),
+    ].sort((a, b) => b.at.getTime() - a.at.getTime());
+
+    const hasMore = events.length > query.limit;
+    const page = hasMore ? events.slice(0, query.limit) : events;
+    return {
+      items: page,
+      nextCursor: hasMore ? page[page.length - 1]?.at.toISOString() : undefined,
     };
   }
 

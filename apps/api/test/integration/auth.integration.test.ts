@@ -1,6 +1,7 @@
 import { JwtService } from "@nestjs/jwt";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { loadEnv } from "@aureus/shared";
+import { AuditService } from "../../src/audit/audit.service";
 import { AuthService } from "../../src/auth/auth.service";
 import { PasswordService } from "../../src/auth/password.service";
 import { TokenService } from "../../src/auth/token.service";
@@ -10,7 +11,8 @@ import { createOperator, resetDb, testPrisma } from "../helpers/db";
 const env = loadEnv();
 const passwords = new PasswordService(env);
 const tokens = new TokenService(new JwtService({}), env);
-const auth = new AuthService(testPrisma, passwords, tokens);
+const audit = new AuditService(testPrisma);
+const auth = new AuthService(testPrisma, passwords, tokens, audit);
 const ctx = { ip: "127.0.0.1", userAgent: "vitest" };
 const PASSWORD = "Sup3rSecret!";
 

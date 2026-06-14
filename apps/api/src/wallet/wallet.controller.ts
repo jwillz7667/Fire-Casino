@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type RechargeInput,
@@ -18,6 +19,7 @@ import {
 import { IdempotencyKey } from "../common/auth/idempotency.decorator";
 import { type OperatorPrincipal, type PlayerPrincipal } from "../common/auth/principal";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { MONEY_RATE_LIMIT } from "../common/throttler/throttler.config";
 import { WalletService } from "./wallet.service";
 
 function ctxOf(req: Request): { ip?: string; userAgent?: string } {
@@ -31,6 +33,8 @@ export class WalletController {
   @Post("recharge")
   @HttpCode(200)
   @Auth("operator")
+  @UseGuards(ThrottlerGuard)
+  @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("player.recharge")
   @ScopeCheck({ playerIdFrom: [{ source: "body", key: "playerId" }] })
   recharge(
@@ -60,6 +64,8 @@ export class WalletController {
   @Post("recharge-request")
   @HttpCode(200)
   @Auth("player")
+  @UseGuards(ThrottlerGuard)
+  @Throttle(MONEY_RATE_LIMIT)
   rechargeRequest(
     @CurrentPlayer() player: PlayerPrincipal,
     @Body(new ZodValidationPipe(rechargeRequestSchema)) body: RechargeRequestInput,

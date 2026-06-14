@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
+import { Body, Controller, HttpCode, Post, Req, UseGuards } from "@nestjs/common";
+import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type IssueCreditsInput,
@@ -15,6 +16,7 @@ import {
 import { IdempotencyKey } from "../common/auth/idempotency.decorator";
 import { type OperatorPrincipal } from "../common/auth/principal";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { MONEY_RATE_LIMIT } from "../common/throttler/throttler.config";
 import { CreditsService } from "./credits.service";
 
 function ctxOf(req: Request): { ip?: string; userAgent?: string } {
@@ -22,6 +24,8 @@ function ctxOf(req: Request): { ip?: string; userAgent?: string } {
 }
 
 @Auth("operator")
+@UseGuards(ThrottlerGuard)
+@Throttle(MONEY_RATE_LIMIT)
 @Controller("credits")
 export class CreditsController {
   constructor(private readonly credits: CreditsService) {}
