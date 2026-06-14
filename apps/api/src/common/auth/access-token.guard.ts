@@ -1,5 +1,6 @@
 import { type CanActivate, type ExecutionContext, Inject, Injectable } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
+import { PinoLogger } from "nestjs-pino";
 import { type PrismaClient } from "@aureus/db";
 import { UnauthorizedError } from "../errors/domain-error";
 import { PRISMA_SYSTEM } from "../../prisma/prisma.module";
@@ -27,6 +28,7 @@ export class AccessTokenGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly tokens: TokenService,
     private readonly scope: ScopeService,
+    private readonly logger: PinoLogger,
     @Inject(PRISMA_SYSTEM) private readonly prisma: PrismaClient,
   ) {}
 
@@ -53,6 +55,12 @@ export class AccessTokenGuard implements CanActivate {
     const principal = await this.loadPrincipal(claims);
     req.principal = principal;
     this.seedScope(principal);
+    // Bind the principal id to every subsequent log line in this request (docs/01 §11).
+    this.logger.assign({
+      principalKind: principal.kind,
+      principalId: principal.kind === "operator" ? principal.userId : principal.playerId,
+      operatorId: principal.operatorId,
+    });
     return true;
   }
 

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UseGuards } from "@nestjs/common";
+import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import {
   type MfaConfirmInput,
@@ -17,6 +18,7 @@ import { Auth, CurrentPrincipal, CurrentUser, Public } from "../common/auth/auth
 import { type OperatorPrincipal, type Principal } from "../common/auth/principal";
 import { UnauthorizedError } from "../common/errors/domain-error";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { AUTH_RATE_LIMIT } from "../common/throttler/throttler.config";
 import { ENV } from "../config/config.module";
 import { type AuthContext, AuthService } from "./auth.service";
 import { REFRESH_COOKIE, refreshCookieOptions } from "./cookies";
@@ -33,6 +35,8 @@ export class AuthController {
   ) {}
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle(AUTH_RATE_LIMIT)
   @Post("operator/login")
   @HttpCode(200)
   async operatorLogin(
@@ -46,6 +50,8 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle(AUTH_RATE_LIMIT)
   @Post("player/login")
   @HttpCode(200)
   async playerLogin(
@@ -59,6 +65,8 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle(AUTH_RATE_LIMIT)
   @Post("refresh")
   @HttpCode(200)
   async refresh(
