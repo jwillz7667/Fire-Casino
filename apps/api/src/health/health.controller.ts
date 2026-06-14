@@ -1,6 +1,8 @@
 import { Controller, Get, HttpCode, HttpException, HttpStatus } from "@nestjs/common";
+import { Public } from "../common/auth/auth.decorators";
 import { HealthService, type ReadinessReport } from "./health.service";
 
+@Public()
 @Controller()
 export class HealthController {
   constructor(private readonly health: HealthService) {}
