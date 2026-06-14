@@ -33,6 +33,10 @@ export const envSchema = z.object({
     .string()
     .transform((v) => v === "true")
     .default("false"),
+  // Cross-site auth (frontends on Vercel, API on Railway, different registrable
+  // domains) needs "none"; a same-domain setup (api/app/console all under
+  // goldwavecasino.xyz) can stay "lax". "none" implies Secure.
+  COOKIE_SAMESITE: z.enum(["lax", "strict", "none"]).default("lax"),
   ARGON2_MEMORY_KIB: z.coerce.number().int().positive().default(19_456),
 
   // urls / cors
