@@ -1,0 +1,31 @@
+{
+  "name": "fire-casino",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fire Casino (codename Aureus) — credit-based gaming platform monorepo",
+  "packageManager": "pnpm@11.5.1",
+  "engines": {
+    "node": ">=22.11 <25",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "db:generate": "turbo run db:generate --filter @aureus/db",
+    "db:migrate": "turbo run db:migrate --filter @aureus/db",
+    "db:deploy": "turbo run db:deploy --filter @aureus/db",
+    "db:seed": "turbo run db:seed --filter @aureus/db",
+    "db:studio": "pnpm --filter @aureus/db studio",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "prettier": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:"
+  }
+}
