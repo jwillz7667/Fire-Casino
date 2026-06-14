@@ -1,0 +1,91 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Single source of truth for external dependency versions across all workspaces.
+# Packages reference these with "catalog:" instead of a literal version.
+catalog:
+  # --- tooling ---
+  typescript: ^5.7.3
+  turbo: ^2.3.3
+  tsx: ^4.19.2
+  prettier: ^3.4.2
+  eslint: ^9.18.0
+  "@eslint/js": ^9.18.0
+  typescript-eslint: ^8.20.0
+  eslint-config-prettier: ^9.1.0
+  globals: ^15.14.0
+  "@types/node": ^22.10.5
+
+  # --- test ---
+  vitest: ^3.0.2
+  "@vitest/coverage-v8": ^3.0.2
+  unplugin-swc: ^1.5.1
+  "@swc/core": ^1.10.7
+  fast-check: ^3.23.2
+  testcontainers: ^10.16.0
+  "@testcontainers/postgresql": ^10.16.0
+  "@testcontainers/redis": ^10.16.0
+
+  # --- validation / shared ---
+  zod: ^3.24.1
+  dotenv: ^16.4.7
+
+  # --- backend (NestJS) ---
+  "@nestjs/common": ^11.0.1
+  "@nestjs/core": ^11.0.1
+  "@nestjs/platform-express": ^11.0.1
+  "@nestjs/platform-socket.io": ^11.0.1
+  "@nestjs/websockets": ^11.0.1
+  "@nestjs/config": ^4.0.0
+  "@nestjs/jwt": ^11.0.0
+  "@nestjs/bullmq": ^11.0.1
+  "@nestjs/testing": ^11.0.1
+  "@nestjs/cli": ^11.0.0
+  "reflect-metadata": ^0.2.2
+  "rxjs": ^7.8.1
+  "express": ^5.0.1
+  "cookie-parser": ^1.4.7
+  "@types/cookie-parser": ^1.4.8
+  nestjs-cls: ^5.4.0
+  nestjs-pino: ^4.3.0
+  pino: ^9.6.0
+  pino-http: ^10.4.0
+  pino-pretty: ^13.0.0
+  "@node-rs/argon2": ^2.0.2
+  otplib: ^12.0.1
+  qrcode: ^1.5.4
+  "@types/qrcode": ^1.5.5
+  uuid: ^11.0.5
+  bullmq: ^5.34.10
+  ioredis: ^5.4.2
+  "socket.io": ^4.8.1
+  "@socket.io/redis-adapter": ^8.3.0
+  "@socket.io/redis-emitter": ^5.1.0
+
+  # --- database (Prisma) ---
+  prisma: ^6.2.1
+  "@prisma/client": ^6.2.1
+
+  # --- frontends (Next.js) ---
+  next: ^15.1.4
+  react: ^19.0.0
+  react-dom: ^19.0.0
+  "@types/react": ^19.0.4
+  "@types/react-dom": ^19.0.2
+  "@tanstack/react-query": ^5.64.1
+  "socket.io-client": ^4.8.1
+  tailwindcss: ^4.0.0
+  "@tailwindcss/postcss": ^4.0.0
+  postcss: ^8.5.1
+  "lucide-react": ^0.469.0
+  clsx: ^2.1.1
+
+# Trusted dependencies allowed to run install/postinstall build scripts.
+allowBuilds:
+  "@prisma/client": true
+  "@prisma/engines": true
+  "@swc/core": true
+  esbuild: true
+  prisma: true
+  sharp: true
