@@ -12,6 +12,10 @@
     "./bigint": {
       "types": "./dist/bigint.d.ts",
       "default": "./dist/bigint.js"
+    },
+    "./dotenv": {
+      "types": "./dist/dotenv.d.ts",
+      "default": "./dist/dotenv.js"
     }
   },
   "scripts": {

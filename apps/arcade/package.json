@@ -14,10 +14,12 @@
   "dependencies": {
     "@aureus/shared": "workspace:*",
     "@aureus/ui": "workspace:*",
+    "@tanstack/react-query": "catalog:",
     "lucide-react": "catalog:",
     "next": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "socket.io-client": "catalog:"
   },
   "devDependencies": {
     "@aureus/config": "workspace:*",

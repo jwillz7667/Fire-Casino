@@ -112,7 +112,7 @@ Hold that picture and the rest follows.
 
 ## 6. Development
 
-> Product name: **Fire Casino**. Internal codename: **Aureus** (kept as the `@aureus/*` package namespace for now). Specs live in [`outline-docs/`](./outline-docs); read `CLAUDE.md` first, then `outline-docs/01`–`09`. Build order and acceptance criteria are in `outline-docs/09-build-plan.md`.
+> Product name: **Goldwave Casino** (`goldwavecasino.xyz`). Internal codename: **Aureus** (kept as the `@aureus/*` package namespace and platform-infra name). Specs live in [`outline-docs/`](./outline-docs); read `CLAUDE.md` first, then `outline-docs/01`–`09`. Build order and acceptance criteria are in `outline-docs/09-build-plan.md`.
 
 ### Monorepo layout
 
@@ -149,6 +149,40 @@ pnpm dev                     # api :4000, console :3000, arcade :3001
 ```
 
 Health: `GET http://localhost:4000/healthz` (liveness), `/readyz` (DB + Redis).
+
+### Processes
+
+The API image runs as **two processes** that share the same code:
+
+| Process | Entry | Responsibility |
+|---|---|---|
+| web | `pnpm --filter @aureus/api start` (`dist/main.js`) | REST + Socket.io gateway |
+| worker | `pnpm --filter @aureus/api start:worker` (`dist/worker.js`) | outbox → realtime relay, scheduled ledger reconciliation (BullMQ) |
+
+Both must run in production. The web process attaches the Socket.io Redis adapter; the worker publishes relayed events over Redis so they reach clients on any web instance, and runs the reconciliation sweep every 5 minutes (results land on the **Ledger Health** page).
+
+### Deployment
+
+Target stack: **Railway** (web + worker + managed Postgres + Redis), **Cloudflare R2** (object storage for KYC docs / payment proofs), **Vercel** (the two Next.js apps, one project each). Cross-site auth: set `ALLOWED_ORIGINS` to the exact frontend origins, `COOKIE_SECURE=true`, and the refresh cookie to `SameSite=None` in production.
+
+### Backup & restore (Postgres)
+
+The ledger is the system of record, so back up Postgres on a schedule and verify restores:
+
+```bash
+# logical backup (schema + data)
+pg_dump "$DATABASE_URL" -Fc -f aureus-$(date +%F).dump
+
+# restore into a fresh database
+createdb aureus_restore
+pg_restore -d "postgresql://.../aureus_restore" --clean --if-exists aureus-YYYY-MM-DD.dump
+
+# after any restore, prove integrity before going live:
+#   open Ledger Health (or run the reconciliation job) — all five checks must pass
+#   (zero-sum, cache-vs-derived, snapshot-continuity, circulation-identity, settlement-sanity).
+```
+
+On Railway, enable automated daily Postgres backups and periodically test a restore into a throwaway DB. Redis holds only ephemeral state (rate-limit counters, BullMQ jobs, the last reconciliation result) and does not need point-in-time backup.
 
 ### Commands
 
