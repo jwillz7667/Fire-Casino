@@ -1,5 +1,6 @@
-// Minimal bootstrap schema (Phase 0). The full data model (docs/02) lands in
-// Phase 1. This exists so the Prisma client generates and the package builds.
+// Fire Casino (Aureus) data model — docs/02.
+// Conventions: money is BigInt minor units; soft-delete via status enums; IDs are
+// cuid strings; operators carry a materialized path for subtree queries.
 
 generator client {
   provider = "prisma-client-js"
@@ -10,6 +11,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================
+// PLATFORM CONFIG
+// ============================================================
+
 model PlatformSetting {
   key       String   @id
   value     Json
@@ -17,4 +22,660 @@ model PlatformSetting {
   updatedBy String?
 
   @@map("platform_settings")
+}
+
+// ============================================================
+// IDENTITY & AUTH (operator side)
+// ============================================================
+
+model User {
+  id            String         @id @default(cuid())
+  email         String?        @unique
+  username      String         @unique
+  passwordHash  String
+  mfaSecret     String? // TOTP, encrypted at rest
+  mfaEnabled    Boolean        @default(false)
+  status        UserStatus     @default(ACTIVE)
+  lastLoginAt   DateTime?
+  operator      Operator?
+  refreshTokens RefreshToken[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  LOCKED
+}
+
+model RefreshToken {
+  id         String        @id @default(cuid())
+  userId     String?
+  playerId   String?
+  tokenHash  String        @unique
+  familyId   String // rotation family, for reuse detection
+  audience   TokenAudience
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime      @default(now())
+  user       User?         @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([playerId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+enum TokenAudience {
+  OPERATOR
+  PLAYER
+}
+
+// ============================================================
+// DISTRIBUTION TREE
+// ============================================================
+
+model Operator {
+  id          String         @id @default(cuid())
+  userId      String         @unique
+  user        User           @relation(fields: [userId], references: [id])
+  tier        OperatorTier
+  displayName String
+  status      OperatorStatus @default(ACTIVE)
+
+  // hierarchy (materialized path)
+  parentId    String?
+  parent      Operator?  @relation("OperatorTree", fields: [parentId], references: [id])
+  children    Operator[] @relation("OperatorTree")
+  pathSegment Int // unique small int among siblings, assigned on create
+  path        String // e.g. "0.7.23" — ancestors' pathSegments + own
+  depth       Int // 0 = super admin
+
+  // pricing (margin reporting only; ledger moves raw units)
+  buyUnitPriceCents  Int?
+  sellUnitPriceCents Int?
+
+  // per-operator config: allowed games, recharge limits, redemption approval, etc.
+  settings Json @default("{}")
+
+  players        Player[]
+  ledgerAccounts LedgerAccount[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([parentId])
+  @@index([path])
+  @@index([tier])
+  @@map("operators")
+}
+
+enum OperatorTier {
+  SUPER_ADMIN
+  ADMIN
+  MASTER_DISTRIBUTOR
+  DISTRIBUTOR
+  SUB_DISTRIBUTOR
+  STORE
+}
+
+enum OperatorStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+// ============================================================
+// PLAYERS
+// ============================================================
+
+model Player {
+  id           String       @id @default(cuid())
+  operatorId   String
+  operator     Operator     @relation(fields: [operatorId], references: [id])
+  username     String       @unique
+  passwordHash String
+  displayName  String?
+  phone        String?
+  email        String?
+  status       PlayerStatus @default(ACTIVE)
+
+  kyc           KycRecord?
+  wallets       LedgerAccount[]
+  sessions      GameSession[]
+  redemptions   RedemptionRequest[]
+  rgLimits      ResponsibleGamingLimit[]
+  selfExclusion SelfExclusion?
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([operatorId])
+  @@index([status])
+  @@map("players")
+}
+
+enum PlayerStatus {
+  ACTIVE
+  SUSPENDED
+  SELF_EXCLUDED
+  CLOSED
+}
+
+// ============================================================
+// LEDGER (double-entry) — see docs/03
+// ============================================================
+
+model LedgerAccount {
+  id           String          @id @default(cuid())
+  ownerType    LedgerOwnerType
+  operatorId   String?
+  operator     Operator?       @relation(fields: [operatorId], references: [id])
+  playerId     String?
+  player       Player?         @relation(fields: [playerId], references: [id])
+  systemKey    SystemAccount?
+  currency     Currency
+  balanceMinor BigInt          @default(0)
+  version      Int             @default(0)
+  entries      LedgerEntry[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([ownerType, operatorId, playerId, systemKey, currency])
+  @@index([operatorId])
+  @@index([playerId])
+  @@index([systemKey])
+  @@map("ledger_accounts")
+}
+
+enum LedgerOwnerType {
+  OPERATOR
+  PLAYER
+  SYSTEM
+}
+
+enum SystemAccount {
+  MINT
+  REVENUE
+  REDEMPTION_CLEARING
+  PROMO
+  ADJUSTMENT
+  ROUNDING
+}
+
+enum Currency {
+  CREDIT
+  PLAY
+  PRIZE
+}
+
+model LedgerTransaction {
+  id             String         @id @default(cuid())
+  type           LedgerTxType
+  status         LedgerTxStatus @default(POSTED)
+  currency       Currency
+  idempotencyKey String         @unique
+  actorUserId    String?
+  actorPlayerId  String?
+  refType        String?
+  refId          String?
+  memo           String?
+  reversedById   String?
+  entries        LedgerEntry[]
+  createdAt      DateTime       @default(now())
+
+  @@index([type])
+  @@index([refType, refId])
+  @@index([actorUserId])
+  @@index([actorPlayerId])
+  @@index([createdAt])
+  @@map("ledger_transactions")
+}
+
+enum LedgerTxType {
+  ISSUE
+  TRANSFER
+  RECHARGE
+  PROMO_GRANT
+  GAME_BET
+  GAME_WIN
+  GAME_ROUND_NET
+  REDEEM_HOLD
+  REDEEM_CANCEL
+  REDEEM_SETTLE
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum LedgerTxStatus {
+  PENDING
+  POSTED
+  REVERSED
+  FAILED
+}
+
+model LedgerEntry {
+  id                String            @id @default(cuid())
+  transactionId     String
+  transaction       LedgerTransaction @relation(fields: [transactionId], references: [id])
+  accountId         String
+  account           LedgerAccount     @relation(fields: [accountId], references: [id])
+  direction         EntryDirection
+  amountMinor       BigInt // always positive; direction carries sign
+  currency          Currency
+  balanceAfterMinor BigInt // account balance AFTER this entry
+  createdAt         DateTime          @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([transactionId])
+  @@map("ledger_entries")
+}
+
+enum EntryDirection {
+  DEBIT
+  CREDIT
+}
+
+// ============================================================
+// OFFLINE CREDIT PURCHASES (no card processor)
+// ============================================================
+
+model CreditOrder {
+  id                String            @id @default(cuid())
+  buyerOperatorId   String
+  sellerOperatorId  String?
+  currency          Currency          @default(CREDIT)
+  quantityMinor     BigInt
+  unitPriceCents    Int
+  totalCents        Int
+  status            CreditOrderStatus @default(REQUESTED)
+  paymentMethod     String?
+  paymentRef        String?
+  proofUrl          String?
+  note              String?
+  issuedTxId        String?
+  requestedByUserId String?
+  decidedByUserId   String?
+  decidedAt         DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([buyerOperatorId])
+  @@index([sellerOperatorId])
+  @@index([status])
+  @@map("credit_orders")
+}
+
+enum CreditOrderStatus {
+  REQUESTED
+  AWAITING_PAYMENT
+  PAID
+  ISSUED
+  CANCELLED
+  REFUNDED
+}
+
+model Settlement {
+  id             String   @id @default(cuid())
+  operatorId     String
+  counterpartyId String
+  currency       Currency @default(CREDIT)
+  netCents       Int      @default(0)
+  lastEventAt    DateTime @default(now())
+
+  @@unique([operatorId, counterpartyId, currency])
+  @@map("settlements")
+}
+
+// ============================================================
+// GAMES (stubbed — see docs/05 RGS contract)
+// ============================================================
+
+model Game {
+  id                  String        @id @default(cuid())
+  code                String        @unique
+  name                String
+  type                GameType
+  status              GameStatus    @default(ACTIVE)
+  rtpBps              Int           @default(9400)
+  minBetMinor         BigInt
+  maxBetMinor         BigInt
+  supportedCurrencies Currency[]
+  thumbnailUrl        String?
+  config              Json          @default("{}")
+  sortOrder           Int           @default(0)
+  sessions            GameSession[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([status, sortOrder])
+  @@map("games")
+}
+
+enum GameType {
+  FISH
+  SLOT
+  KENO
+  TABLE
+  OTHER
+}
+
+enum GameStatus {
+  ACTIVE
+  HIDDEN
+  MAINTENANCE
+}
+
+model GameSession {
+  id             String            @id @default(cuid())
+  playerId       String
+  player         Player            @relation(fields: [playerId], references: [id])
+  gameId         String
+  game           Game              @relation(fields: [gameId], references: [id])
+  currency       Currency
+  status         GameSessionStatus @default(ACTIVE)
+  totalBetMinor  BigInt            @default(0)
+  totalWinMinor  BigInt            @default(0)
+  serverSeedHash String
+  serverSeed     String? // revealed at session end
+  clientSeed     String?
+  startedAt      DateTime          @default(now())
+  endedAt        DateTime?
+  rounds         GameRound[]
+
+  @@index([playerId, startedAt])
+  @@index([gameId])
+  @@map("game_sessions")
+}
+
+enum GameSessionStatus {
+  ACTIVE
+  ENDED
+}
+
+model GameRound {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   GameSession @relation(fields: [sessionId], references: [id])
+  nonce     Int
+  betMinor  BigInt
+  winMinor  BigInt
+  outcome   Json
+  betTxId   String?
+  winTxId   String?
+  createdAt DateTime    @default(now())
+
+  @@unique([sessionId, nonce])
+  @@index([sessionId, createdAt])
+  @@map("game_rounds")
+}
+
+// ============================================================
+// REDEMPTIONS (cashout) — see docs/03
+// ============================================================
+
+model RedemptionRequest {
+  id               String           @id @default(cuid())
+  playerId         String
+  player           Player           @relation(fields: [playerId], references: [id])
+  operatorId       String
+  currency         Currency         @default(PRIZE)
+  amountMinor      BigInt
+  status           RedemptionStatus @default(PENDING)
+  method           String?
+  payoutRef        String?
+  holdTxId         String?
+  settleTxId       String?
+  reviewedByUserId String?
+  rejectionReason  String?
+  createdAt        DateTime         @default(now())
+  decidedAt        DateTime?
+  settledAt        DateTime?
+
+  @@index([playerId])
+  @@index([operatorId, status])
+  @@index([status, createdAt])
+  @@map("redemption_requests")
+}
+
+enum RedemptionStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+  CANCELLED
+}
+
+// ============================================================
+// PROMOTIONS
+// ============================================================
+
+model Promotion {
+  id             String      @id @default(cuid())
+  code           String      @unique
+  description    String?
+  currency       Currency    @default(PLAY)
+  grantMinor     BigInt
+  isAmoe         Boolean     @default(false)
+  maxRedemptions Int?
+  perPlayerLimit Int         @default(1)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  status         PromoStatus @default(ACTIVE)
+  createdAt      DateTime    @default(now())
+
+  @@map("promotions")
+}
+
+enum PromoStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+// ============================================================
+// COMPLIANCE — hooks are real, providers can be stubs (docs/01 §8)
+// ============================================================
+
+model KycRecord {
+  id             String    @id @default(cuid())
+  playerId       String    @unique
+  player         Player    @relation(fields: [playerId], references: [id])
+  status         KycStatus @default(NONE)
+  level          Int       @default(0)
+  idType         String?
+  documentUrl    String?
+  provider       String?
+  providerRef    String?
+  verifiedAt     DateTime?
+  rejectedReason String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("kyc_records")
+}
+
+enum KycStatus {
+  NONE
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model GeoRule {
+  id        String    @id @default(cuid())
+  region    String    @unique
+  action    GeoAction
+  reason    String?
+  updatedAt DateTime  @updatedAt
+
+  @@map("geo_rules")
+}
+
+enum GeoAction {
+  ALLOW
+  BLOCK
+}
+
+model ResponsibleGamingLimit {
+  id          String      @id @default(cuid())
+  playerId    String
+  player      Player      @relation(fields: [playerId], references: [id])
+  type        RgLimitType
+  valueMinor  BigInt?
+  minutes     Int?
+  period      RgPeriod
+  setByPlayer Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+
+  @@index([playerId, type])
+  @@map("rg_limits")
+}
+
+enum RgLimitType {
+  DEPOSIT
+  LOSS
+  SESSION_TIME
+  WAGER
+}
+
+enum RgPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  SESSION
+}
+
+model SelfExclusion {
+  id        String    @id @default(cuid())
+  playerId  String    @unique
+  player    Player    @relation(fields: [playerId], references: [id])
+  until     DateTime? // null = permanent
+  reason    String?
+  createdAt DateTime  @default(now())
+
+  @@map("self_exclusions")
+}
+
+model AmlFlag {
+  id               String      @id @default(cuid())
+  subjectType      String // "PLAYER" | "OPERATOR"
+  subjectId        String
+  ruleCode         String
+  severity         AmlSeverity
+  status           AmlStatus   @default(OPEN)
+  details          Json
+  resolvedByUserId String?
+  createdAt        DateTime    @default(now())
+  resolvedAt       DateTime?
+
+  @@index([subjectType, subjectId])
+  @@index([status, severity])
+  @@map("aml_flags")
+}
+
+enum AmlSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AmlStatus {
+  OPEN
+  REVIEWING
+  CLEARED
+  ESCALATED
+}
+
+// ============================================================
+// AUDIT (append-only)
+// ============================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorType  String // "USER" | "PLAYER" | "SYSTEM"
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorType, actorId])
+  @@index([targetType, targetId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================================
+// OUTBOX (transactional events -> realtime/webhooks)
+// ============================================================
+
+model OutboxEvent {
+  id        String       @id @default(cuid())
+  type      String
+  payload   Json
+  rooms     String[]
+  status    OutboxStatus @default(PENDING)
+  attempts  Int          @default(0)
+  createdAt DateTime     @default(now())
+  sentAt    DateTime?
+
+  @@index([status, createdAt])
+  @@map("outbox_events")
+}
+
+enum OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// ============================================================
+// NOTIFICATIONS / ANNOUNCEMENTS
+// ============================================================
+
+model Notification {
+  id        String        @id @default(cuid())
+  audience  TokenAudience
+  userId    String?
+  playerId  String?
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([userId, readAt])
+  @@index([playerId, readAt])
+  @@map("notifications")
+}
+
+model Announcement {
+  id                String               @id @default(cuid())
+  title             String
+  body              String
+  audience          AnnouncementAudience @default(PLAYERS)
+  operatorScopePath String?
+  startsAt          DateTime?
+  endsAt            DateTime?
+  active            Boolean              @default(true)
+  createdAt         DateTime             @default(now())
+
+  @@map("announcements")
+}
+
+enum AnnouncementAudience {
+  PLAYERS
+  OPERATORS
+  BOTH
 }
