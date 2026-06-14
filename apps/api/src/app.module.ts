@@ -9,6 +9,8 @@ import { AuditModule } from "./audit/audit.module";
 import { LedgerModule } from "./ledger/ledger.module";
 import { OperatorsModule } from "./operators/operators.module";
 import { OrdersModule } from "./orders/orders.module";
+import { PlayersModule } from "./players/players.module";
+import { ComplianceModule } from "./compliance/compliance.module";
 import { StorageModule } from "./storage/storage.module";
 import { HealthModule } from "./health/health.module";
 
@@ -29,9 +31,11 @@ import { HealthModule } from "./health/health.module";
     AuthModule,
     AuditModule,
     StorageModule,
+    ComplianceModule,
     LedgerModule,
     OperatorsModule,
     OrdersModule,
+    PlayersModule,
     HealthModule,
   ],
 })
