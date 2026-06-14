@@ -1,0 +1,14 @@
+# Railway config-as-code for the Goldwave Casino API — WORKER service.
+# In the Railway dashboard, set this service's "Config file" path to
+# railway.worker.toml. It shares the same image as the web service and only
+# overrides the start command. Migrations are owned by the web service, so the
+# worker has no preDeployCommand and no HTTP healthcheck.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "node apps/api/dist/worker.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10

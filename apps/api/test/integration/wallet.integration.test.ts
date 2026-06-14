@@ -22,7 +22,7 @@ const scoped: ScopedPrismaClient = createScopedPrisma(testPrisma, () => scope);
 const passwords = new PasswordService(env);
 const audit = new AuditService(testPrisma);
 const ledger = new LedgerService(testPrisma);
-const compliance = new ComplianceService(testPrisma);
+const compliance = new ComplianceService(testPrisma, env);
 const operators = new OperatorsService(scoped, testPrisma, env, passwords, audit);
 const players = new PlayersService(scoped, testPrisma, env, passwords, operators, audit);
 const walletOperator = new WalletService(testPrisma, env, ledger, compliance, operators, audit);

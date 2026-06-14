@@ -2,7 +2,8 @@ import "@aureus/shared/bigint";
 
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "nestjs-pino";
-import { loadDotenv, loadEnv } from "@aureus/shared";
+import { loadEnv } from "@aureus/shared";
+import { loadDotenv } from "@aureus/shared/dotenv";
 import { WorkerModule } from "./worker.module";
 
 async function bootstrap(): Promise<void> {

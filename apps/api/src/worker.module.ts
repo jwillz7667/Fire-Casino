@@ -6,6 +6,8 @@ import { ConfigModule, ENV } from "./config/config.module";
 import { ScopeModule } from "./common/scope/scope.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./redis/redis.module";
+import { OutboxModule } from "./realtime/outbox.module";
+import { ReconciliationModule } from "./reconciliation/reconciliation.module";
 import { buildLoggerParams } from "./common/logging/logger.config";
 
 /**
@@ -27,6 +29,8 @@ import { buildLoggerParams } from "./common/logging/logger.config";
     ScopeModule,
     PrismaModule,
     RedisModule,
+    OutboxModule,
+    ReconciliationModule,
   ],
 })
 export class WorkerModule {}

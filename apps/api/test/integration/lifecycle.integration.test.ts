@@ -31,7 +31,7 @@ import {
 
 const baseEnv = loadEnv();
 const ledger = new LedgerService(testPrisma);
-const compliance = new ComplianceService(testPrisma);
+const compliance = new ComplianceService(testPrisma, baseEnv);
 const audit = new AuditService(testPrisma);
 const passwords = new PasswordService(baseEnv);
 const rgs = new PlaceholderRgsProvider();

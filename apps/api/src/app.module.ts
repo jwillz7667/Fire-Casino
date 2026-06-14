@@ -19,7 +19,12 @@ import { OperatorsModule } from "./operators/operators.module";
 import { OrdersModule } from "./orders/orders.module";
 import { PlayersModule } from "./players/players.module";
 import { GamesModule } from "./games/games.module";
+import { RedemptionsModule } from "./redemptions/redemptions.module";
 import { ComplianceModule } from "./compliance/compliance.module";
+import { RealtimeModule } from "./realtime/realtime.module";
+import { ReportsModule } from "./reports/reports.module";
+import { SettingsModule } from "./settings/settings.module";
+import { NotificationsModule } from "./notifications/notifications.module";
 import { StorageModule } from "./storage/storage.module";
 import { HealthModule } from "./health/health.module";
 
@@ -56,6 +61,11 @@ import { HealthModule } from "./health/health.module";
     OrdersModule,
     PlayersModule,
     GamesModule,
+    RedemptionsModule,
+    RealtimeModule,
+    ReportsModule,
+    SettingsModule,
+    NotificationsModule,
     HealthModule,
   ],
   providers: [{ provide: APP_INTERCEPTOR, useClass: SensitiveFieldsInterceptor }],

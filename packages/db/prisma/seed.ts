@@ -248,26 +248,76 @@ async function seedGeoRules(): Promise<void> {
   }
 }
 
+async function seedPromotions(): Promise<void> {
+  const promos = [
+    {
+      code: "WELCOME",
+      description: "Welcome PLAY bonus on first recharge",
+      currency: "PLAY" as Currency,
+      grantMinor: 50_000n,
+      isAmoe: false,
+      perPlayerLimit: 1,
+    },
+    {
+      code: "AMOE-SWEEP",
+      description: "No-purchase PRIZE sweepstakes entry (AMoE)",
+      currency: "PRIZE" as Currency,
+      grantMinor: 10_000n,
+      isAmoe: true,
+      perPlayerLimit: 1,
+    },
+  ];
+  for (const p of promos) {
+    await prisma.promotion.upsert({
+      where: { code: p.code },
+      update: {
+        description: p.description,
+        currency: p.currency,
+        grantMinor: p.grantMinor,
+        isAmoe: p.isAmoe,
+        perPlayerLimit: p.perPlayerLimit,
+      },
+      create: p,
+    });
+  }
+}
+
+async function seedAnnouncements(): Promise<void> {
+  const existing = await prisma.announcement.findFirst({ where: { title: "Welcome to Aureus" }, select: { id: true } });
+  if (existing) return;
+  await prisma.announcement.create({
+    data: {
+      title: "Welcome to Aureus",
+      body: "New games in the lobby. Load up with your agent and dive in.",
+      audience: "PLAYERS",
+      active: true,
+    },
+  });
+}
+
 async function main(): Promise<void> {
   await seedPlatformSettings();
   await seedSystemAccounts();
   await seedDemoTree();
   await seedGames();
   await seedGeoRules();
+  await seedPromotions();
+  await seedAnnouncements();
 
-  const [settings, sysAccounts, operators, players, games, geo] = await Promise.all([
+  const [settings, sysAccounts, operators, players, games, geo, promos] = await Promise.all([
     prisma.platformSetting.count(),
     prisma.ledgerAccount.count({ where: { ownerType: "SYSTEM" } }),
     prisma.operator.count(),
     prisma.player.count(),
     prisma.game.count(),
     prisma.geoRule.count(),
+    prisma.promotion.count(),
   ]);
 
   console.warn(
     `Seed complete: ${String(settings)} settings, ${String(sysAccounts)} system accounts, ` +
       `${String(operators)} operators, ${String(players)} players, ${String(games)} games, ` +
-      `${String(geo)} geo rules. Default login password: "${SEED_PASSWORD}".`,
+      `${String(geo)} geo rules, ${String(promos)} promotions. Default login password: "${SEED_PASSWORD}".`,
   );
 }
 

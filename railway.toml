@@ -1,0 +1,18 @@
+# Railway config-as-code for the Goldwave Casino API — WEB service.
+# The worker service points its "Config file" setting at railway.worker.toml.
+# Postgres + Redis are separate Railway services; DATABASE_URL / REDIS_URL are
+# set as reference variables (see README → Deployment).
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "node apps/api/dist/main.js"
+# Apply pending migrations once, in the built image, before the new version
+# starts. Only the web service runs this so two services don't race the DB.
+preDeployCommand = "pnpm --filter @aureus/db exec prisma migrate deploy"
+healthcheckPath = "/healthz"
+healthcheckTimeout = 120
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10

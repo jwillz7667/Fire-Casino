@@ -90,5 +90,6 @@ allowBuilds:
   "@prisma/engines": true
   "@swc/core": true
   esbuild: true
+  msgpackr-extract: false
   prisma: true
   sharp: true
