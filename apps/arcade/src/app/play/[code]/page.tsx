@@ -6,10 +6,11 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { Badge, Card, CoinSpinner, EmptyState, Money, useToast } from "@aureus/ui";
-import { startSessionSchema } from "@aureus/shared";
+import { PHOENIX_GAME_CODE, startSessionSchema } from "@aureus/shared";
 import { AppShell } from "@/components/shell/AppShell";
 import { BetControls } from "@/components/game/BetControls";
 import { OutcomeDisplay } from "@/components/game/OutcomeDisplay";
+import { PhoenixSlot } from "@/components/game/PhoenixSlot";
 import { FairnessDrawer } from "@/components/game/FairnessDrawer";
 import { gameTypeLabel } from "@/components/game/game-meta";
 import { useAuth } from "@/lib/auth-context";
@@ -178,7 +179,11 @@ function GameScreen(): React.ReactElement {
         <Money valueMinor={spendable} currency={currency} size="lg" />
       </div>
 
-      <OutcomeDisplay result={lastResult} currency={currency} />
+      {game.code === PHOENIX_GAME_CODE ? (
+        <PhoenixSlot result={lastResult} currency={currency} spinning={playing} />
+      ) : (
+        <OutcomeDisplay result={lastResult} currency={currency} />
+      )}
 
       {selfExcluded ? (
         <GateNotice message="You've self-excluded. Play is paused. Manage this in Me → Responsible gaming." />
