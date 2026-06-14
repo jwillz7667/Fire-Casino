@@ -290,8 +290,10 @@ export class LedgerService {
       const delta = leg.direction === "CREDIT" ? leg.amountMinor : -leg.amountMinor;
       const next = slot.balance + delta;
       if (next < 0n && !this.isNegativeAllowed(id, refs, allowNegative)) {
+        // Do not leak the internal account identity (e.g. MINT/REVENUE/another
+        // owner) to the client — only the currency and attempted amount (L7).
         throw new InsufficientFundsError("Insufficient funds", {
-          account: refs.selectorById.get(id),
+          currency,
           attempted: leg.amountMinor.toString(),
         });
       }
