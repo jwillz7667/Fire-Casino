@@ -175,3 +175,11 @@ export function canCreateChildTier(parent: OperatorTier, child: OperatorTier): b
 export function canOwnPlayers(tier: OperatorTier): boolean {
   return tier === OperatorTier.STORE;
 }
+
+/** Tiers for which TOTP MFA is mandatory (docs/01 §4). */
+export const MFA_REQUIRED_TIERS: OperatorTier[] = [OperatorTier.SUPER_ADMIN, OperatorTier.ADMIN];
+
+/** Whether a tier must have MFA enrolled (docs/01 §4: required for SUPER_ADMIN/ADMIN). */
+export function tierRequiresMfa(tier: OperatorTier): boolean {
+  return MFA_REQUIRED_TIERS.includes(tier);
+}

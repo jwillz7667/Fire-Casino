@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { can, effectivePermissions, hasBasePermission, hasGrant } from "./permissions";
+import {
+  can,
+  canGrantPermission,
+  effectivePermissions,
+  hasBasePermission,
+  hasGrant,
+} from "./permissions";
+import { tierRequiresMfa } from "./enums";
 import { isInSubtree } from "./scope";
 
 describe("permission matrix (docs/04 §3)", () => {
@@ -44,6 +51,38 @@ describe("permission matrix (docs/04 §3)", () => {
     expect(eff).toContain("player.create");
     expect(eff).toContain("redemption.approve");
     expect(eff).not.toContain("ledger.adjust");
+  });
+});
+
+describe("canGrantPermission — grant authority (docs/04 §3, security B1)", () => {
+  it("blocks granting tier-fixed (non-grantable) permissions", () => {
+    const granter = { tier: "SUPER_ADMIN" as const, settings: null };
+    expect(canGrantPermission(granter, "operator.create_child").allowed).toBe(false);
+    expect(canGrantPermission(granter, "player.create").allowed).toBe(false);
+  });
+
+  it("only a super admin can grant mint / ledger.adjust / platform.settings", () => {
+    const admin = { tier: "ADMIN" as const, settings: { permissions: ["credit.mint"] } };
+    expect(canGrantPermission(admin, "credit.mint").allowed).toBe(false); // even if it holds it
+    const superAdmin = { tier: "SUPER_ADMIN" as const, settings: null };
+    expect(canGrantPermission(superAdmin, "credit.mint").allowed).toBe(true);
+    expect(canGrantPermission(superAdmin, "ledger.adjust").allowed).toBe(true);
+  });
+
+  it("a granter cannot confer a permission it does not itself hold", () => {
+    const dist = { tier: "DISTRIBUTOR" as const, settings: null };
+    expect(canGrantPermission(dist, "redemption.approve").allowed).toBe(false);
+    const distWithGrant = { tier: "DISTRIBUTOR" as const, settings: { permissions: ["redemption.approve"] } };
+    expect(canGrantPermission(distWithGrant, "redemption.approve").allowed).toBe(true);
+  });
+});
+
+describe("tierRequiresMfa (docs/01 §4)", () => {
+  it("requires MFA for SUPER_ADMIN and ADMIN only", () => {
+    expect(tierRequiresMfa("SUPER_ADMIN")).toBe(true);
+    expect(tierRequiresMfa("ADMIN")).toBe(true);
+    expect(tierRequiresMfa("DISTRIBUTOR")).toBe(false);
+    expect(tierRequiresMfa("STORE")).toBe(false);
   });
 });
 

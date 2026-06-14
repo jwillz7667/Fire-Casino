@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from "@nestjs/common";
@@ -14,6 +16,8 @@ import {
   createOperatorSchema,
   type ListOperatorsQuery,
   listOperatorsQuerySchema,
+  type SetOperatorGrantsInput,
+  setOperatorGrantsSchema,
   type UpdateOperatorInput,
   updateOperatorSchema,
 } from "@aureus/shared";
@@ -85,6 +89,24 @@ export class OperatorsController {
     @Req() req: Request,
   ) {
     return this.operators.update(caller, id, body, ctxOf(req));
+  }
+
+  /**
+   * Confer per-operator permission grants on a descendant. The coarse gate is
+   * `operator.create_child` (management tiers); the fine-grained authority rules
+   * (grant-only, no self, never exceed the granter) live in the service.
+   */
+  @Put(":id/grants")
+  @HttpCode(200)
+  @RequirePermission("operator.create_child")
+  @ScopeCheck({ operatorIdFrom: [{ source: "params", key: "id" }] })
+  setGrants(
+    @CurrentUser() caller: OperatorPrincipal,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(setOperatorGrantsSchema)) body: SetOperatorGrantsInput,
+    @Req() req: Request,
+  ) {
+    return this.operators.setGrants(caller, id, body.permissions, ctxOf(req));
   }
 
   @Post(":id/suspend")

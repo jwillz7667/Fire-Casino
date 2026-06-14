@@ -46,6 +46,47 @@ export const PERMISSIONS = [
 
 export type Permission = (typeof PERMISSIONS)[number];
 
+/**
+ * Permissions that may be conferred per-operator via a grant (docs/04 §3 `cfg`
+ * and `grant-only` rows). Anything not in this set is fixed by tier and can
+ * never be added through `settings.permissions` — a node cannot widen its
+ * structural abilities. Grants are the ONLY writer of `settings.permissions`.
+ */
+export const GRANTABLE_PERMISSIONS = [
+  "credit.mint",
+  "redemption.approve",
+  "redemption.settle",
+  "game.rtp_override",
+  "compliance.manage",
+  "compliance.view",
+  "ledger.adjust",
+  "platform.settings",
+  "report.ledger_health",
+  "announcement.manage",
+  "audit.view",
+] as const satisfies readonly Permission[];
+
+export type GrantablePermission = (typeof GRANTABLE_PERMISSIONS)[number];
+
+/**
+ * Grants that ONLY a SUPER_ADMIN may confer (docs/04 §3 `grant-only`): minting,
+ * manual ledger adjustments, and platform-wide settings. No other tier can hand
+ * these out, even to a descendant.
+ */
+export const SUPER_ADMIN_ONLY_GRANTS = [
+  "credit.mint",
+  "ledger.adjust",
+  "platform.settings",
+] as const satisfies readonly Permission[];
+
+export function isGrantablePermission(value: string): value is GrantablePermission {
+  return (GRANTABLE_PERMISSIONS as readonly string[]).includes(value);
+}
+
+function isSuperAdminOnlyGrant(permission: Permission): boolean {
+  return (SUPER_ADMIN_ONLY_GRANTS as readonly string[]).includes(permission);
+}
+
 const ALL_TIERS: OperatorTier[] = [
   "SUPER_ADMIN",
   "ADMIN",
@@ -136,4 +177,36 @@ export function effectivePermissions(
   settings: { permissions?: readonly string[] } | null | undefined,
 ): Permission[] {
   return PERMISSIONS.filter((p) => can(tier, settings, p));
+}
+
+export interface GrantDecision {
+  readonly allowed: boolean;
+  readonly reason?: string;
+}
+
+/**
+ * Whether `granter` may confer `permission` on a descendant (docs/04 §3, docs/01
+ * §8 "deny by default", "least privilege"). A grant is allowed only when:
+ *  1. the permission is grantable at all (not a tier-fixed structural ability);
+ *  2. `grant-only` permissions (mint, ledger.adjust, platform.settings) are
+ *     conferred solely by a SUPER_ADMIN;
+ *  3. the granter actually holds the permission in its own effective set —
+ *     you cannot hand out an ability you don't have (no self-escalation by proxy).
+ * The caller separately enforces that the target is a strict descendant (never
+ * self) — grants flow downward only.
+ */
+export function canGrantPermission(
+  granter: { tier: OperatorTier; settings: { permissions?: readonly string[] } | null | undefined },
+  permission: Permission,
+): GrantDecision {
+  if (!isGrantablePermission(permission)) {
+    return { allowed: false, reason: `${permission} is fixed by tier and cannot be granted` };
+  }
+  if (isSuperAdminOnlyGrant(permission) && granter.tier !== "SUPER_ADMIN") {
+    return { allowed: false, reason: `${permission} can only be granted by a super admin` };
+  }
+  if (!can(granter.tier, granter.settings, permission)) {
+    return { allowed: false, reason: `cannot grant ${permission} without holding it` };
+  }
+  return { allowed: true };
 }

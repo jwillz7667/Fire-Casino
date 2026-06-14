@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createScopedPrisma, type ScopedPrismaClient } from "@aureus/db";
-import { loadEnv, type OperatorTier, type ScopeContext } from "@aureus/shared";
+import { can, loadEnv, type OperatorTier, type ScopeContext } from "@aureus/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { PasswordService } from "../../src/auth/password.service";
 import { LedgerService } from "../../src/ledger/ledger.service";
@@ -209,6 +209,91 @@ describe("Suspend cascade & close (docs/04 §4)", () => {
     await expect(operators.close(rootP, store.operator.id, ctx)).rejects.toSatisfy(
       (e: unknown) => e instanceof AppError && e.code === "CONFLICT",
     );
+  });
+});
+
+describe("Permission grants — no self-escalation (docs/04 §3, security B1)", () => {
+  async function settingsOf(operatorId: string): Promise<{ permissions?: string[] } | null> {
+    const o = await testPrisma.operator.findUniqueOrThrow({
+      where: { id: operatorId },
+      select: { settings: true },
+    });
+    return o.settings as { permissions?: string[] } | null;
+  }
+
+  async function makeDistributor(): Promise<OperatorPrincipal> {
+    const dist = await operators.createChild(
+      rootP,
+      { tier: "DISTRIBUTOR", displayName: "Dist", username: "dist", tempPassword: "Passw0rd!" },
+      ctx,
+    );
+    return principal(
+      { operatorId: dist.operator.id, userId: await userIdOf(dist.operator.id), path: dist.operator.path, depth: dist.operator.depth },
+      "DISTRIBUTOR",
+    );
+  }
+
+  it("a distributor cannot grant permissions to its own node", async () => {
+    const distP = await makeDistributor();
+    await expect(
+      operators.setGrants(distP, distP.operatorId, ["redemption.approve"], ctx),
+    ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "FORBIDDEN");
+  });
+
+  it("a distributor cannot grant credit.mint to a descendant (super-admin-only)", async () => {
+    const distP = await makeDistributor();
+    const store = await operators.createChild(
+      distP,
+      { tier: "STORE", displayName: "S", username: "store", tempPassword: "Passw0rd!" },
+      ctx,
+    );
+    await expect(
+      operators.setGrants(distP, store.operator.id, ["credit.mint"], ctx),
+    ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "FORBIDDEN");
+    expect(can("STORE", await settingsOf(store.operator.id), "credit.mint")).toBe(false);
+  });
+
+  it("a distributor cannot grant a permission it does not itself hold", async () => {
+    const distP = await makeDistributor();
+    const store = await operators.createChild(
+      distP,
+      { tier: "STORE", displayName: "S", username: "store", tempPassword: "Passw0rd!" },
+      ctx,
+    );
+    // DISTRIBUTOR lacks redemption.approve in its base set and has no grant.
+    await expect(
+      operators.setGrants(distP, store.operator.id, ["redemption.approve"], ctx),
+    ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "FORBIDDEN");
+  });
+
+  it("a super admin can grant credit.mint to a descendant and it takes effect", async () => {
+    const admin = await operators.createChild(
+      rootP,
+      { tier: "ADMIN", displayName: "Adm", username: "adm", tempPassword: "Passw0rd!" },
+      ctx,
+    );
+    await operators.setGrants(rootP, admin.operator.id, ["credit.mint"], ctx);
+    expect(can("ADMIN", await settingsOf(admin.operator.id), "credit.mint")).toBe(true);
+
+    const logged = await testPrisma.auditLog.findFirst({
+      where: { action: "operator.set_grants", targetId: admin.operator.id },
+    });
+    expect(logged).not.toBeNull();
+  });
+
+  it("the generic settings write cannot smuggle a permission grant", async () => {
+    const distP = await makeDistributor();
+    // A direct (bypassing the zod boundary) attempt to set permissions via settings.
+    await operators.update(
+      rootP,
+      distP.operatorId,
+      { settings: { permissions: ["credit.mint"], locale: "en" } as never },
+      ctx,
+    );
+    const settings = await settingsOf(distP.operatorId);
+    expect(settings?.permissions).toBeUndefined();
+    expect(can("DISTRIBUTOR", settings, "credit.mint")).toBe(false);
+    expect((settings as { locale?: string } | null)?.locale).toBe("en");
   });
 });
 

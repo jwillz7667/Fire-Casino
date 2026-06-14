@@ -2,11 +2,13 @@ import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, type PrismaClient } from "@aureus/db";
 import {
   canCreateChildTier,
+  canGrantPermission,
   type CreateOperatorInput,
   type Env,
   isInSubtree,
   type ListOperatorsQuery,
   operatorCurrency,
+  type Permission,
   type UpdateOperatorInput,
 } from "@aureus/shared";
 import { type ScopedPrismaClient } from "@aureus/db";
@@ -30,6 +32,18 @@ interface ActionContext {
 function ancestorPaths(path: string): string[] {
   const parts = path.split(".");
   return parts.map((_, i) => parts.slice(0, i + 1).join("."));
+}
+
+/**
+ * Drop any `permissions` key from a generic settings write. Grants are conferred
+ * only through `setGrants` (the gated path); the create/update settings blob must
+ * never be able to carry a permission grant (prevents self-escalation — B1).
+ */
+function sanitizeSettings(settings: Record<string, unknown> | undefined): Prisma.InputJsonObject {
+  if (!settings) return {};
+  const rest = { ...settings };
+  delete rest.permissions;
+  return rest as Prisma.InputJsonObject;
 }
 
 const NODE_SELECT = {
@@ -89,7 +103,7 @@ export class OperatorsService {
           depth: parent.depth + 1,
           buyUnitPriceCents: input.buyUnitPriceCents ?? parent.sellUnitPriceCents ?? null,
           sellUnitPriceCents: input.sellUnitPriceCents ?? null,
-          settings: (input.settings ?? {}) as Prisma.InputJsonObject,
+          settings: sanitizeSettings(input.settings),
           user: { create: { username: input.username, passwordHash } },
           ledgerAccounts: {
             create: { ownerType: "OPERATOR", currency: operatorCurrency(this.env.PLATFORM_MODE), balanceMinor: 0n },
@@ -171,7 +185,7 @@ export class OperatorsService {
         displayName: input.displayName,
         buyUnitPriceCents: input.buyUnitPriceCents,
         sellUnitPriceCents: input.sellUnitPriceCents,
-        settings: input.settings ? (input.settings as Prisma.InputJsonObject) : undefined,
+        settings: input.settings ? sanitizeSettings(input.settings) : undefined,
       },
       select: NODE_SELECT,
     });
@@ -185,6 +199,50 @@ export class OperatorsService {
       ...ctx,
     });
     return updated;
+  }
+
+  /**
+   * Confer the per-operator permission grants on a STRICT DESCENDANT (docs/04 §3).
+   * Grants flow downward only — never to self — and each must pass
+   * `canGrantPermission` (grantable, not exceeding the granter, super-admin-only
+   * for mint/ledger.adjust/platform.settings). This is the only writer of
+   * `settings.permissions`; it replaces the full grant set for the target.
+   */
+  async setGrants(caller: OperatorPrincipal, id: string, permissions: Permission[], ctx: ActionContext) {
+    if (id === caller.operatorId) throw new ForbiddenError("Cannot grant permissions to your own node");
+    const target = await this.system.operator.findUnique({
+      where: { id },
+      select: { ...NODE_SELECT, settings: true },
+    });
+    if (!target) throw new NotFoundError("Operator not found");
+    if (target.path === caller.path || !isInSubtree(caller.path, target.path)) {
+      throw new OutOfScopeError();
+    }
+
+    const granter = { tier: caller.tier, settings: caller.settings };
+    const unique = [...new Set(permissions)];
+    for (const permission of unique) {
+      const decision = canGrantPermission(granter, permission);
+      if (!decision.allowed) throw new ForbiddenError(decision.reason ?? "Grant not allowed");
+    }
+
+    const existing = (target.settings as Record<string, unknown> | null) ?? {};
+    const before = (existing.permissions as string[] | undefined) ?? [];
+    const updated = await this.system.operator.update({
+      where: { id },
+      data: { settings: { ...existing, permissions: unique } },
+      select: NODE_SELECT,
+    });
+    await this.audit.record({
+      ...auditActor(caller),
+      action: "operator.set_grants",
+      targetType: "Operator",
+      targetId: id,
+      before: { permissions: before },
+      after: { permissions: unique },
+      ...ctx,
+    });
+    return { ...updated, permissions: unique };
   }
 
   async suspend(caller: OperatorPrincipal, id: string, ctx: ActionContext) {
@@ -241,7 +299,7 @@ export class OperatorsService {
     };
     const [operatorCount, playerCount, opAgg, playerAgg] = await Promise.all([
       this.system.operator.count({ where: subtree }),
-      this.system.player.count({ where: { operator: subtree } }),
+      this.system.player.count({ where: { operator: subtree, status: "ACTIVE" } }),
       this.system.ledgerAccount.aggregate({
         where: { ownerType: "OPERATOR", operator: subtree },
         _sum: { balanceMinor: true },
