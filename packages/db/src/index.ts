@@ -13,3 +13,4 @@ export const prismaSystem = new PrismaClient();
 // Re-export the generated client surface (PrismaClient, the Prisma namespace,
 // and all model/enum types) so consumers import everything from @aureus/db.
 export * from "@prisma/client";
+export { createScopedPrisma, type ScopedPrismaClient } from "./scoped-client";
