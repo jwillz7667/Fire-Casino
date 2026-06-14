@@ -86,3 +86,27 @@ export class InsufficientFundsError extends AppError {
     super("INSUFFICIENT_FUNDS", 409, message, details);
   }
 }
+
+export class SelfExcludedError extends AppError {
+  constructor(message = "Player is self-excluded") {
+    super("SELF_EXCLUDED", 403, message);
+  }
+}
+
+export class RegionBlockedError extends AppError {
+  constructor(message = "Not available in your region") {
+    super("REGION_BLOCKED", 403, message);
+  }
+}
+
+export class KycRequiredError extends AppError {
+  constructor(message = "Identity verification required") {
+    super("KYC_REQUIRED", 403, message);
+  }
+}
+
+export class RgLimitExceededError extends AppError {
+  constructor(message = "Responsible-gaming limit exceeded", details?: unknown) {
+    super("RG_LIMIT_EXCEEDED", 403, message, details);
+  }
+}
