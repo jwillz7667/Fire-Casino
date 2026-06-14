@@ -185,36 +185,68 @@ async function seedDemoTree(): Promise<void> {
 }
 
 async function seedGames(): Promise<void> {
-  const games = [
+  const games: {
+    code: string;
+    name: string;
+    type: "FISH" | "SLOT" | "KENO";
+    rtpBps: number;
+    minBetMinor: bigint;
+    maxBetMinor: bigint;
+    supportedCurrencies: Currency[];
+    sortOrder: number;
+    thumbnailUrl: string | null;
+    config: Prisma.InputJsonObject;
+  }[] = [
+    {
+      // The one real engine: server-authoritative 5×3 / 243-ways slot. config.engine
+      // routes rounds to the Phoenix math (apps/api .../engines/phoenix); its measured
+      // RTP is 96.0% (engine.simulation.test.ts). Art ships in the arcade's public dir.
+      code: "phoenix-ascendant",
+      name: "Phoenix Ascendant",
+      type: "SLOT",
+      rtpBps: 9600,
+      minBetMinor: 1000n,
+      maxBetMinor: 2_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
+      sortOrder: 0,
+      thumbnailUrl: "/games/phoenix-ascendant/thumb.png",
+      config: { engine: "phoenix-ascendant", renderer: "phoenix-ascendant" },
+    },
     {
       code: "reef-rumble",
       name: "Reef Rumble",
-      type: "FISH" as const,
+      type: "FISH",
       rtpBps: 9400,
       minBetMinor: 100n,
       maxBetMinor: 5_000_000n,
-      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"] as Currency[],
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
       sortOrder: 1,
+      thumbnailUrl: null,
+      config: {},
     },
     {
       code: "golden-depths",
       name: "Golden Depths",
-      type: "SLOT" as const,
+      type: "SLOT",
       rtpBps: 9600,
       minBetMinor: 500n,
       maxBetMinor: 2_000_000n,
-      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"] as Currency[],
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
       sortOrder: 2,
+      thumbnailUrl: null,
+      config: {},
     },
     {
       code: "lumen-keno",
       name: "Lumen Keno",
-      type: "KENO" as const,
+      type: "KENO",
       rtpBps: 9200,
       minBetMinor: 100n,
       maxBetMinor: 1_000_000n,
-      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"] as Currency[],
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
       sortOrder: 3,
+      thumbnailUrl: null,
+      config: {},
     },
   ];
   for (const g of games) {
@@ -227,6 +259,8 @@ async function seedGames(): Promise<void> {
         maxBetMinor: g.maxBetMinor,
         supportedCurrencies: g.supportedCurrencies,
         sortOrder: g.sortOrder,
+        thumbnailUrl: g.thumbnailUrl,
+        config: g.config,
       },
       create: g,
     });
