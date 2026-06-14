@@ -21,15 +21,28 @@ export function gameTypeLabel(type: GameType): string {
   return GAME_TYPE_META[type].label;
 }
 
-/** Placeholder game art (docs/07 §2.2 — tiles are placeholders behind the RGS). */
+/**
+ * Game tile art. Renders the game's real thumbnail when it has one (e.g. Phoenix
+ * Ascendant ships its own art); otherwise falls back to the per-type procedural
+ * placeholder (docs/07 §2.2 — stubbed games are placeholders behind the RGS).
+ */
 export function GameArt({
   type,
+  src,
   className,
 }: {
   type: GameType;
+  src?: string | null;
   className?: string;
 }): React.ReactElement {
   const { Icon, gradient } = GAME_TYPE_META[type];
+  if (src) {
+    return (
+      <div className={`relative overflow-hidden bg-abyss ${className ?? ""}`}>
+        <img src={src} alt="" draggable={false} className="h-full w-full select-none object-cover" />
+      </div>
+    );
+  }
   return (
     <div
       className={`relative flex items-center justify-center overflow-hidden bg-gradient-to-br ${gradient} ${className ?? ""}`}

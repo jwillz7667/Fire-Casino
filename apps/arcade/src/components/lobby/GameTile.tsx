@@ -12,7 +12,7 @@ export function GameTile({ game }: { game: GameDTO }): React.ReactElement {
       href={`/play/${encodeURIComponent(game.code)}`}
       className="group flex flex-col overflow-hidden rounded-lg border border-hairline bg-surface-1 transition-transform active:scale-[0.98]"
     >
-      <GameArt type={game.type} className="aspect-[4/3] w-full" />
+      <GameArt type={game.type} src={game.thumbnailUrl} className="aspect-[4/3] w-full" />
       <div className="flex flex-1 flex-col gap-1 p-2.5">
         <span className="truncate text-sm font-medium text-text-hi">{game.name}</span>
         <div className="flex items-center justify-between">
