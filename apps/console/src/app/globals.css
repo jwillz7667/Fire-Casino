@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@import "@aureus/ui/theme.css";
+
+/* Scan the shared design system for utility classes. */
+@source "../../../../packages/ui/src";
+
+html,
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-text-hi);
+  font-family: var(--font-body);
+}
