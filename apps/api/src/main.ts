@@ -2,6 +2,7 @@ import "@aureus/shared/bigint";
 
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import cookieParser from "cookie-parser";
 import { loadDotenv, loadEnv } from "@aureus/shared";
 import { AppModule } from "./app.module";
 
@@ -12,6 +13,8 @@ async function bootstrap(): Promise<void> {
 
   // Versioned REST surface; health probes stay at the root for load balancers.
   app.setGlobalPrefix("api/v1", { exclude: ["healthz", "readyz"] });
+
+  app.use(cookieParser());
 
   app.enableCors({
     origin: env.ALLOWED_ORIGINS,

@@ -14,10 +14,8 @@ permissions:
   contents: read
 
 env:
-  # Prisma reads these from the schema datasource block. Generate/typecheck/build
-  # do not connect; a placeholder value is sufficient. Integration tests (added
-  # from Phase 3) spin up their own Postgres/Redis via Testcontainers.
   DATABASE_URL: postgresql://aureus:aureus@localhost:5432/aureus
+  TEST_DATABASE_URL: postgresql://aureus:aureus@localhost:5432/aureus
   REDIS_URL: redis://localhost:6379
   JWT_ACCESS_SECRET: ci-access-secret-placeholder-value
   JWT_REFRESH_SECRET: ci-refresh-secret-placeholder-value
@@ -26,7 +24,28 @@ jobs:
   verify:
     name: typecheck · lint · test · build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aureus
+          POSTGRES_PASSWORD: aureus
+          POSTGRES_DB: aureus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aureus -d aureus"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +63,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm db:generate
+
+      - name: Apply database migrations
+        run: pnpm --filter @aureus/db exec prisma migrate deploy
 
       - name: Typecheck
         run: pnpm typecheck
