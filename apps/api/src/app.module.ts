@@ -5,6 +5,7 @@ import { ScopeModule } from "./common/scope/scope.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./redis/redis.module";
 import { AuthModule } from "./auth/auth.module";
+import { LedgerModule } from "./ledger/ledger.module";
 import { HealthModule } from "./health/health.module";
 
 /**
@@ -22,6 +23,7 @@ import { HealthModule } from "./health/health.module";
     PrismaModule,
     RedisModule,
     AuthModule,
+    LedgerModule,
     HealthModule,
   ],
 })

@@ -40,6 +40,7 @@
     "@types/express": "catalog:",
     "@types/node": "catalog:",
     "eslint": "catalog:",
+    "fast-check": "catalog:",
     "typescript": "catalog:",
     "unplugin-swc": "catalog:",
     "vitest": "catalog:"
