@@ -1,0 +1,20 @@
+// Minimal bootstrap schema (Phase 0). The full data model (docs/02) lands in
+// Phase 1. This exists so the Prisma client generates and the package builds.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("platform_settings")
+}
