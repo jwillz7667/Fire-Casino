@@ -400,16 +400,17 @@ enum GameSessionStatus {
 }
 
 model GameRound {
-  id        String      @id @default(cuid())
-  sessionId String
-  session   GameSession @relation(fields: [sessionId], references: [id])
-  nonce     Int
-  betMinor  BigInt
-  winMinor  BigInt
-  outcome   Json
-  betTxId   String?
-  winTxId   String?
-  createdAt DateTime    @default(now())
+  id             String      @id @default(cuid())
+  sessionId      String
+  session        GameSession @relation(fields: [sessionId], references: [id])
+  nonce          Int
+  betMinor       BigInt
+  winMinor       BigInt
+  outcome        Json
+  betTxId        String?
+  winTxId        String?
+  idempotencyKey String?     @unique // client bet key, namespaced; makes a round idempotent
+  createdAt      DateTime    @default(now())
 
   @@unique([sessionId, nonce])
   @@index([sessionId, createdAt])
