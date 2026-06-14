@@ -1,0 +1,281 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { config as loadEnvFile } from "dotenv";
+import { hash } from "@node-rs/argon2";
+import {
+  type Currency,
+  type OperatorTier,
+  type Prisma,
+  PrismaClient,
+  type SystemAccount,
+} from "@prisma/client";
+
+// Load the monorepo root .env (self-contained; harmless no-op when env is set
+// directly, e.g. CI/production).
+(function loadRootEnv(): void {
+  let dir = process.cwd();
+  for (;;) {
+    if (existsSync(join(dir, "pnpm-workspace.yaml"))) {
+      const envPath = join(dir, ".env");
+      if (existsSync(envPath)) loadEnvFile({ path: envPath });
+      return;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return;
+    dir = parent;
+  }
+})();
+
+const prisma = new PrismaClient();
+
+const CURRENCIES: Currency[] = ["CREDIT", "PLAY", "PRIZE"];
+const SYSTEM_ACCOUNTS: SystemAccount[] = [
+  "MINT",
+  "REVENUE",
+  "REDEMPTION_CLEARING",
+  "PROMO",
+  "ADJUSTMENT",
+  "ROUNDING",
+];
+
+const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "ChangeMe!Dev123";
+const ARGON2_MEMORY_KIB = Number(process.env.ARGON2_MEMORY_KIB ?? "19456");
+
+function hashPassword(plain: string): Promise<string> {
+  // @node-rs/argon2 defaults to the Argon2id algorithm.
+  return hash(plain, {
+    memoryCost: ARGON2_MEMORY_KIB,
+    timeCost: 2,
+    parallelism: 1,
+  });
+}
+
+async function seedPlatformSettings(): Promise<void> {
+  const settings: { key: string; value: Prisma.InputJsonValue }[] = [
+    { key: "PLATFORM_MODE", value: process.env.PLATFORM_MODE ?? "OPERATOR" },
+    { key: "CREDIT_MINOR_UNITS", value: Number(process.env.CREDIT_MINOR_UNITS ?? "1000") },
+    {
+      key: "REDEMPTION_KYC_THRESHOLD_MINOR",
+      value: process.env.REDEMPTION_KYC_THRESHOLD_MINOR ?? "50000",
+    },
+    { key: "DEFAULT_GAME_RTP_BPS", value: Number(process.env.DEFAULT_GAME_RTP_BPS ?? "9400") },
+  ];
+  for (const s of settings) {
+    await prisma.platformSetting.upsert({
+      where: { key: s.key },
+      update: { value: s.value },
+      create: { key: s.key, value: s.value },
+    });
+  }
+}
+
+/** One ledger account per system key per currency, at zero balance. */
+async function seedSystemAccounts(): Promise<void> {
+  for (const systemKey of SYSTEM_ACCOUNTS) {
+    for (const currency of CURRENCIES) {
+      const existing = await prisma.ledgerAccount.findFirst({
+        where: { ownerType: "SYSTEM", systemKey, currency },
+        select: { id: true },
+      });
+      if (!existing) {
+        await prisma.ledgerAccount.create({
+          data: { ownerType: "SYSTEM", systemKey, currency, balanceMinor: 0n },
+        });
+      }
+    }
+  }
+}
+
+interface OperatorSeed {
+  username: string;
+  displayName: string;
+  tier: OperatorTier;
+  parent: { id: string; path: string; depth: number } | null;
+  pathSegment: number;
+  buyUnitPriceCents?: number;
+  sellUnitPriceCents?: number;
+}
+
+/** Create User + Operator + a zero-balance CREDIT account if missing. */
+async function ensureOperator(seed: OperatorSeed): Promise<{ id: string; path: string; depth: number }> {
+  const existing = await prisma.operator.findFirst({
+    where: { user: { username: seed.username } },
+    select: { id: true, path: true, depth: true },
+  });
+  if (existing) return existing;
+
+  const passwordHash = await hashPassword(SEED_PASSWORD);
+  const path = seed.parent ? `${seed.parent.path}.${String(seed.pathSegment)}` : String(seed.pathSegment);
+  const depth = seed.parent ? seed.parent.depth + 1 : 0;
+
+  const operator = await prisma.operator.create({
+    data: {
+      tier: seed.tier,
+      displayName: seed.displayName,
+      parent: seed.parent ? { connect: { id: seed.parent.id } } : undefined,
+      pathSegment: seed.pathSegment,
+      path,
+      depth,
+      buyUnitPriceCents: seed.buyUnitPriceCents,
+      sellUnitPriceCents: seed.sellUnitPriceCents,
+      user: {
+        create: {
+          username: seed.username,
+          email: `${seed.username}@example.com`,
+          passwordHash,
+        },
+      },
+      ledgerAccounts: {
+        create: { ownerType: "OPERATOR", currency: "CREDIT", balanceMinor: 0n },
+      },
+    },
+    select: { id: true, path: true, depth: true },
+  });
+  return operator;
+}
+
+async function ensurePlayer(operatorId: string, username: string, displayName: string): Promise<void> {
+  const existing = await prisma.player.findUnique({ where: { username }, select: { id: true } });
+  if (existing) return;
+
+  const passwordHash = await hashPassword(SEED_PASSWORD);
+  await prisma.player.create({
+    data: {
+      operator: { connect: { id: operatorId } },
+      username,
+      displayName,
+      passwordHash,
+      wallets: { create: { ownerType: "PLAYER", currency: "CREDIT", balanceMinor: 0n } },
+      kyc: { create: { status: "NONE" } },
+    },
+  });
+}
+
+async function seedDemoTree(): Promise<void> {
+  const superAdmin = await ensureOperator({
+    username: "superadmin",
+    displayName: "Platform Super Admin",
+    tier: "SUPER_ADMIN",
+    parent: null,
+    pathSegment: 0,
+    sellUnitPriceCents: 8,
+  });
+
+  const distributor = await ensureOperator({
+    username: "distributor1",
+    displayName: "Demo Distributor",
+    tier: "DISTRIBUTOR",
+    parent: superAdmin,
+    pathSegment: 1,
+    buyUnitPriceCents: 8,
+    sellUnitPriceCents: 10,
+  });
+
+  const store = await ensureOperator({
+    username: "store1",
+    displayName: "Demo Store / Agent",
+    tier: "STORE",
+    parent: distributor,
+    pathSegment: 1,
+    buyUnitPriceCents: 10,
+    sellUnitPriceCents: 12,
+  });
+
+  await ensurePlayer(store.id, "player1", "Demo Player");
+}
+
+async function seedGames(): Promise<void> {
+  const games = [
+    {
+      code: "reef-rumble",
+      name: "Reef Rumble",
+      type: "FISH" as const,
+      rtpBps: 9400,
+      minBetMinor: 100n,
+      maxBetMinor: 5_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"] as Currency[],
+      sortOrder: 1,
+    },
+    {
+      code: "golden-depths",
+      name: "Golden Depths",
+      type: "SLOT" as const,
+      rtpBps: 9600,
+      minBetMinor: 500n,
+      maxBetMinor: 2_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"] as Currency[],
+      sortOrder: 2,
+    },
+    {
+      code: "lumen-keno",
+      name: "Lumen Keno",
+      type: "KENO" as const,
+      rtpBps: 9200,
+      minBetMinor: 100n,
+      maxBetMinor: 1_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"] as Currency[],
+      sortOrder: 3,
+    },
+  ];
+  for (const g of games) {
+    await prisma.game.upsert({
+      where: { code: g.code },
+      update: {
+        name: g.name,
+        rtpBps: g.rtpBps,
+        minBetMinor: g.minBetMinor,
+        maxBetMinor: g.maxBetMinor,
+        supportedCurrencies: g.supportedCurrencies,
+        sortOrder: g.sortOrder,
+      },
+      create: g,
+    });
+  }
+}
+
+async function seedGeoRules(): Promise<void> {
+  const rules = [
+    { region: "US", action: "ALLOW" as const, reason: "Default allow" },
+    { region: "US-WA", action: "BLOCK" as const, reason: "State restriction (demo)" },
+    { region: "US-ID", action: "BLOCK" as const, reason: "State restriction (demo)" },
+  ];
+  for (const r of rules) {
+    await prisma.geoRule.upsert({
+      where: { region: r.region },
+      update: { action: r.action, reason: r.reason },
+      create: r,
+    });
+  }
+}
+
+async function main(): Promise<void> {
+  await seedPlatformSettings();
+  await seedSystemAccounts();
+  await seedDemoTree();
+  await seedGames();
+  await seedGeoRules();
+
+  const [settings, sysAccounts, operators, players, games, geo] = await Promise.all([
+    prisma.platformSetting.count(),
+    prisma.ledgerAccount.count({ where: { ownerType: "SYSTEM" } }),
+    prisma.operator.count(),
+    prisma.player.count(),
+    prisma.game.count(),
+    prisma.geoRule.count(),
+  ]);
+
+  console.warn(
+    `Seed complete: ${String(settings)} settings, ${String(sysAccounts)} system accounts, ` +
+      `${String(operators)} operators, ${String(players)} players, ${String(games)} games, ` +
+      `${String(geo)} geo rules. Default login password: "${SEED_PASSWORD}".`,
+  );
+}
+
+main()
+  .catch((err: unknown) => {
+    console.error("Seed failed:", err);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    void prisma.$disconnect();
+  });

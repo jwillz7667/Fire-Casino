@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 /**
  * The un-extended ("system") Prisma client. Used by the ledger, background
@@ -10,5 +10,6 @@ import { PrismaClient, Prisma } from "@prisma/client";
  */
 export const prismaSystem = new PrismaClient();
 
-export { PrismaClient, Prisma };
-export type * from "@prisma/client";
+// Re-export the generated client surface (PrismaClient, the Prisma namespace,
+// and all model/enum types) so consumers import everything from @aureus/db.
+export * from "@prisma/client";
