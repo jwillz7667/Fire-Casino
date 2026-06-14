@@ -8,6 +8,7 @@ import {
   type PasswordChangeInput,
   type PlayerLoginInput,
   type PlayerSummary,
+  tierRequiresMfa,
 } from "@aureus/shared";
 import {
   ConflictError,
@@ -22,6 +23,7 @@ import {
   type PlayerPrincipal,
 } from "../common/auth/principal";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
+import { AuditService, auditActor } from "../audit/audit.service";
 import { PasswordService } from "./password.service";
 import { TokenService } from "./token.service";
 
@@ -48,7 +50,25 @@ export class AuthService {
     @Inject(PRISMA_SYSTEM) private readonly prisma: PrismaClient,
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
+    private readonly audit: AuditService,
   ) {}
+
+  /** Record a failed login for security monitoring (docs/01 §8). Never logs the password. */
+  private async auditLoginFailure(
+    identifier: string,
+    surface: "operator" | "player",
+    reason: string,
+    ctx: AuthContext,
+  ): Promise<void> {
+    await this.audit.record({
+      actorType: "SYSTEM",
+      action: "auth.login_failed",
+      targetType: "User",
+      after: { identifier, surface, reason },
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
+  }
 
   // ---- login -----------------------------------------------------------------
 
@@ -61,14 +81,17 @@ export class AuthService {
       include: { operator: true },
     });
     if (!user || user.status !== "ACTIVE" || !user.operator) {
+      await this.auditLoginFailure(input.identifier, "operator", "unknown_or_inactive", ctx);
       throw new InvalidCredentialsError();
     }
     if (!(await this.passwords.verify(user.passwordHash, input.password))) {
+      await this.auditLoginFailure(input.identifier, "operator", "bad_password", ctx);
       throw new InvalidCredentialsError();
     }
     if (user.mfaEnabled) {
       if (!input.totp) throw new MfaRequiredError();
       if (!user.mfaSecret || !authenticator.check(input.totp, user.mfaSecret)) {
+        await this.auditLoginFailure(input.identifier, "operator", "bad_mfa", ctx);
         throw new InvalidCredentialsError("Invalid MFA code");
       }
     }
@@ -76,6 +99,15 @@ export class AuthService {
     const operator = user.operator;
     const session = await this.issueOperatorSession(user.id, operator.id, operator.tier, ctx);
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await this.audit.record({
+      actorType: "USER",
+      actorId: user.id,
+      action: "auth.login",
+      targetType: "User",
+      targetId: user.id,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
 
     return {
       ...session,
@@ -97,15 +129,26 @@ export class AuthService {
       include: { operator: true, wallets: true },
     });
     if (!player || player.status !== "ACTIVE") {
+      await this.auditLoginFailure(input.username, "player", "unknown_or_inactive", ctx);
       throw new InvalidCredentialsError();
     }
     if (!(await this.passwords.verify(player.passwordHash, input.password))) {
+      await this.auditLoginFailure(input.username, "player", "bad_password", ctx);
       throw new InvalidCredentialsError();
     }
     // Region check on login is wired in Phase 9 (compliance).
 
     const session = await this.issuePlayerSession(player.id, player.operatorId, ctx);
     await this.prisma.player.update({ where: { id: player.id }, data: { lastLoginAt: new Date() } });
+    await this.audit.record({
+      actorType: "PLAYER",
+      actorId: player.id,
+      action: "auth.login",
+      targetType: "Player",
+      targetId: player.id,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
 
     return {
       ...session,
@@ -173,6 +216,13 @@ export class AuthService {
       where: { familyId: existing.familyId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    await this.audit.record({
+      actorType: existing.userId ? "USER" : "PLAYER",
+      actorId: existing.userId ?? existing.playerId ?? undefined,
+      action: "auth.logout",
+      targetType: existing.userId ? "User" : "Player",
+      targetId: existing.userId ?? existing.playerId ?? undefined,
+    });
   }
 
   // ---- me --------------------------------------------------------------------
@@ -232,6 +282,10 @@ export class AuthService {
       await this.prisma.player.update({ where: { id: player.id }, data: { passwordHash } });
       await this.revokeOtherSessions({ playerId: player.id }, principal.sessionId);
     }
+    await this.audit.record({
+      ...auditActor(principal),
+      action: "auth.password_change",
+    });
   }
 
   async mfaEnable(principal: OperatorPrincipal): Promise<{ secret: string; otpauthUrl: string }> {
@@ -239,6 +293,12 @@ export class AuthService {
     const otpauthUrl = authenticator.keyuri(principal.username, MFA_ISSUER, secret);
     // Store the (unconfirmed) secret; mfaEnabled flips on confirm.
     await this.prisma.user.update({ where: { id: principal.userId }, data: { mfaSecret: secret } });
+    await this.audit.record({
+      ...auditActor(principal),
+      action: "auth.mfa_enable",
+      targetType: "User",
+      targetId: principal.userId,
+    });
     return { secret, otpauthUrl };
   }
 
@@ -249,6 +309,12 @@ export class AuthService {
       throw new InvalidCredentialsError("Invalid MFA code");
     }
     await this.prisma.user.update({ where: { id: user.id }, data: { mfaEnabled: true } });
+    await this.audit.record({
+      ...auditActor(principal),
+      action: "auth.mfa_confirm",
+      targetType: "User",
+      targetId: principal.userId,
+    });
   }
 
   // ---- internals -------------------------------------------------------------
@@ -376,6 +442,7 @@ export class AuthService {
       path: args.operator.path,
       depth: args.operator.depth,
       mfaEnabled: args.mfaEnabled,
+      requiresMfaEnrollment: tierRequiresMfa(args.operator.tier) && !args.mfaEnabled,
       permissions: effectivePermissions(args.operator.tier, settings),
     };
   }

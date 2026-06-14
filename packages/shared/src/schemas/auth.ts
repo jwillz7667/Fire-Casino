@@ -46,6 +46,9 @@ export const operatorSummarySchema = z.object({
   path: z.string(),
   depth: z.number().int(),
   mfaEnabled: z.boolean(),
+  // True for SUPER_ADMIN/ADMIN that have not yet enrolled MFA (docs/01 §4); the
+  // console must drive enrollment before privileged use.
+  requiresMfaEnrollment: z.boolean(),
   permissions: z.array(z.string()),
 });
 export type OperatorSummary = z.infer<typeof operatorSummarySchema> & {
