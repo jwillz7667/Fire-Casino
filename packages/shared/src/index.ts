@@ -5,5 +5,6 @@ export * from "./dotenv";
 export * from "./money";
 export * from "./enums";
 export * from "./permissions";
+export * from "./platform";
 export * from "./scope";
 export * from "./schemas";
