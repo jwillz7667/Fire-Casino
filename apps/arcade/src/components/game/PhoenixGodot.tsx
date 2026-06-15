@@ -1,0 +1,169 @@
+"use client";
+
+import { useCallback, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { startSessionSchema, type Currency } from "@aureus/shared";
+import { api } from "@/lib/api";
+import { messageForError } from "@/lib/errors";
+import { useWallet } from "@/lib/hooks";
+import { newIdempotencyKey } from "@/lib/idempotency";
+import { balanceFor } from "@/lib/mode";
+import { qk } from "@/lib/queries";
+import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from "@/lib/types";
+
+/**
+ * Hosted Godot/WASM build (Cloudflare R2, public). The env var overrides it (e.g.
+ * a custom CDN domain later); in production it defaults to the R2 URL so the game
+ * ships without a Vercel env step, while local dev falls back to the React client.
+ */
+const R2_GAME_URL =
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/phoenix-ascendant/index.html";
+export const PHOENIX_GAME_URL =
+  process.env.NEXT_PUBLIC_PHOENIX_GAME_URL ??
+  (process.env.NODE_ENV === "production" ? R2_GAME_URL : "");
+
+const GAME_URL = PHOENIX_GAME_URL;
+const GAME_ORIGIN = (() => {
+  try {
+    return GAME_URL ? new URL(GAME_URL).origin : "*";
+  } catch {
+    return "*";
+  }
+})();
+
+/**
+ * Embeds the Phoenix Ascendant Godot/WASM client (hosted cross-origin on R2) and
+ * is the server-authoritative bridge: the iframe asks to place a bet over
+ * postMessage, this owns the session and calls the Aureus API, and only the
+ * returned outcome is sent back for the game to animate. The client never decides
+ * a result. Balance + wallet cache stay in sync after every round.
+ */
+export function PhoenixGodot({
+  game,
+  currency,
+}: {
+  game: GameDTO;
+  currency: Currency;
+}): React.ReactElement {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const queryClient = useQueryClient();
+  const wallet = useWallet();
+  const sessionRef = useRef<StartSessionResponse | null>(null);
+  const balanceRef = useRef<string>("0");
+
+  useEffect(() => {
+    if (wallet.data) balanceRef.current = balanceFor(wallet.data.wallets, currency);
+  }, [wallet.data, currency]);
+
+  const post = useCallback((type: string, payload: unknown, reqId?: string) => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { source: "phoenix-host", type, payload, reqId },
+      GAME_ORIGIN,
+    );
+  }, []);
+
+  const sendInit = useCallback(() => {
+    post("init", {
+      balanceMinor: balanceRef.current,
+      currency,
+      minBetMinor: game.minBetMinor,
+      maxBetMinor: game.maxBetMinor,
+    });
+  }, [post, currency, game.minBetMinor, game.maxBetMinor]);
+
+  const ensureSession = useCallback(async (): Promise<StartSessionResponse> => {
+    if (sessionRef.current) return sessionRef.current;
+    const body = startSessionSchema.parse({
+      gameCode: game.code,
+      currency,
+      clientSeed: crypto.randomUUID().replace(/-/g, "").slice(0, 16),
+    });
+    const session = await api.post<StartSessionResponse>("/sessions", body);
+    sessionRef.current = session;
+    return session;
+  }, [game.code, currency]);
+
+  const placeBet = useCallback(
+    async (sessionId: string, betMinor: number): Promise<BetResponse> =>
+      api.post<BetResponse>(
+        `/sessions/${sessionId}/bet`,
+        { betMinor: String(betMinor) },
+        { idempotencyKey: newIdempotencyKey() },
+      ),
+    [],
+  );
+
+  const handleBet = useCallback(
+    async (betMinor: number, reqId: string) => {
+      try {
+        let session = await ensureSession();
+        let result: BetResponse;
+        try {
+          result = await placeBet(session.sessionId, betMinor);
+        } catch {
+          // Session may have ended — open a fresh one and retry once.
+          sessionRef.current = null;
+          session = await ensureSession();
+          result = await placeBet(session.sessionId, betMinor);
+        }
+        balanceRef.current = result.balanceAfterMinor;
+        queryClient.setQueryData<WalletResponse>(qk.wallet, (prev) =>
+          prev
+            ? {
+                wallets: prev.wallets.map((w) =>
+                  w.currency === currency ? { ...w, balanceMinor: result.balanceAfterMinor } : w,
+                ),
+              }
+            : prev,
+        );
+        void queryClient.invalidateQueries({ queryKey: qk.wallet });
+        void queryClient.invalidateQueries({ queryKey: qk.walletHistory });
+        post("betResult", { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor }, reqId);
+      } catch (err) {
+        post("betError", { message: messageForError(err) }, reqId);
+      }
+    },
+    [ensureSession, placeBet, queryClient, currency, post],
+  );
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent): void {
+      if (GAME_ORIGIN !== "*" && e.origin !== GAME_ORIGIN) return;
+      const m = e.data as { source?: string; type?: string; reqId?: string; payload?: { betMinor?: number } };
+      if (!m || m.source !== "phoenix-game") return;
+      if (m.type === "requestInit") {
+        sendInit();
+      } else if (m.type === "placeBet" && m.payload && typeof m.payload.betMinor === "number") {
+        void handleBet(m.payload.betMinor, m.reqId ?? "");
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+    };
+  }, [sendInit, handleBet]);
+
+  if (!GAME_URL) {
+    return (
+      <div className="flex aspect-[9/16] w-full items-center justify-center rounded-xl border border-hairline bg-surface-1 text-center text-sm text-text-mid">
+        Phoenix Ascendant is loading on the game server — set NEXT_PUBLIC_PHOENIX_GAME_URL.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="relative w-full overflow-hidden rounded-xl border border-hairline bg-abyss"
+      style={{ aspectRatio: "720 / 1280" }}
+    >
+      <iframe
+        ref={iframeRef}
+        src={GAME_URL}
+        onLoad={sendInit}
+        title="Phoenix Ascendant"
+        allow="autoplay; fullscreen"
+        className="absolute inset-0 h-full w-full"
+      />
+    </div>
+  );
+}
