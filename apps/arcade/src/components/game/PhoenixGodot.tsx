@@ -19,7 +19,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * ships without a Vercel env step, while local dev falls back to the React client.
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/phoenix-ascendant/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/phoenix-ascendant/v2/index.html";
 export const PHOENIX_GAME_URL =
   process.env.NEXT_PUBLIC_PHOENIX_GAME_URL ??
   (process.env.NODE_ENV === "production" ? R2_GAME_URL : "");
