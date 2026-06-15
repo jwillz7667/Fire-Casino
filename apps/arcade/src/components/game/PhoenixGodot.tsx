@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { startSessionSchema, type Currency } from "@aureus/shared";
 import { api } from "@/lib/api";
@@ -52,8 +54,16 @@ export function PhoenixGodot({
   const balanceRef = useRef<string>("0");
 
   useEffect(() => {
-    if (wallet.data) balanceRef.current = balanceFor(wallet.data.wallets, currency);
+    if (wallet.data) {
+      balanceRef.current = balanceFor(wallet.data.wallets, currency);
+      // Push the fresh balance to the game; it reads init once on boot, so re-sending
+      // as the wallet resolves ensures the cached value is current before then.
+      sendInitRef.current();
+    }
   }, [wallet.data, currency]);
+
+  // sendInit is defined below; hold the latest in a ref so this effect can call it.
+  const sendInitRef = useRef<() => void>(() => {});
 
   const post = useCallback((type: string, payload: unknown, reqId?: string) => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -70,6 +80,10 @@ export function PhoenixGodot({
       maxBetMinor: game.maxBetMinor,
     });
   }, [post, currency, game.minBetMinor, game.maxBetMinor]);
+
+  useEffect(() => {
+    sendInitRef.current = sendInit;
+  }, [sendInit]);
 
   const ensureSession = useCallback(async (): Promise<StartSessionResponse> => {
     if (sessionRef.current) return sessionRef.current;
@@ -151,19 +165,26 @@ export function PhoenixGodot({
     );
   }
 
+  // Full-screen overlay: the Godot canvas fills the viewport and its stretch system
+  // letterboxes the 720x1280 design to fit. This avoids fragile aspect-box sizing
+  // inside the app's flex layout (which mis-sized the canvas + put controls off-screen).
   return (
-    <div
-      className="relative w-full overflow-hidden rounded-xl border border-hairline bg-abyss"
-      style={{ aspectRatio: "720 / 1280" }}
-    >
+    <div className="fixed inset-0 z-50 bg-black">
       <iframe
         ref={iframeRef}
         src={GAME_URL}
         onLoad={sendInit}
         title="Phoenix Ascendant"
         allow="autoplay; fullscreen"
-        className="absolute inset-0 h-full w-full"
+        className="h-full w-full border-0"
       />
+      <Link
+        href="/"
+        aria-label="Back to lobby"
+        className="absolute left-3 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm active:scale-95"
+      >
+        <ArrowLeft className="h-5 w-5" />
+      </Link>
     </div>
   );
 }

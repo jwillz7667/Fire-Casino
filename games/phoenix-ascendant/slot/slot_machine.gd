@@ -174,9 +174,10 @@ func _position_reel(reel: Dictionary) -> void:
 # ----------------------------------------------------------------- spin / round
 func request_spin() -> void:
 	if busy: return
-	if balance_minor < bet_minor and bridge != null:
-		_flash_message("Insufficient balance")
-		return
+	# No client-side balance gate: the server is authoritative and rejects an
+	# unaffordable bet (delivered back as betError). The bridge-supplied balance can
+	# also still be its initial 0 right after boot, so gating here would wrongly
+	# block the first spins.
 	busy = true
 	spin_btn.disabled = true
 	lbl_win.text = ""
