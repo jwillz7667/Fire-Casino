@@ -1,0 +1,39 @@
+; Phoenix Ascendant — web slot client (server-authoritative; renders only the
+; outcome delivered by the host page over the JS bridge). Forward+ from the asset
+; pipeline is swapped for the GL Compatibility renderer so it runs on WebGL2 in
+; every browser. No MCP autoload — that tooling has no place in the browser build.
+
+config_version=5
+
+[application]
+
+config/name="Phoenix Ascendant"
+config/version="1.0.0"
+run/main_scene="res://slot/main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://icon.svg"
+boot_splash/show_image=false
+
+[audio]
+
+buses/default_bus_layout="res://audio/bus_layout.tres"
+
+[display]
+
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+window/handheld/orientation=1
+
+[debug]
+
+gdscript/warnings/enable=false
+gdscript/warnings/treat_warnings_as_errors=false
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/canvas_textures/default_texture_filter=1
+environment/defaults/default_clear_color=Color(0.03, 0.05, 0.09, 1)
