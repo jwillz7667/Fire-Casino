@@ -153,6 +153,12 @@ export interface RechargeResult {
   prizeBonusMinor: string;
 }
 
+export interface RemoveCreditsResult {
+  transactionId: string;
+  removedMinor: string;
+  currency: string;
+}
+
 // ---- redemptions -------------------------------------------------------------
 
 export interface RedemptionDto {
@@ -267,6 +273,21 @@ export interface CreditFlowPoint {
 
 export interface CreditFlowReport {
   points: CreditFlowPoint[];
+}
+
+export interface AgentSalesRow {
+  operatorId: string;
+  displayName: string;
+  tier: string;
+  holdingsMinor: string;
+  soldToPlayersMinor: string;
+  removedFromPlayersMinor: string;
+  netToPlayersMinor: string;
+}
+
+export interface AgentSalesReport {
+  currency: Currency;
+  items: AgentSalesRow[];
 }
 
 export interface ActivityItem {

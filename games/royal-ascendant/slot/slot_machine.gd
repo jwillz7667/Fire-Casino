@@ -1,6 +1,6 @@
 extends Node2D
 
-## Royal Ascendant — landscape web slot client (1280×720).
+## Royal Ascendant — responsive web slot client.
 ##
 ## SERVER-AUTHORITATIVE: this scene never decides an outcome. On spin it asks the host
 ## page (window.RoyalGodot bridge) to place the bet; the page calls the Aureus API and
@@ -8,19 +8,25 @@ extends Node2D
 ## (no bridge — desktop/editor or a directly-opened export) a local mock drives the
 ## visuals so the presentation can be built and QA'd offline.
 ##
-## Self-contained: every texture/sound is loaded from this repo (res://art, res://audio),
-## with no dependency on the external asset pipeline.
+## RESPONSIVE: the project uses canvas_items + aspect="expand", so the 2D logical
+## viewport grows in the device's long axis. We read the real viewport every layout and
+## branch PORTRAIT (mobile, reels upper-centre + a bottom thumb-deck of controls) vs
+## LANDSCAPE (desktop, the classic wide layout). Nothing is hard-pinned to 1280×720;
+## every position is recomputed in _apply_layout() and re-run on viewport resize.
+##
+## Self-contained: every texture/sound is loaded from this repo (res://art, res://audio).
 
-const VIEW := Vector2(1280, 720)
+const DESIGN := Vector2(1280, 720)   # landscape design reference
 const COLS := 5
 const ROWS := 3
 
-# Reel frame placement (the ornate 5×3 grid art) and the symbol grid that sits inside
-# its opening. Insets are fractions of the frame rect — calibrated to reel_frame.png.
-const FRAME_POS := Vector2(196, 96)
-const FRAME_SIZE := Vector2(888, 494)
-# Measured from reel_frame.png: the 5 column centers and 3 row centers of the
-# maroon cells (gold-divider midpoints), expressed as insets of the frame rect.
+# Landscape reel-frame placement (the ornate 5×3 grid art) as design coordinates.
+const LAND_FRAME_POS := Vector2(196, 96)
+const LAND_FRAME_SIZE := Vector2(888, 494)
+# Frame art aspect (inner opening shares it): used to size the frame width-bound.
+const FRAME_ASPECT := 494.0 / 888.0
+# Measured from reel_frame.png: the maroon cells (gold-divider midpoints) as insets
+# of the frame rect. Orientation-independent — they scale with the frame.
 const INSET_LEFT := 0.086
 const INSET_RIGHT := 0.093
 const INSET_TOP := 0.125
@@ -35,6 +41,12 @@ const SPIN_SPEED := 2400.0      # px/sec scroll while spinning
 const REEL_STOP_STAGGER := 0.15
 const GOLD := Color(0.96, 0.82, 0.42)
 
+# ---- live layout (recomputed every _apply_layout) ----
+var view := Vector2(1280, 720)     # real logical viewport size
+var portrait := false
+var frame_pos := LAND_FRAME_POS
+var frame_size := LAND_FRAME_SIZE
+
 # ---- derived grid geometry ----
 var _ix := 0.0
 var _iy := 0.0
@@ -46,28 +58,38 @@ var _sym_px := 0.0
 var board: Node2D              # reels + frame (shaken on big wins)
 var bg_layer: CanvasLayer
 var cur_bg: TextureRect
+var grad_overlay: TextureRect  # portrait: darkens top/bottom over the stretched bg
+var frame_spr: Sprite2D
 var fx_layer: Node2D
 var hud: CanvasLayer
 
 var textures := {}             # id -> Texture2D (sharp)
 var blur_tex := {}             # id -> Texture2D (motion-blurred)
 var _add_mat: CanvasItemMaterial   # additive blend for symbol-glow halos
+var title_font: Font           # Cinzel Decorative (OFL) — medieval/regal display
 
 # reel state: [{window, sprites:[Sprite2D x5], symbols:[id x5], scroll, state}]
 var reels := []
 var spinning := false
 
-# HUD
+# HUD (all stored so _layout_hud can reposition them per orientation)
+var title_lbl: Label
 var lbl_balance: Label
 var lbl_bet: Label
 var lbl_win: Label
 var lbl_msg: Label
 var lbl_mult: Label
 var spin_btn: TextureButton
+var bet_minus_btn: TextureButton
+var bet_plus_btn: TextureButton
+var maxbet_btn: TextureButton
+var sound_btn: TextureButton
+var info_btn: TextureButton
 var banner: Label
 
 # audio
 var _audio := {}               # name -> AudioStreamPlayer (one-shot)
+var _spin_loop: AudioStreamPlayer  # looped hypnotic reel whir (faded in/out)
 var _music: AudioStreamPlayer
 var _ambience: AudioStreamPlayer
 
@@ -86,13 +108,14 @@ var BET_STEPS := [1000, 5000, 10000, 50000, 100000, 250000, 500000, 1000000]
 
 func _ready() -> void:
 	randomize()
-	if not OS.has_feature("web"):
-		get_window().size = VIEW
-	_compute_geometry()
+	_apply_window_size()
+	view = get_viewport().get_visible_rect().size
 	_load_textures()
+	_load_fonts()
 	_load_audio()
 
 	bg_layer = CanvasLayer.new(); bg_layer.layer = -10; add_child(bg_layer)
+	_build_bg()
 	_set_bg(false)
 	board = Node2D.new(); board.name = "Board"; add_child(board)
 	fx_layer = Node2D.new(); fx_layer.name = "Fx"; fx_layer.z_index = 60; add_child(fx_layer)
@@ -100,19 +123,74 @@ func _ready() -> void:
 	_build_frame()
 	_build_reels()
 	_build_hud()
-	_connect_bridge()
+	_apply_layout()
 	_idle_fill()
+	_connect_bridge()
 	_start_music()
 	set_process(true)
+	get_viewport().size_changed.connect(_on_resize)
 	if OS.get_environment("RAS_SHOT") != "":
 		_run_shots()
 
-# ----------------------------------------------------------------- geometry
+# Desktop/editor: honour RAS_SIZE=WxH (for portrait QA) else the landscape design.
+func _apply_window_size() -> void:
+	if OS.has_feature("web"):
+		return
+	var sz := DESIGN
+	var env := OS.get_environment("RAS_SIZE")
+	if env.find("x") > 0:
+		var parts := env.split("x")
+		sz = Vector2(float(parts[0]), float(parts[1]))
+	get_window().size = sz
+
+func _on_resize() -> void:
+	var v := get_viewport().get_visible_rect().size
+	if v.x < 1.0 or v.y < 1.0:
+		return
+	view = v
+	_apply_layout()
+
+# ----------------------------------------------------------------- layout
+func _apply_layout() -> void:
+	_layout_metrics()
+	_compute_geometry()
+	if frame_spr and frame_spr.texture:
+		frame_spr.position = frame_pos + frame_size * 0.5
+		frame_spr.scale = frame_size / frame_spr.texture.get_size()
+	_position_all_reels()
+	_layout_bg()
+	_layout_hud()
+
+## Decide orientation and the reel-frame rect. Portrait: the frame is width-bound to
+## ~94% of the screen and vertically centred in the upper reel zone (0.09–0.49 H), so
+## the reels stay large and the lower half is free for the control deck. Landscape: the
+## classic design rect, centred if the viewport is wider/taller than the 1280×720 base.
+func _layout_metrics() -> void:
+	var W := view.x
+	var H := view.y
+	portrait = H > W
+	if portrait:
+		var avail_w := W * 0.94
+		var avail_h := H * 0.42
+		var fw: float = min(avail_w, avail_h / FRAME_ASPECT)
+		var fh := fw * FRAME_ASPECT
+		frame_size = Vector2(fw, fh)
+		# Sit the reels in the lower-middle: frame bottom ~0.53H (just above the win
+		# readout), leaving the medieval title + a bg expanse above and the control
+		# deck below. (Previously centred at 0.29H — the reels sat too high.)
+		var center := Vector2(W * 0.5, H * 0.53 - fh * 0.5)
+		frame_pos = center - frame_size * 0.5
+	else:
+		frame_size = LAND_FRAME_SIZE
+		var ox: float = max(0.0, (W - DESIGN.x) * 0.5)
+		var oy: float = max(0.0, (H - DESIGN.y) * 0.5)
+		frame_pos = LAND_FRAME_POS + Vector2(ox, oy)
+
 func _compute_geometry() -> void:
-	_ix = FRAME_POS.x + INSET_LEFT * FRAME_SIZE.x
-	_iy = FRAME_POS.y + INSET_TOP * FRAME_SIZE.y
-	var iw := (1.0 - INSET_LEFT - INSET_RIGHT) * FRAME_SIZE.x
-	var ih := (1.0 - INSET_TOP - INSET_BOTTOM) * FRAME_SIZE.y
+	_ix = frame_pos.x + INSET_LEFT * frame_size.x
+	_iy = frame_pos.y + INSET_TOP * frame_size.y
+	var iw := (1.0 - INSET_LEFT - INSET_RIGHT) * frame_size.x
+	var ih := (1.0 - INSET_TOP - INSET_BOTTOM) * frame_size.y
 	_cell_w = iw / COLS
 	_cell_h = ih / ROWS
 	_sym_px = min(_cell_w, _cell_h) * 0.88
@@ -123,6 +201,20 @@ func _reel_x(col: int) -> float:
 func _row_y(row: int) -> float:
 	return _iy + (row + 0.5) * _cell_h
 
+func _position_all_reels() -> void:
+	if reels.is_empty():
+		return
+	var win_w := _cell_w
+	var win_h := _cell_h * ROWS
+	for col in COLS:
+		var reel: Dictionary = reels[col]
+		var window: Control = reel.window
+		window.position = Vector2(_reel_x(col) - win_w * 0.5, _iy)
+		window.size = Vector2(win_w, win_h)
+		for idx in 5:
+			reel.sprites[idx].position.x = win_w * 0.5
+		_position_reel(reel, false)
+
 # ----------------------------------------------------------------- assets
 func _load_textures() -> void:
 	for id in SYMBOL_IDS:
@@ -132,6 +224,12 @@ func _load_textures() -> void:
 		var b := "res://art/symbols_blur/%s.png" % id
 		if ResourceLoader.exists(b):
 			blur_tex[id] = load(b)
+
+func _load_fonts() -> void:
+	for p in ["res://fonts/CinzelDecorative-Bold.ttf", "res://fonts/CinzelDecorative-Black.ttf"]:
+		if ResourceLoader.exists(p):
+			title_font = load(p)
+			return
 
 func _sym_scale(tex: Texture2D) -> Vector2:
 	var s := _sym_px / float(tex.get_width())
@@ -165,6 +263,8 @@ func _load_audio() -> void:
 		pl.stream = st
 		add_child(pl)
 		_audio[name] = pl
+	# The hypnotic spinning-reel whir: looped, started on spin, faded out as reels stop.
+	_spin_loop = _make_loop("spin_loop", -10.0)
 	_music = _make_loop("music_base_loop", -8.0)
 	_ambience = _make_loop("ambient_castle", -16.0)
 
@@ -182,75 +282,117 @@ func play(name: String) -> void:
 	var pl = _audio.get(name, null)
 	if pl: pl.play()
 
+# Fade the looped reel whir in (spin start) or out (reels settled).
+func _spin_whir(on: bool) -> void:
+	if _spin_loop == null: return
+	var t := create_tween()
+	if on:
+		_spin_loop.volume_db = -28.0
+		if not _spin_loop.playing: _spin_loop.play()
+		t.tween_property(_spin_loop, "volume_db", -10.0, 0.18)
+	else:
+		t.tween_property(_spin_loop, "volume_db", -34.0, 0.28)
+		t.tween_callback(_spin_loop.stop)
+
 func _start_music() -> void:
 	if _ambience: _ambience.play()
 	if _music: _music.play()
 
 func _swap_freespins_music(on: bool) -> void:
-	# Free-spins uses its own bed; reuse the looped track at a brighter level.
 	if _music:
 		_music.volume_db = -4.0 if on else -8.0
 
 # ----------------------------------------------------------------- background
+func _build_bg() -> void:
+	cur_bg = TextureRect.new()
+	cur_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	cur_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	cur_bg.position = Vector2.ZERO
+	cur_bg.size = view
+	bg_layer.add_child(cur_bg)
+	# Vertical darkening so a center-cropped landscape bg reads as a deliberate portrait
+	# backdrop and the HUD text stays legible over the top/bottom thirds.
+	grad_overlay = TextureRect.new()
+	grad_overlay.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	grad_overlay.stretch_mode = TextureRect.STRETCH_SCALE
+	grad_overlay.texture = _make_vertical_vignette()
+	grad_overlay.position = Vector2.ZERO
+	grad_overlay.size = view
+	grad_overlay.visible = false
+	bg_layer.add_child(grad_overlay)
+
+func _make_vertical_vignette() -> GradientTexture2D:
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.30, 0.62, 1.0])
+	g.colors = PackedColorArray([
+		Color(0.02, 0.01, 0.03, 0.82),
+		Color(0.02, 0.01, 0.03, 0.10),
+		Color(0.02, 0.01, 0.03, 0.18),
+		Color(0.02, 0.01, 0.03, 0.86),
+	])
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill_from = Vector2(0, 0)
+	tex.fill_to = Vector2(0, 1)
+	tex.width = 8
+	tex.height = 256
+	return tex
+
+func _layout_bg() -> void:
+	if cur_bg:
+		cur_bg.position = Vector2.ZERO
+		cur_bg.size = view
+	if grad_overlay:
+		grad_overlay.position = Vector2.ZERO
+		grad_overlay.size = view
+		grad_overlay.visible = portrait
+
 func _set_bg(fs: bool) -> void:
 	var path := "res://art/bg/%s.jpg" % ("bg_freespins" if fs else "bg_base")
-	if not ResourceLoader.exists(path): return
-	if cur_bg == null:
-		cur_bg = TextureRect.new()
-		cur_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		cur_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		cur_bg.position = Vector2.ZERO
-		cur_bg.size = VIEW
-		bg_layer.add_child(cur_bg)
+	if not ResourceLoader.exists(path) or cur_bg == null: return
 	var tex: Texture2D = load(path)
 	if cur_bg.texture == null:
 		cur_bg.texture = tex
-	else:
-		# crossfade
-		var old := cur_bg.texture
-		var fade := TextureRect.new()
-		fade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		fade.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		fade.position = Vector2.ZERO; fade.size = VIEW; fade.texture = old
-		bg_layer.add_child(fade)
-		cur_bg.texture = tex
-		cur_bg.modulate = Color(1, 1, 1, 0)
-		var t := create_tween()
-		t.tween_property(cur_bg, "modulate", Color(1, 1, 1, 1), 0.5)
-		t.parallel().tween_property(fade, "modulate", Color(1, 1, 1, 0), 0.5)
-		t.tween_callback(fade.queue_free)
+		return
+	# crossfade
+	var old := cur_bg.texture
+	var fade := TextureRect.new()
+	fade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	fade.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	fade.position = Vector2.ZERO; fade.size = view; fade.texture = old
+	bg_layer.add_child(fade)
+	bg_layer.move_child(fade, cur_bg.get_index())
+	cur_bg.texture = tex
+	cur_bg.modulate = Color(1, 1, 1, 0)
+	var t := create_tween()
+	t.tween_property(cur_bg, "modulate", Color(1, 1, 1, 1), 0.5)
+	t.parallel().tween_property(fade, "modulate", Color(1, 1, 1, 0), 0.5)
+	t.tween_callback(fade.queue_free)
 
 # ----------------------------------------------------------------- frame + reels
 func _build_frame() -> void:
 	var frame_path := "res://art/ui/reel_frame.png"
-	if ResourceLoader.exists(frame_path):
-		# Sprite2D (NOT TextureRect): a Control's texture min-size/anchor handling
-		# rendered the frame at the wrong rect under the web canvas stretch, so the
-		# frame and the Sprite2D symbols diverged. A Sprite2D shares the exact same
-		# canvas transform as the symbols, so they can never misalign.
-		var frame := Sprite2D.new()
-		frame.texture = load(frame_path)
-		frame.centered = true
-		frame.position = FRAME_POS + FRAME_SIZE * 0.5
-		frame.scale = FRAME_SIZE / frame.texture.get_size()
-		frame.z_index = 2   # backdrop: opaque maroon cells sit BEHIND the symbols
-		board.add_child(frame)
+	if not ResourceLoader.exists(frame_path): return
+	# Sprite2D (NOT TextureRect): a Control's texture min-size/anchor handling rendered
+	# the frame at the wrong rect under the web canvas stretch, so the frame and the
+	# Sprite2D symbols diverged. A Sprite2D shares the exact same canvas transform as the
+	# symbols, so they can never misalign. Positioned/scaled in _apply_layout().
+	frame_spr = Sprite2D.new()
+	frame_spr.texture = load(frame_path)
+	frame_spr.centered = true
+	frame_spr.z_index = 2   # backdrop: opaque maroon cells sit BEHIND the symbols
+	board.add_child(frame_spr)
 
 func _build_reels() -> void:
-	var win_w := _cell_w
-	var win_h := _cell_h * ROWS
 	for col in COLS:
 		var window := Control.new()
 		window.clip_contents = true
-		window.position = Vector2(_reel_x(col) - win_w * 0.5, _iy)
-		window.size = Vector2(win_w, win_h)
 		window.z_index = 10
 		board.add_child(window)
 		var sprites := []
 		for idx in 5:
 			var sp := Sprite2D.new()
 			sp.centered = true
-			sp.position = Vector2(win_w * 0.5, (idx - 1) * _cell_h + _cell_h * 0.5)
 			window.add_child(sp)
 			sprites.append(sp)
 		reels.append({
@@ -258,16 +400,11 @@ func _build_reels() -> void:
 			"symbols": ["TEN", "J", "Q", "K", "A"],
 			"scroll": 0.0, "state": "idle",
 		})
-	_paint_reels()
 
 func _paint_reels() -> void:
 	for col in COLS:
 		var reel: Dictionary = reels[col]
-		var sprites: Array = reel.sprites
-		var syms: Array = reel.symbols
-		for idx in 5:
-			_apply_symbol(sprites[idx], syms[idx], false)
-			sprites[idx].position.y = (idx - 1) * _cell_h + _cell_h * 0.5 + reel.scroll
+		_position_reel(reel, false)
 
 func _apply_symbol(sp: Sprite2D, id: String, blurred: bool) -> void:
 	var tex = (blur_tex.get(id, null) if blurred else null)
@@ -319,6 +456,7 @@ func request_spin() -> void:
 	_flash("")
 	_reset_dim()
 	play("spin_start")
+	_spin_whir(true)
 	spinning = true
 	for col in COLS:
 		reels[col].state = "spin"
@@ -344,6 +482,7 @@ func _resolve(outcome: Dictionary) -> void:
 	var base: Dictionary = outcome.get("base", {})
 	var grid: Array = base.get("grid", [])
 	await _stop_reels(grid)
+	_spin_whir(false)
 	await _present_win(base, int(outcome.get("totalWinBps", 0)))
 	if outcome.get("freeSpins", null) != null:
 		await _run_free_spins(outcome.freeSpins)
@@ -405,6 +544,7 @@ func _force_stop() -> void:
 	spinning = false
 	busy = false
 	spin_btn.disabled = false
+	_spin_whir(false)
 
 # ----------------------------------------------------------------- win present
 func _reset_dim() -> void:
@@ -550,12 +690,14 @@ func _run_free_spins(fs: Dictionary) -> void:
 		lbl_mult.text = "x%d" % mult
 		_pulse(lbl_mult)
 		if i > 0: play("multiplier_apply")
+		_spin_whir(true)
 		spinning = true
 		for col in COLS:
 			reels[col].state = "spin"
 		await get_tree().create_timer(0.4).timeout
 		await _stop_reels(sp.get("grid", []))
 		spinning = false
+		_spin_whir(false)
 		await _present_win(sp, int(sp.get("spinWinBps", 0)))
 		await get_tree().create_timer(0.2).timeout
 	lbl_mult.visible = false
@@ -580,86 +722,146 @@ func _styled_label(size: int, color: Color) -> Label:
 func _build_hud() -> void:
 	hud = CanvasLayer.new(); hud.layer = 30; add_child(hud)
 
-	var title := _styled_label(40, GOLD)
-	title.text = "ROYAL ASCENDANT"
-	title.position = Vector2(0, 14); title.size = Vector2(VIEW.x, 48)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hud.add_child(title)
+	title_lbl = _styled_label(40, GOLD)
+	title_lbl.text = "ROYAL ASCENDANT"
+	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if title_font: title_lbl.add_theme_font_override("font", title_font)
+	hud.add_child(title_lbl)
 
 	lbl_mult = _styled_label(56, GOLD)
-	lbl_mult.position = Vector2(VIEW.x - 230, 70); lbl_mult.size = Vector2(210, 64)
 	lbl_mult.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	lbl_mult.pivot_offset = Vector2(210, 32)
 	lbl_mult.visible = false
 	hud.add_child(lbl_mult)
 
 	lbl_msg = _styled_label(30, GOLD)
-	lbl_msg.position = Vector2(0, 60); lbl_msg.size = Vector2(VIEW.x, 40)
 	lbl_msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(lbl_msg)
 
-	# big-win banner (center over the reels)
 	banner = _styled_label(96, GOLD)
 	banner.text = "BIG WIN"
-	banner.position = Vector2(0, FRAME_POS.y + FRAME_SIZE.y * 0.5 - 70); banner.size = Vector2(VIEW.x, 140)
 	banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	banner.pivot_offset = Vector2(VIEW.x * 0.5, 70)
+	if title_font: banner.add_theme_font_override("font", title_font)
 	banner.z_index = 5
 	banner.visible = false
 	hud.add_child(banner)
 
-	# ---- bottom control bar ----
-	var bar_y := 612.0
 	lbl_balance = _styled_label(28, Color(0.92, 0.96, 1.0))
-	lbl_balance.position = Vector2(28, bar_y); lbl_balance.size = Vector2(320, 36)
 	hud.add_child(lbl_balance)
 
 	lbl_win = _styled_label(40, GOLD)
-	lbl_win.position = Vector2(0, bar_y + 44); lbl_win.size = Vector2(VIEW.x, 52)
 	lbl_win.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(lbl_win)
 
-	var minus := _tex_btn("res://art/ui/btn_bet_minus.png", Vector2(28, bar_y + 50), Vector2(120, 50))
-	minus.pressed.connect(func(): _change_bet(-1))
-	hud.add_child(minus)
+	bet_minus_btn = _tex_btn("res://art/ui/btn_bet_minus.png")
+	bet_minus_btn.pressed.connect(func(): _change_bet(-1))
+	hud.add_child(bet_minus_btn)
 
 	lbl_bet = _styled_label(30, Color.WHITE)
-	lbl_bet.position = Vector2(154, bar_y + 58); lbl_bet.size = Vector2(150, 40)
 	lbl_bet.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(lbl_bet)
 
-	var plus := _tex_btn("res://art/ui/btn_bet_plus.png", Vector2(310, bar_y + 50), Vector2(120, 50))
-	plus.pressed.connect(func(): _change_bet(1))
-	hud.add_child(plus)
+	bet_plus_btn = _tex_btn("res://art/ui/btn_bet_plus.png")
+	bet_plus_btn.pressed.connect(func(): _change_bet(1))
+	hud.add_child(bet_plus_btn)
 
-	var maxbet := _tex_btn("res://art/ui/btn_maxbet.png", Vector2(905, bar_y + 6), Vector2(150, 42))
-	maxbet.pressed.connect(_max_bet)
-	hud.add_child(maxbet)
+	maxbet_btn = _tex_btn("res://art/ui/btn_maxbet.png")
+	maxbet_btn.pressed.connect(_max_bet)
+	hud.add_child(maxbet_btn)
 
-	spin_btn = _tex_btn("res://art/ui/btn_spin.png", Vector2(1086, bar_y - 10), Vector2(112, 112))
+	spin_btn = _tex_btn("res://art/ui/btn_spin.png")
 	spin_btn.pressed.connect(func(): play("spin_press"); request_spin())
 	hud.add_child(spin_btn)
 
-	# top-right icons
-	var sound := _tex_btn("res://art/ui/btn_sound.png", Vector2(VIEW.x - 64, 12), Vector2(48, 48))
-	sound.pressed.connect(_toggle_sound)
-	hud.add_child(sound)
-	var info := _tex_btn("res://art/ui/btn_info.png", Vector2(16, 12), Vector2(48, 48))
-	info.pressed.connect(func(): play("button_tap"))
-	hud.add_child(info)
+	sound_btn = _tex_btn("res://art/ui/btn_sound.png")
+	sound_btn.pressed.connect(_toggle_sound)
+	hud.add_child(sound_btn)
+
+	info_btn = _tex_btn("res://art/ui/btn_info.png")
+	info_btn.pressed.connect(func(): play("button_tap"))
+	hud.add_child(info_btn)
 
 	_update_hud()
 
-func _tex_btn(path: String, pos: Vector2, size: Vector2) -> TextureButton:
+## Position every HUD element for the current orientation. Portrait stacks a bottom
+## thumb-deck (win / balance / bet ± / max / a big spin) under the reels; landscape
+## restores the classic wide control bar.
+func _layout_hud() -> void:
+	var W := view.x
+	var H := view.y
+	if portrait:
+		_place_lbl(title_lbl, Vector2(0, H * 0.035), Vector2(W, 84))
+		_set_font(title_lbl, 56)
+		_place_btn(info_btn, Vector2(W * 0.07, H * 0.06), Vector2(60, 60))
+		_place_btn(sound_btn, Vector2(W * 0.93, H * 0.06), Vector2(60, 60))
+
+		_place_lbl(lbl_mult, Vector2(W * 0.5, frame_pos.y - 84), Vector2(W, 72))
+		lbl_mult.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl_mult.pivot_offset = Vector2(W * 0.5, 36)
+		_place_lbl(lbl_msg, Vector2(0, frame_pos.y - 60), Vector2(W, 44))
+
+		_place_lbl(banner, Vector2(0, frame_pos.y + frame_size.y * 0.5 - 70), Vector2(W, 140))
+		banner.pivot_offset = Vector2(W * 0.5, 70)
+
+		_place_lbl(lbl_win, Vector2(0, H * 0.555), Vector2(W, 60))
+		_set_font(lbl_win, 50)
+		_place_lbl(lbl_balance, Vector2(W * 0.07, H * 0.64), Vector2(W * 0.6, 40))
+		_set_font(lbl_balance, 32)
+
+		var by := H * 0.74
+		_place_btn(bet_minus_btn, Vector2(W * 0.13, by), Vector2(150, 78))
+		_place_lbl(lbl_bet, Vector2(W * 0.31 - W * 0.16, by - 28), Vector2(W * 0.32, 56))
+		_set_font(lbl_bet, 36)
+		_place_btn(bet_plus_btn, Vector2(W * 0.49, by), Vector2(150, 78))
+		_place_btn(maxbet_btn, Vector2(W * 0.79, by), Vector2(200, 70))
+
+		_place_btn(spin_btn, Vector2(W * 0.5, H * 0.885), Vector2(264, 264))
+	else:
+		var ox: float = max(0.0, (W - DESIGN.x) * 0.5)
+		var oy: float = max(0.0, (H - DESIGN.y) * 0.5)
+		_place_lbl(title_lbl, Vector2(ox, 14 + oy), Vector2(DESIGN.x, 48))
+		_set_font(title_lbl, 40)
+		_place_btn(info_btn, Vector2(16 + ox + 24, 12 + oy + 24), Vector2(48, 48))
+		_place_btn(sound_btn, Vector2(W - 64 + 24 - ox, 12 + oy + 24), Vector2(48, 48))
+
+		_place_lbl(lbl_mult, Vector2(W - 230 - ox, 70 + oy), Vector2(210, 64))
+		lbl_mult.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl_mult.pivot_offset = Vector2(210, 32)
+		_place_lbl(lbl_msg, Vector2(ox, 60 + oy), Vector2(DESIGN.x, 40))
+
+		_place_lbl(banner, Vector2(ox, frame_pos.y + frame_size.y * 0.5 - 70), Vector2(DESIGN.x, 140))
+		banner.pivot_offset = Vector2(DESIGN.x * 0.5, 70)
+
+		var bar_y := 612.0 + oy
+		_place_lbl(lbl_balance, Vector2(28 + ox, bar_y), Vector2(320, 36))
+		_set_font(lbl_balance, 28)
+		_place_lbl(lbl_win, Vector2(ox, bar_y + 44), Vector2(DESIGN.x, 52))
+		_set_font(lbl_win, 40)
+		_place_btn(bet_minus_btn, Vector2(28 + ox + 60, bar_y + 50 + 25), Vector2(120, 50))
+		_place_lbl(lbl_bet, Vector2(154 + ox, bar_y + 58), Vector2(150, 40))
+		_set_font(lbl_bet, 30)
+		_place_btn(bet_plus_btn, Vector2(310 + ox + 60, bar_y + 50 + 25), Vector2(120, 50))
+		_place_btn(maxbet_btn, Vector2(905 + ox + 75, bar_y + 6 + 21), Vector2(150, 42))
+		_place_btn(spin_btn, Vector2(1086 + 56 - ox, bar_y - 10 + 56), Vector2(112, 112))
+
+func _set_font(l: Label, size: int) -> void:
+	l.add_theme_font_size_override("font_size", size)
+
+func _place_lbl(l: Label, pos: Vector2, size: Vector2) -> void:
+	l.position = pos
+	l.size = size
+
+func _place_btn(b: TextureButton, center: Vector2, size: Vector2) -> void:
+	b.custom_minimum_size = size
+	b.size = size
+	b.position = center - size * 0.5
+	b.pivot_offset = size * 0.5
+
+func _tex_btn(path: String) -> TextureButton:
 	var b := TextureButton.new()
 	if ResourceLoader.exists(path):
 		b.texture_normal = load(path)
 	b.ignore_texture_size = true
 	b.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-	b.custom_minimum_size = size
-	b.size = size
-	b.position = pos
-	b.pivot_offset = size * 0.5
 	b.pressed.connect(func(): _btn_feedback(b))
 	return b
 

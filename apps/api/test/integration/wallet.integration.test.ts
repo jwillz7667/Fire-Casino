@@ -120,6 +120,62 @@ describe("WalletService.recharge — OPERATOR mode", () => {
   });
 });
 
+describe("WalletService.removeCredits — burn, never a refund to the agent (R8)", () => {
+  async function rechargedPlayer(): Promise<void> {
+    await fund(storeId, "CREDIT", 1_000_000n);
+    await walletOperator.recharge(storeP, { playerId, amountMinor: 300_000n }, randomUUID(), ctx);
+  }
+
+  it("debits the player and credits SINK, leaving the agent balance untouched", async () => {
+    await rechargedPlayer();
+    // After recharge: agent 700k, player 300k.
+    const result = await walletOperator.removeCredits(
+      storeP,
+      { playerId, amountMinor: 120_000n, reason: "chargeback" },
+      randomUUID(),
+      ctx,
+    );
+    expect(result.removedMinor).toBe("120000");
+    expect(result.currency).toBe("CREDIT");
+
+    expect(await ledger.getBalance(sel("player", playerId, "CREDIT"))).toBe(180_000n); // player down
+    expect(await ledger.getBalance(sel("operator", storeId, "CREDIT"))).toBe(700_000n); // agent UNCHANGED
+    expect(await ledger.getBalance({ kind: "system", systemKey: "SINK", currency: "CREDIT" })).toBe(120_000n); // burned
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("cannot remove more than the player holds (no negative player balance)", async () => {
+    await rechargedPlayer();
+    await expect(
+      walletOperator.removeCredits(storeP, { playerId, amountMinor: 400_000n, reason: "too much" }, randomUUID(), ctx),
+    ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "INSUFFICIENT_FUNDS");
+    // Nothing moved.
+    expect(await ledger.getBalance(sel("player", playerId, "CREDIT"))).toBe(300_000n);
+    expect(await ledger.getBalance(sel("operator", storeId, "CREDIT"))).toBe(700_000n);
+  });
+
+  it("is idempotent under a replayed key", async () => {
+    await rechargedPlayer();
+    const key = randomUUID();
+    await walletOperator.removeCredits(storeP, { playerId, amountMinor: 50_000n, reason: "r" }, key, ctx);
+    await walletOperator.removeCredits(storeP, { playerId, amountMinor: 50_000n, reason: "r" }, key, ctx);
+    expect(await ledger.getBalance(sel("player", playerId, "CREDIT"))).toBe(250_000n); // applied once
+    expect(await ledger.getBalance({ kind: "system", systemKey: "SINK", currency: "CREDIT" })).toBe(50_000n);
+  });
+
+  it("an agent cannot remove credits from another agent's player", async () => {
+    await rechargedPlayer();
+    const storeB = await createOperator({ username: "storeB2", tier: "STORE", pathSegment: 2 });
+    const storeBP = opPrincipal(storeB, "STORE");
+    await expect(
+      walletOperator.removeCredits(storeBP, { playerId, amountMinor: 10_000n, reason: "x" }, randomUUID(), ctx),
+    ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "OUT_OF_SCOPE");
+    // restore the original store as the active scope for any later assertions
+    storeP = opPrincipal({ operatorId: storeId, userId: storeP.userId, path: storeP.path, depth: storeP.depth }, "STORE");
+    expect(await ledger.getBalance(sel("player", playerId, "CREDIT"))).toBe(300_000n);
+  });
+});
+
 describe("WalletService.recharge — COMPLIANCE mode (PLAY purchase + PRIZE bonus)", () => {
   it("credits PLAY from the agent and PRIZE from PROMO atomically", async () => {
     await fund(storeId, "PLAY", 1_000_000n);

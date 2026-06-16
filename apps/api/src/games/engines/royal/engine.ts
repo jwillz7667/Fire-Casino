@@ -4,6 +4,7 @@ import {
   FREE_SPINS_AWARD,
   MAX_FREE_SPINS,
   MAX_FS_MULTIPLIER,
+  MAX_WIN_BPS,
   PAYOUT_SCALAR_BPS,
   PAYTABLE,
   REELS,
@@ -116,8 +117,9 @@ function waysWins(grid: Grid): WaysWin[] {
     }
     if (run >= 3) {
       const k = Math.min(run, 5) as 3 | 4 | 5;
-      const payBps = PAYTABLE[sym][k] * ways;
-      wins.push({ symbol: sym, count: run, ways, payBps });
+      const pay = PAYTABLE[sym][k];
+      // Filler royals pay 0 at 3-of-a-kind — don't push a phantom 0-pay win line.
+      if (pay > 0) wins.push({ symbol: sym, count: run, ways, payBps: pay * ways });
     }
   }
   return wins;
@@ -151,9 +153,9 @@ function runFreeSpins(rng: Rng, triggerScatters: number): FreeSpinsResult {
     remaining -= 1;
     spinIndex += 1;
     const grid = drawGrid(rng, FREE_REEL_WEIGHTS);
-    // Deterministic rising multiplier — the feature's signature. Consumes no RNG,
-    // so the draw order stays a pure function of (reel, row).
-    const multiplier = Math.min(spinIndex, MAX_FS_MULTIPLIER);
+    // Deterministic ×2-per-spin multiplier (1,3,5,…) — the feature's signature.
+    // Consumes no RNG, so the draw order stays a pure function of (reel, row).
+    const multiplier = Math.min(1 + (spinIndex - 1) * 2, MAX_FS_MULTIPLIER);
     const result = evaluateSpin(grid, multiplier);
     spins.push(result);
     totalBps += result.spinWinBps;
@@ -189,7 +191,9 @@ export function spin(rng: Rng): EngineResult {
   }
 
   const rawBps = base.spinWinBps + (freeSpins?.totalBps ?? 0);
-  const totalWinBps = Math.floor((rawBps * PAYOUT_SCALAR_BPS) / 10_000);
+  const scaled = Math.floor((rawBps * PAYOUT_SCALAR_BPS) / 10_000);
+  // Hard 5000× cap — bounds per-round liability and is the game's headline max win.
+  const totalWinBps = Math.min(MAX_WIN_BPS, scaled);
 
   return {
     totalWinBps,

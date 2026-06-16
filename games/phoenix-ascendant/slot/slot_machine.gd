@@ -52,7 +52,13 @@ var bridge = null              # window.PhoenixGodot (web) or null
 
 func _ready() -> void:
 	randomize()
-	get_window().size = VIEW
+	# Desktop/editor: pin the window to the design size. On web the canvas is sized
+	# by the page (Adaptive resize policy) and the stretch system letterboxes the
+	# 720x1280 design into the iframe. Forcing the window size on web overrides that,
+	# which cropped the view and pushed the bottom controls off-screen (= "doesn't
+	# fit / buttons don't work").
+	if not OS.has_feature("web"):
+		get_window().size = VIEW
 	db = load("res://data/symbol_database.tres")
 	for id in SYMBOL_IDS:
 		var fname: String = "orb" if String(id) == "ORB" else String(id)

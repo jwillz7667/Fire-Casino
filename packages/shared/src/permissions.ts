@@ -26,6 +26,7 @@ export const PERMISSIONS = [
   "order.view",
   "player.create",
   "player.recharge",
+  "player.deduct",
   "player.suspend",
   "player.view",
   "redemption.approve",
@@ -123,6 +124,10 @@ const BASE_MATRIX: Record<Permission, OperatorTier[]> = {
   "order.view": ALL_TIERS,
   "player.create": ["STORE"],
   "player.recharge": ["ADMIN", "STORE"],
+  // Removing credits from a player BURNS them to the SINK account — it never
+  // refunds the agent (docs/03 §4.4). Same actors as recharge; structural, so
+  // it is NOT in GRANTABLE_PERMISSIONS and cannot be conferred to other tiers.
+  "player.deduct": ["ADMIN", "STORE"],
   "player.suspend": ["ADMIN", "STORE"],
   "player.view": ALL_TIERS,
   "redemption.approve": ["SUPER_ADMIN", "ADMIN", "STORE"], // distributor tiers via cfg

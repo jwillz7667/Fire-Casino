@@ -50,6 +50,10 @@ export const systemAccountSchema = z.enum([
   "PROMO",
   "ADJUSTMENT",
   "ROUNDING",
+  // Burn destination for agent-initiated player credit removals (docs/03 §4.4).
+  // Credits debited from a player land here, never back in the agent's balance;
+  // SINK is write-only (no path ever debits it), so it only accumulates.
+  "SINK",
 ]);
 export type SystemAccount = z.infer<typeof systemAccountSchema>;
 export const SystemAccount = systemAccountSchema.enum;
@@ -69,6 +73,7 @@ export const ledgerTxTypeSchema = z.enum([
   "REDEEM_HOLD",
   "REDEEM_CANCEL",
   "REDEEM_SETTLE",
+  "CREDIT_REMOVAL",
   "ADJUSTMENT",
   "REVERSAL",
 ]);

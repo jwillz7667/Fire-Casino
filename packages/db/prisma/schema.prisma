@@ -207,6 +207,7 @@ enum SystemAccount {
   PROMO
   ADJUSTMENT
   ROUNDING
+  SINK
 }
 
 enum Currency {
@@ -249,6 +250,7 @@ enum LedgerTxType {
   REDEEM_HOLD
   REDEEM_CANCEL
   REDEEM_SETTLE
+  CREDIT_REMOVAL
   ADJUSTMENT
   REVERSAL
 }

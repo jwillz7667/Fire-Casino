@@ -22,8 +22,8 @@ describe("Royal Ascendant engine — RTP", () => {
     const spins = 200_000;
     for (let i = 0; i < spins; i++) totalWinBps += BigInt(spin(rng).totalWinBps);
     const rtp = Number(totalWinBps) / (spins * 10_000);
-    // 3% band absorbs the heavy free-spin tail at this sample size.
-    expect(Math.abs(rtp - CERTIFIED_RTP_BPS / 10_000)).toBeLessThan(0.03);
+    // 5% band absorbs the heavier free-spin tail (×2 ramp, 5000× cap) at this sample size.
+    expect(Math.abs(rtp - CERTIFIED_RTP_BPS / 10_000)).toBeLessThan(0.05);
   });
 
   it("never pays a negative win and reports a consistent total", () => {
@@ -45,11 +45,11 @@ describe("Royal Ascendant engine — RTP", () => {
         sawTrigger = true;
         expect(outcome.base.scatterCount).toBeGreaterThanOrEqual(3);
         expect(outcome.freeSpins.spins.length).toBe(outcome.freeSpins.totalSpins);
-        expect(outcome.freeSpins.totalSpins).toBeGreaterThanOrEqual(10);
-        // multiplier ramps 1,2,3,… capped at 10; the first spin is always ×1.
+        expect(outcome.freeSpins.totalSpins).toBeGreaterThanOrEqual(8);
+        // multiplier ramps ×2/spin (1,3,5,…) capped at 15; the first spin is always ×1.
         expect(outcome.freeSpins.spins[0]!.multiplier).toBe(1);
         expect(outcome.freeSpins.endMultiplier).toBeGreaterThanOrEqual(1);
-        expect(outcome.freeSpins.endMultiplier).toBeLessThanOrEqual(10);
+        expect(outcome.freeSpins.endMultiplier).toBeLessThanOrEqual(15);
       } else {
         expect(outcome.base.scatterCount).toBeLessThan(3);
       }
@@ -111,7 +111,7 @@ describe("Royal Ascendant engine — wild & scatter rules", () => {
     const x1 = evaluateSpin(grid, 1);
     const x3 = evaluateSpin(grid, 3);
     expect(x1.scatterCount).toBe(3);
-    expect(x1.scatterPayBps).toBe(2000);
+    expect(x1.scatterPayBps).toBe(3000);
     expect(x1.spinWinBps).toBeGreaterThan(0);
     expect(x3.spinWinBps).toBe(x1.spinWinBps * 3);
   });
