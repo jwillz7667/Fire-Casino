@@ -10,12 +10,11 @@
 ## Status
 - [x] **M0** — Scaffold + asset pipeline (forked trees, `tools/prep-assets.sh`, processed `art/`)
 - [x] **M1** — Server engine (`apps/api/src/games/engines/royal`) — 243-ways, JOKER wild (interior reels), CHEST scatter → rising-mult free spins; RTP calibrated 96% (`PAYOUT_SCALAR_BPS=6894`); 10 engine tests green
-- [ ] **M2** — Godot client MVP (landscape render)
-- [ ] **M3** — Arcade embed + playable locally
-- [ ] **M4** — Build + R2 deploy (versioned)
-- [ ] **M5** — MUST-HAVE juice (animations)
-- [ ] **M6** — Audio layer (ElevenLabs SFX pack → see `slot-icons/audio/`)
-- [ ] **M7** — Polish
+- [x] **M2** — Self-contained landscape client: castle bg + gold frame + royal symbols (grid calibrated to frame) + buttons; spin/stagger-stop/bounce, win dim+pop+asset-glow, free-spins rising-multiplier, big/mega-win banner+shake; `RoyalGodot` bridge + offline demo
+- [x] **M3** — Arcade embed (`RoyalGodot.tsx`) + play-page branch + lobby thumbnail
+- [x] **M4** — Web export + bridge inject + **same-origin hosting** in `apps/arcade/public/royal-ascendant/v1/` (R2 swapped for same-origin — no Cloudflare creds needed; env var can still point to a CDN later)
+- [~] **M5/M6** — Core juice + audio are folded into the M2 client (stop/win animations, free-spins ramp, 25 SFX + 2 music loops wired). Remaining polish (shaders, ways-trace, module split) deferred
+- [ ] **M7** — Polish + prod catalog seed (needs prod DATABASE_URL)
 
 ## Naming (locked — one slug everywhere)
 

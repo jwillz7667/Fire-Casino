@@ -1,20 +1,24 @@
-// Phoenix Ascendant — iframe-side bridge.
+// Royal Ascendant — iframe-side bridge.
 //
-// The Godot client calls window.PhoenixGodot.getInit()/placeBet(); since the game
-// is hosted cross-origin (R2) from the arcade (Vercel), it can't touch the parent
-// window directly, so this proxies those calls over postMessage. The parent owns
-// auth, the session and the API bet — the game only animates the returned outcome,
-// keeping every outcome server-authoritative.
+// Embedded in the arcade iframe (cross-origin: game on the arcade origin's static
+// host, parent owns auth/session/API): proxies window.RoyalGodot.getInit()/placeBet()
+// to the parent over postMessage so every outcome stays server-authoritative.
+//
+// Opened standalone (not in an iframe): leaves window.RoyalGodot undefined, so the
+// Godot client falls back to its built-in offline demo (mock outcomes). That makes
+// the exported build directly loadable for QA without a host.
 (function () {
   "use strict";
+  if (window.parent === window) return; // standalone → demo mode
+
   var init = null;
   var pending = {};
 
   function send(type, payload, reqId) {
-    parent.postMessage({ source: "phoenix-game", type: type, payload: payload, reqId: reqId }, "*");
+    parent.postMessage({ source: "royal-game", type: type, payload: payload, reqId: reqId }, "*");
   }
 
-  window.PhoenixGodot = {
+  window.RoyalGodot = {
     getInit: function () {
       return init || { balanceMinor: 0, currency: "CREDIT", minBetMinor: 1000, maxBetMinor: 2000000 };
     },
@@ -27,7 +31,7 @@
 
   window.addEventListener("message", function (e) {
     var m = e.data;
-    if (!m || m.source !== "phoenix-host") return;
+    if (!m || m.source !== "royal-host") return;
     if (m.type === "init") {
       init = m.payload;
     } else if (m.type === "betResult" || m.type === "betError") {
@@ -40,7 +44,7 @@
     }
   });
 
-  // Ask the host for the initial state as soon as the shell is parsed; the host
-  // also pushes it on iframe load, so it is cached well before Godot boots.
+  // Ask the host for initial state as soon as the shell is parsed; the host also
+  // pushes it on iframe load, so it is cached well before Godot boots.
   send("requestInit", {});
 })();
