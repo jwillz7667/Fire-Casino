@@ -9,7 +9,7 @@
 
 ## Status
 - [x] **M0** — Scaffold + asset pipeline (forked trees, `tools/prep-assets.sh`, processed `art/`)
-- [ ] **M1** — Server engine (`apps/api/src/games/engines/royal`)
+- [x] **M1** — Server engine (`apps/api/src/games/engines/royal`) — 243-ways, JOKER wild (interior reels), CHEST scatter → rising-mult free spins; RTP calibrated 96% (`PAYOUT_SCALAR_BPS=6894`); 10 engine tests green
 - [ ] **M2** — Godot client MVP (landscape render)
 - [ ] **M3** — Arcade embed + playable locally
 - [ ] **M4** — Build + R2 deploy (versioned)

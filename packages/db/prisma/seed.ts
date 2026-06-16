@@ -213,6 +213,22 @@ async function seedGames(): Promise<void> {
       config: { engine: "phoenix-ascendant", renderer: "phoenix-ascendant" },
     },
     {
+      // Second real engine: server-authoritative 5×3 / 243-ways royal slot with a
+      // JOKER wild (interior reels) and a CHEST scatter → rising-multiplier free
+      // spins. config.engine routes rounds to apps/api .../engines/royal; its
+      // measured RTP is 96.0% (engines/royal/simulate.ts).
+      code: "royal-ascendant",
+      name: "Royal Ascendant",
+      type: "SLOT",
+      rtpBps: 9600,
+      minBetMinor: 1000n,
+      maxBetMinor: 2_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
+      sortOrder: 1,
+      thumbnailUrl: "/games/royal-ascendant/thumb.png",
+      config: { engine: "royal-ascendant", renderer: "royal-ascendant" },
+    },
+    {
       code: "reef-rumble",
       name: "Reef Rumble",
       type: "FISH",
@@ -220,7 +236,7 @@ async function seedGames(): Promise<void> {
       minBetMinor: 100n,
       maxBetMinor: 5_000_000n,
       supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 1,
+      sortOrder: 2,
       thumbnailUrl: null,
       config: {},
     },
@@ -232,7 +248,7 @@ async function seedGames(): Promise<void> {
       minBetMinor: 500n,
       maxBetMinor: 2_000_000n,
       supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 2,
+      sortOrder: 3,
       thumbnailUrl: null,
       config: {},
     },
@@ -244,7 +260,7 @@ async function seedGames(): Promise<void> {
       minBetMinor: 100n,
       maxBetMinor: 1_000_000n,
       supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 3,
+      sortOrder: 4,
       thumbnailUrl: null,
       config: {},
     },

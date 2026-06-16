@@ -3,6 +3,7 @@ import { GamesController } from "./games.controller";
 import { SessionsController } from "./sessions.controller";
 import { GamesService } from "./games.service";
 import { PhoenixAscendantProvider } from "./engines/phoenix/phoenix.provider";
+import { RoyalAscendantProvider } from "./engines/royal/royal.provider";
 import { CompositeGameProvider } from "./rgs/composite.provider";
 import { PlaceholderRgsProvider } from "./rgs/placeholder.provider";
 import { GAME_PROVIDER } from "./rgs/provider";
@@ -18,6 +19,7 @@ import { GAME_PROVIDER } from "./rgs/provider";
     GamesService,
     PlaceholderRgsProvider,
     PhoenixAscendantProvider,
+    RoyalAscendantProvider,
     { provide: GAME_PROVIDER, useClass: CompositeGameProvider },
   ],
   exports: [GamesService],
