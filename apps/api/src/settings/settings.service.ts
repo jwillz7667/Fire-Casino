@@ -1,12 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { type Prisma, type PrismaClient } from "@aureus/db";
 import {
+  can,
   type Env,
   type UpdateNodeSettingsInput,
   type UpdatePlatformSettingsInput,
 } from "@aureus/shared";
 import { type OperatorPrincipal } from "../common/auth/principal";
-import { NotFoundError } from "../common/errors/domain-error";
+import { ForbiddenError, NotFoundError } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
@@ -113,6 +114,16 @@ export class SettingsService {
   }
 
   async updateNode(caller: OperatorPrincipal, input: UpdateNodeSettingsInput, ctx: ActionContext) {
+    // The prize-bonus rate is a promo/pricing lever: in COMPLIANCE mode it
+    // multiplies house-funded PRIZE granted from PROMO on every recharge. A leaf
+    // agent (STORE) must not be able to raise its OWN bonus and thereby mint
+    // redeemable value it never funded — only nodes that hold pricing authority
+    // may set it (docs/04 §3; closes the self-mint vector). Other node settings
+    // (display name, locale, redemption-approval routing) remain self-service.
+    if (input.prizeBonusBps !== undefined && !can(caller.tier, caller.settings, "operator.set_pricing")) {
+      throw new ForbiddenError("Your tier cannot change the prize-bonus rate");
+    }
+
     const current = await this.prisma.operator.findUnique({
       where: { id: caller.operatorId },
       select: { settings: true },
