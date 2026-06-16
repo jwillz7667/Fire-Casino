@@ -66,6 +66,7 @@ var hud: CanvasLayer
 var textures := {}             # id -> Texture2D (sharp)
 var blur_tex := {}             # id -> Texture2D (motion-blurred)
 var _add_mat: CanvasItemMaterial   # additive blend for symbol-glow halos
+var title_font: Font           # Cinzel Decorative (OFL) — medieval/regal display
 
 # reel state: [{window, sprites:[Sprite2D x5], symbols:[id x5], scroll, state}]
 var reels := []
@@ -110,6 +111,7 @@ func _ready() -> void:
 	_apply_window_size()
 	view = get_viewport().get_visible_rect().size
 	_load_textures()
+	_load_fonts()
 	_load_audio()
 
 	bg_layer = CanvasLayer.new(); bg_layer.layer = -10; add_child(bg_layer)
@@ -169,11 +171,14 @@ func _layout_metrics() -> void:
 	portrait = H > W
 	if portrait:
 		var avail_w := W * 0.94
-		var avail_h := H * 0.40
+		var avail_h := H * 0.42
 		var fw: float = min(avail_w, avail_h / FRAME_ASPECT)
 		var fh := fw * FRAME_ASPECT
 		frame_size = Vector2(fw, fh)
-		var center := Vector2(W * 0.5, H * 0.09 + H * 0.40 * 0.5)
+		# Sit the reels in the lower-middle: frame bottom ~0.53H (just above the win
+		# readout), leaving the medieval title + a bg expanse above and the control
+		# deck below. (Previously centred at 0.29H — the reels sat too high.)
+		var center := Vector2(W * 0.5, H * 0.53 - fh * 0.5)
 		frame_pos = center - frame_size * 0.5
 	else:
 		frame_size = LAND_FRAME_SIZE
@@ -219,6 +224,12 @@ func _load_textures() -> void:
 		var b := "res://art/symbols_blur/%s.png" % id
 		if ResourceLoader.exists(b):
 			blur_tex[id] = load(b)
+
+func _load_fonts() -> void:
+	for p in ["res://fonts/CinzelDecorative-Bold.ttf", "res://fonts/CinzelDecorative-Black.ttf"]:
+		if ResourceLoader.exists(p):
+			title_font = load(p)
+			return
 
 func _sym_scale(tex: Texture2D) -> Vector2:
 	var s := _sym_px / float(tex.get_width())
@@ -714,6 +725,7 @@ func _build_hud() -> void:
 	title_lbl = _styled_label(40, GOLD)
 	title_lbl.text = "ROYAL ASCENDANT"
 	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if title_font: title_lbl.add_theme_font_override("font", title_font)
 	hud.add_child(title_lbl)
 
 	lbl_mult = _styled_label(56, GOLD)
@@ -728,6 +740,7 @@ func _build_hud() -> void:
 	banner = _styled_label(96, GOLD)
 	banner.text = "BIG WIN"
 	banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if title_font: banner.add_theme_font_override("font", title_font)
 	banner.z_index = 5
 	banner.visible = false
 	hud.add_child(banner)
@@ -776,10 +789,10 @@ func _layout_hud() -> void:
 	var W := view.x
 	var H := view.y
 	if portrait:
-		_place_lbl(title_lbl, Vector2(0, H * 0.026), Vector2(W, 56))
-		_set_font(title_lbl, 44)
-		_place_btn(info_btn, Vector2(W * 0.07, H * 0.05), Vector2(60, 60))
-		_place_btn(sound_btn, Vector2(W * 0.93, H * 0.05), Vector2(60, 60))
+		_place_lbl(title_lbl, Vector2(0, H * 0.035), Vector2(W, 84))
+		_set_font(title_lbl, 56)
+		_place_btn(info_btn, Vector2(W * 0.07, H * 0.06), Vector2(60, 60))
+		_place_btn(sound_btn, Vector2(W * 0.93, H * 0.06), Vector2(60, 60))
 
 		_place_lbl(lbl_mult, Vector2(W * 0.5, frame_pos.y - 84), Vector2(W, 72))
 		lbl_mult.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
