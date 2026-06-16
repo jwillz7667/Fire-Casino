@@ -70,7 +70,9 @@ CUES: list[tuple[str, str, float, bool, float]] = [
 
 HERE = Path(__file__).resolve().parent
 RAW = HERE / "raw"
-OUT = HERE / "out"
+# Converted, game-ready audio. NOT named "out/" — the repo's root .gitignore has a
+# blanket out/ rule that would swallow these committed assets.
+OUT = HERE / "cues"
 
 
 def resolve_key() -> str:
@@ -154,7 +156,9 @@ def convert(name: str, dur: float, loop: bool) -> None:
     dst = OUT / f"{name}.{ext}"
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-ar", "44100"]
     if musical:
-        cmd += ["-ac", "2", "-c:a", "libvorbis", "-q:a", "5"]
+        # Native ffmpeg "vorbis" encoder (needs -strict -2) — libvorbis isn't in
+        # every build. Godot 4.x imports .ogg Vorbis natively and loops it gaplessly.
+        cmd += ["-ac", "2", "-c:a", "vorbis", "-strict", "-2", "-b:a", "128k"]
         if dur >= 2.0:                    # normalize beds/fanfares for consistent loudness
             cmd += ["-af", "loudnorm=I=-16:TP=-1:LRA=11"]
     else:
