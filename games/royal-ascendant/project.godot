@@ -1,0 +1,35 @@
+; Royal Ascendant — landscape web slot client (server-authoritative; renders only
+; the outcome delivered by the host page over the JS bridge). GL Compatibility so it
+; runs on WebGL2 in every browser. Self-contained: all art + audio ship in this repo
+; (art/, audio/), no external asset pipeline.
+
+config_version=5
+
+[application]
+
+config/name="Royal Ascendant"
+config/version="1.0.0"
+run/main_scene="res://slot/main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://art/symbols/CHEST.png"
+boot_splash/show_image=false
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+window/handheld/orientation=0
+
+[debug]
+
+gdscript/warnings/enable=false
+gdscript/warnings/treat_warnings_as_errors=false
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/canvas_textures/default_texture_filter=1
+environment/defaults/default_clear_color=Color(0.05, 0.02, 0.04, 1)

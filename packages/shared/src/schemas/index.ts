@@ -9,5 +9,6 @@ export * from "./players";
 export * from "./realtime";
 export * from "./redemptions";
 export * from "./reports";
+export * from "./royal";
 export * from "./settings";
 export * from "./wallet";
