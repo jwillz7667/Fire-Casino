@@ -224,9 +224,25 @@ async function seedGames(): Promise<void> {
       minBetMinor: 1000n,
       maxBetMinor: 2_000_000n,
       supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 1,
+      sortOrder: 2,
       thumbnailUrl: "/games/royal-ascendant/thumb.png",
       config: { engine: "royal-ascendant", renderer: "royal-ascendant" },
+    },
+    {
+      // Third real engine: server-authoritative 5×3 / 25-payline dragon slot with a
+      // WILD dragon-crest (interior reels) and a COINS hoard scatter → rising-multiplier
+      // free spins. config.engine routes rounds to apps/api .../engines/dragon; its
+      // measured RTP is 96.0% (engines/dragon/simulate.ts).
+      code: "dragon-hoard",
+      name: "Dragon's Hoard Bonanza",
+      type: "SLOT",
+      rtpBps: 9600,
+      minBetMinor: 1000n,
+      maxBetMinor: 2_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
+      sortOrder: 1,
+      thumbnailUrl: "/games/dragon-hoard/thumb.png",
+      config: { engine: "dragon-hoard", renderer: "dragon-hoard" },
     },
     {
       code: "reef-rumble",
@@ -236,7 +252,7 @@ async function seedGames(): Promise<void> {
       minBetMinor: 100n,
       maxBetMinor: 5_000_000n,
       supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 2,
+      sortOrder: 3,
       thumbnailUrl: null,
       config: {},
     },
@@ -248,7 +264,7 @@ async function seedGames(): Promise<void> {
       minBetMinor: 500n,
       maxBetMinor: 2_000_000n,
       supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 3,
+      sortOrder: 4,
       thumbnailUrl: null,
       config: {},
     },
@@ -260,7 +276,7 @@ async function seedGames(): Promise<void> {
       minBetMinor: 100n,
       maxBetMinor: 1_000_000n,
       supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 4,
+      sortOrder: 5,
       thumbnailUrl: null,
       config: {},
     },
