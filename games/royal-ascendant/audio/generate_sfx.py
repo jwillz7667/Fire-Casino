@@ -31,8 +31,8 @@ API_URL = "https://api.elevenlabs.io/v1/sound-generation?output_format=mp3_44100
 # (name, prompt, duration_seconds, loop, prompt_influence)
 CUES: list[tuple[str, str, float, bool, float]] = [
     # --- spin & reels ---
-    ("spin_start", "Mechanical slot reels whoosh into motion, a quick rising mechanical whir with a soft golden chime accent, punchy and short, casino slot game, no music, no vocals", 0.8, False, 0.6),
-    ("spin_loop", "Seamless looping whir of spinning slot reels, smooth airy mechanical rotation with a subtle metallic shimmer, steady tempo, no music, no vocals", 2.0, True, 0.6),
+    ("spin_start", "Soft satisfying start of a casino slot machine reel spin, a smooth warm mechanical whir easing gently into motion, comforting and familiar, no harsh transient, no whoosh, no music, no vocals", 0.7, False, 0.55),
+    ("spin_loop", "Smooth hypnotic continuous whir of spinning casino slot reels, a soft warm steady mechanical hum with a gentle rolling rhythm, relaxing and familiar like a real slot machine, seamless loop, no music, no vocals", 2.5, True, 0.55),
     ("reel_stop", "Single heavy slot reel locking into place, a deep wooden-and-metal thunk with a short tail, satisfying and weighty, no music", 0.5, False, 0.6),
     ("reel_stop_b", "Single heavy slot reel locking into place, a deep wooden-and-metal thunk with a short tail, satisfying and weighty, no music", 0.5, False, 0.6),
     ("reel_stop_c", "Single heavy slot reel locking into place, a deep wooden-and-metal thunk with a short tail, satisfying and weighty, no music", 0.5, False, 0.6),
