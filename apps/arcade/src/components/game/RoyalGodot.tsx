@@ -23,11 +23,16 @@ const SAME_ORIGIN_URL = "/royal-ascendant/v5/index.html";
 export const ROYAL_GAME_URL = process.env.NEXT_PUBLIC_ROYAL_GAME_URL ?? SAME_ORIGIN_URL;
 
 const GAME_URL = ROYAL_GAME_URL;
+// Resolve a CONCRETE origin so postMessage validates by origin (not just by `source`).
+// The default is a relative same-origin path, so resolve it against the page origin;
+// an absolute NEXT_PUBLIC_ROYAL_GAME_URL keeps its own origin. SSR (no window) yields
+// "*", but the listener/post only run client-side after the module loads in the browser.
 const GAME_ORIGIN = (() => {
   try {
-    return GAME_URL ? new URL(GAME_URL).origin : "*";
+    const base = typeof window !== "undefined" ? window.location.origin : undefined;
+    return GAME_URL ? new URL(GAME_URL, base).origin : "*";
   } catch {
-    return "*"; // relative same-origin path → postMessage validates by `source`
+    return "*";
   }
 })();
 
@@ -95,26 +100,36 @@ export function RoyalGodot({
   }, [game.code, currency]);
 
   const placeBet = useCallback(
-    async (sessionId: string, betMinor: number): Promise<BetResponse> =>
+    async (sessionId: string, betMinor: number, idempotencyKey: string): Promise<BetResponse> =>
       api.post<BetResponse>(
         `/sessions/${sessionId}/bet`,
         { betMinor: String(betMinor) },
-        { idempotencyKey: newIdempotencyKey() },
+        { idempotencyKey },
       ),
     [],
   );
 
   const handleBet = useCallback(
     async (betMinor: number, reqId: string) => {
+      // One idempotency key per logical bet, REUSED on the retry. The server dedupes on
+      // round:sessionId:key, so if the first attempt committed but its response was lost,
+      // the retry collapses to the same round — never a second, independent debit.
+      const idempotencyKey = newIdempotencyKey();
       try {
-        let session = await ensureSession();
+        const session = await ensureSession();
         let result: BetResponse;
         try {
-          result = await placeBet(session.sessionId, betMinor);
+          result = await placeBet(session.sessionId, betMinor, idempotencyKey);
         } catch {
-          sessionRef.current = null;
-          session = await ensureSession();
-          result = await placeBet(session.sessionId, betMinor);
+          try {
+            // Retry the SAME (session, key) once — money-safe via server idempotency.
+            result = await placeBet(session.sessionId, betMinor, idempotencyKey);
+          } catch (retryErr) {
+            // Still failing: drop the (possibly expired) session so the next spin opens a
+            // fresh one, and surface the error instead of ever placing a new bet.
+            sessionRef.current = null;
+            throw retryErr;
+          }
         }
         balanceRef.current = result.balanceAfterMinor;
         queryClient.setQueryData<WalletResponse>(qk.wallet, (prev) =>

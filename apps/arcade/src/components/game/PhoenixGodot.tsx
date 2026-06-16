@@ -98,27 +98,36 @@ export function PhoenixGodot({
   }, [game.code, currency]);
 
   const placeBet = useCallback(
-    async (sessionId: string, betMinor: number): Promise<BetResponse> =>
+    async (sessionId: string, betMinor: number, idempotencyKey: string): Promise<BetResponse> =>
       api.post<BetResponse>(
         `/sessions/${sessionId}/bet`,
         { betMinor: String(betMinor) },
-        { idempotencyKey: newIdempotencyKey() },
+        { idempotencyKey },
       ),
     [],
   );
 
   const handleBet = useCallback(
     async (betMinor: number, reqId: string) => {
+      // One idempotency key per logical bet, REUSED on the retry. The server dedupes on
+      // round:sessionId:key, so if the first attempt committed but its response was lost,
+      // the retry collapses to the same round — never a second, independent debit.
+      const idempotencyKey = newIdempotencyKey();
       try {
-        let session = await ensureSession();
+        const session = await ensureSession();
         let result: BetResponse;
         try {
-          result = await placeBet(session.sessionId, betMinor);
+          result = await placeBet(session.sessionId, betMinor, idempotencyKey);
         } catch {
-          // Session may have ended — open a fresh one and retry once.
-          sessionRef.current = null;
-          session = await ensureSession();
-          result = await placeBet(session.sessionId, betMinor);
+          try {
+            // Retry the SAME (session, key) once — money-safe via server idempotency.
+            result = await placeBet(session.sessionId, betMinor, idempotencyKey);
+          } catch (retryErr) {
+            // Still failing: drop the (possibly expired) session so the next spin opens a
+            // fresh one, and surface the error instead of ever placing a new bet.
+            sessionRef.current = null;
+            throw retryErr;
+          }
         }
         balanceRef.current = result.balanceAfterMinor;
         queryClient.setQueryData<WalletResponse>(qk.wallet, (prev) =>
