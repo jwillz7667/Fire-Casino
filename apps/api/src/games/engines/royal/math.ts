@@ -7,6 +7,11 @@ import { type PayingSymbol, type SymbolId } from "./symbols";
  * JOKER wild, which only lands on the three interior reels (anchored wins: a run
  * must start on reel 1 and, for a 5-of-a-kind, end on reel 5 with a real symbol).
  *
+ * Tuned to a MEDIUM-volatility profile (≈27.9% hit, ≈14.7% sub-1x, 5000× cap)
+ * comparable to real sweeps slots — the low royals (TEN/J/Q) are heavy filler that
+ * pay nothing at 3-of-a-kind, the top end is rich, and the free-spins multiplier
+ * ramps ×2/spin to push variance into the tail rather than a flood of tiny wins.
+ *
  * RTP is an emergent property of these tables, MEASURED by simulate.ts and pinned
  * via PAYOUT_SCALAR_BPS (every payout scales linearly, so total RTP does too). Do
  * not infer RTP from a single constant — change a weight or pay and re-measure.
@@ -29,80 +34,87 @@ function perReel(
   }));
 }
 
-/** Base-game per-cell weights (JOKER filled per-reel by perReel). */
+/** Base-game per-cell weights (JOKER filled per-reel by perReel). Low royals are
+ *  heavy filler so wins skew toward the premiums and the feature. */
 const BASE_COMMON: Record<SymbolId, number> = {
-  QUEEN: 6,
-  CASTLE: 8,
-  SHIELD: 10,
-  A: 13,
-  K: 15,
+  QUEEN: 5,
+  CASTLE: 6,
+  SHIELD: 8,
+  A: 11,
+  K: 14,
   Q: 17,
-  J: 19,
-  TEN: 22,
+  J: 20,
+  TEN: 23,
   JOKER: 0,
-  CHEST: 5,
+  CHEST: 3,
 };
 
 /** Free-spins per-cell weights: richer highs, more wilds, rarer scatter. */
 const FREE_COMMON: Record<SymbolId, number> = {
-  QUEEN: 8,
-  CASTLE: 10,
-  SHIELD: 12,
-  A: 13,
-  K: 14,
+  QUEEN: 7,
+  CASTLE: 8,
+  SHIELD: 10,
+  A: 12,
+  K: 13,
   Q: 15,
-  J: 16,
-  TEN: 18,
+  J: 17,
+  TEN: 19,
   JOKER: 0,
-  CHEST: 4,
+  CHEST: 3,
 };
 
-export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 4);
-export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 8);
+export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3);
+export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 7);
 
-/** Pay per single way for k-of-a-kind from reel 1, in bps of total bet. */
+/** Pay per single way for k-of-a-kind from reel 1, in bps of total bet. The three
+ *  cheapest royals pay nothing at 3 (kills the sub-1x loss-disguised-as-win flood). */
 export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
-  QUEEN: { 3: 5000, 4: 18000, 5: 75000 },
-  CASTLE: { 3: 4000, 4: 15000, 5: 60000 },
-  SHIELD: { 3: 3000, 4: 12000, 5: 50000 },
-  A: { 3: 1500, 4: 5000, 5: 20000 },
-  K: { 3: 1200, 4: 4000, 5: 16000 },
-  Q: { 3: 1000, 4: 3000, 5: 12000 },
-  J: { 3: 800, 4: 2500, 5: 10000 },
-  TEN: { 3: 600, 4: 2000, 5: 8000 },
+  QUEEN: { 3: 12000, 4: 50000, 5: 250000 },
+  CASTLE: { 3: 7000, 4: 28000, 5: 140000 },
+  SHIELD: { 3: 4500, 4: 18000, 5: 90000 },
+  A: { 3: 2500, 4: 9000, 5: 40000 },
+  K: { 3: 1800, 4: 6500, 5: 28000 },
+  Q: { 3: 0, 4: 4000, 5: 16000 },
+  J: { 3: 0, 4: 2800, 5: 11000 },
+  TEN: { 3: 0, 4: 2200, 5: 9000 },
 };
 
 /** Scatter (CHEST) pays anywhere on the grid by count, in bps of total bet. */
 export const SCATTER_PAY: Record<number, number> = {
-  3: 2000,
-  4: 10000,
-  5: 50000,
+  3: 3000,
+  4: 15000,
+  5: 80000,
 };
 
 /** Minimum scatters to award free spins, and the spins granted per count. */
 export const SCATTER_TRIGGER = 3;
 export const FREE_SPINS_AWARD: Record<number, number> = {
-  3: 10,
-  4: 15,
-  5: 20,
+  3: 8,
+  4: 12,
+  5: 18,
 };
 /** A retrigger (3+ scatters during free spins) adds this many spins. */
-export const RETRIGGER_SPINS = 5;
+export const RETRIGGER_SPINS = 4;
 /** Hard cap on total free spins in one feature, so the round always terminates. */
-export const MAX_FREE_SPINS = 50;
+export const MAX_FREE_SPINS = 60;
 
 /**
- * Free-spins multiplier rises deterministically with the spin index (spin 1 = ×1,
- * spin 2 = ×2, …) and is capped. No RNG, no collectible — the ramp IS the feature.
+ * Free-spins multiplier rises deterministically ×2 per spin (spin 1 = ×1, spin 2 =
+ * ×3, spin 3 = ×5, …) and is capped. No RNG, no collectible — the ramp IS the
+ * feature, and the steeper slope concentrates volatility into the feature tail.
  */
-export const MAX_FS_MULTIPLIER = 10;
+export const MAX_FS_MULTIPLIER = 15;
+
+/** Hard per-round win cap = 5000× total bet (in bps). Bounds liability and gives
+ *  the game a headline max-win; binds ~1-in-2.5M spins so it's a real jackpot event. */
+export const MAX_WIN_BPS = 50_000_000;
 
 /**
- * Global linear RTP calibration (bps). The raw tables produce some intrinsic RTP
- * (wild substitution makes it high); this scales every payout onto the certified
- * target. CALIBRATED by simulate.ts — see that probe for the measured RTP.
+ * Global linear RTP calibration (bps). The raw tables produce some intrinsic RTP;
+ * this scales every payout onto the certified target. CALIBRATED by simulate.ts —
+ * run it after any table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 6894;
+export const PAYOUT_SCALAR_BPS = 9772;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;
