@@ -16,5 +16,6 @@ cp "$HERE/web/royal-bridge.js" "$HERE/build/royal-bridge.js"
 
 rm -rf "$DEST"; mkdir -p "$DEST"
 cp "$HERE"/build/* "$DEST"/
+rm -f "$DEST"/*.import   # Godot import metadata — not needed by the web host
 echo "staged -> $DEST"
 du -sh "$DEST"

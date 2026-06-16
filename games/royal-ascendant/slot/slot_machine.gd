@@ -19,10 +19,12 @@ const ROWS := 3
 # its opening. Insets are fractions of the frame rect — calibrated to reel_frame.png.
 const FRAME_POS := Vector2(196, 96)
 const FRAME_SIZE := Vector2(888, 494)
-const INSET_LEFT := 0.064
-const INSET_RIGHT := 0.064
-const INSET_TOP := 0.10
-const INSET_BOTTOM := 0.088
+# Measured from reel_frame.png: the 5 column centers and 3 row centers of the
+# maroon cells (gold-divider midpoints), expressed as insets of the frame rect.
+const INSET_LEFT := 0.086
+const INSET_RIGHT := 0.093
+const INSET_TOP := 0.125
+const INSET_BOTTOM := 0.093
 
 const SYMBOL_IDS := ["QUEEN", "CASTLE", "SHIELD", "A", "K", "Q", "J", "TEN", "JOKER", "CHEST"]
 const HIGH := ["QUEEN", "CASTLE", "SHIELD"]
@@ -111,7 +113,7 @@ func _compute_geometry() -> void:
 	var ih := (1.0 - INSET_TOP - INSET_BOTTOM) * FRAME_SIZE.y
 	_cell_w = iw / COLS
 	_cell_h = ih / ROWS
-	_sym_px = min(_cell_w, _cell_h) * 0.82
+	_sym_px = min(_cell_w, _cell_h) * 0.88
 
 func _reel_x(col: int) -> float:
 	return _ix + (col + 0.5) * _cell_w
