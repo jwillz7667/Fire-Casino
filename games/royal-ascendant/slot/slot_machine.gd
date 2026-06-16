@@ -224,12 +224,15 @@ func _set_bg(fs: bool) -> void:
 func _build_frame() -> void:
 	var frame_path := "res://art/ui/reel_frame.png"
 	if ResourceLoader.exists(frame_path):
-		var frame := TextureRect.new()
+		# Sprite2D (NOT TextureRect): a Control's texture min-size/anchor handling
+		# rendered the frame at the wrong rect under the web canvas stretch, so the
+		# frame and the Sprite2D symbols diverged. A Sprite2D shares the exact same
+		# canvas transform as the symbols, so they can never misalign.
+		var frame := Sprite2D.new()
 		frame.texture = load(frame_path)
-		frame.position = FRAME_POS
-		frame.size = FRAME_SIZE
-		frame.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		frame.stretch_mode = TextureRect.STRETCH_SCALE
+		frame.centered = true
+		frame.position = FRAME_POS + FRAME_SIZE * 0.5
+		frame.scale = FRAME_SIZE / frame.texture.get_size()
 		frame.z_index = 2   # backdrop: opaque maroon cells sit BEHIND the symbols
 		board.add_child(frame)
 
