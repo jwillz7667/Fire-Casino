@@ -6,12 +6,13 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { Badge, Card, CoinSpinner, EmptyState, Money, useToast } from "@aureus/ui";
-import { PHOENIX_GAME_CODE, startSessionSchema } from "@aureus/shared";
+import { PHOENIX_GAME_CODE, ROYAL_GAME_CODE, startSessionSchema } from "@aureus/shared";
 import { AppShell } from "@/components/shell/AppShell";
 import { BetControls } from "@/components/game/BetControls";
 import { OutcomeDisplay } from "@/components/game/OutcomeDisplay";
 import { PhoenixSlot } from "@/components/game/PhoenixSlot";
 import { PhoenixGodot, PHOENIX_GAME_URL } from "@/components/game/PhoenixGodot";
+import { RoyalGodot, ROYAL_GAME_URL } from "@/components/game/RoyalGodot";
 import { FairnessDrawer } from "@/components/game/FairnessDrawer";
 import { gameTypeLabel } from "@/components/game/game-meta";
 import { useAuth } from "@/lib/auth-context";
@@ -171,7 +172,10 @@ function GameScreen(): React.ReactElement {
 
   // The Godot/WASM client is a self-contained game (own reels, bet + spin UI), so
   // it replaces the generic outcome view AND the React bet controls when present.
-  const useGodot = game.code === PHOENIX_GAME_CODE && PHOENIX_GAME_URL !== "" && !selfExcluded && isActive && supportsCurrency;
+  const playable = !selfExcluded && isActive && supportsCurrency;
+  const useGodot = game.code === PHOENIX_GAME_CODE && PHOENIX_GAME_URL !== "" && playable;
+  const useRoyal = game.code === ROYAL_GAME_CODE && ROYAL_GAME_URL !== "" && playable;
+  const useAnyGodot = useGodot || useRoyal;
 
   return (
     <div className="flex flex-col gap-4">
@@ -186,13 +190,15 @@ function GameScreen(): React.ReactElement {
 
       {useGodot ? (
         <PhoenixGodot game={game} currency={currency} />
+      ) : useRoyal ? (
+        <RoyalGodot game={game} currency={currency} />
       ) : game.code === PHOENIX_GAME_CODE ? (
         <PhoenixSlot result={lastResult} currency={currency} spinning={playing} />
       ) : (
         <OutcomeDisplay result={lastResult} currency={currency} />
       )}
 
-      {useGodot ? null : selfExcluded ? (
+      {useAnyGodot ? null : selfExcluded ? (
         <GateNotice message="You've self-excluded. Play is paused. Manage this in Me → Responsible gaming." />
       ) : !isActive ? (
         <GateNotice message="This game is temporarily unavailable." />
