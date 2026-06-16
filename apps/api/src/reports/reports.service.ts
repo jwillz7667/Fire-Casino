@@ -234,6 +234,77 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Per-agent credit summary (docs/06 §3.9, R3): for every operator in the
+   * caller's subtree, its current HOLDINGS (balance) plus the credits it has SOLD
+   * to players (RECHARGE outflow) and REMOVED/burned from players (CREDIT_REMOVAL)
+   * over the range. Only stores (agents) own players, so sold/removed are non-zero
+   * only for agents; distributors still show their holdings. Holdings are the live
+   * balance; sold/removed are range-bounded (default: all time).
+   */
+  async agentSales(caller: OperatorPrincipal, query: ReportRangeQuery) {
+    const path = await this.scopedPath(caller, query.operatorId);
+    const pathPrefix = `${path}.%`;
+    const from = query.from ? new Date(query.from) : new Date(0);
+    const to = query.to ? new Date(query.to) : new Date();
+    const currency = operatorCurrency(this.env.PLATFORM_MODE);
+
+    const rows = await this.system.$queryRaw<
+      {
+        operatorId: string;
+        displayName: string;
+        tier: string;
+        holdings: bigint;
+        sold: bigint;
+        removed: bigint;
+      }[]
+    >(Prisma.sql`
+      SELECT o.id AS "operatorId", o."displayName" AS "displayName", o.tier::text AS tier,
+        COALESCE(bal."balanceMinor", 0)::bigint AS holdings,
+        COALESCE(sold.sold, 0)::bigint AS sold,
+        COALESCE(removed.removed, 0)::bigint AS removed
+      FROM operators o
+      LEFT JOIN ledger_accounts bal
+        ON bal."operatorId" = o.id AND bal."ownerType" = 'OPERATOR' AND bal.currency::text = ${currency}
+      LEFT JOIN (
+        SELECT pl."operatorId" AS opid, SUM(e."amountMinor") AS sold
+        FROM ledger_entries e
+        JOIN ledger_transactions t ON t.id = e."transactionId"
+        JOIN ledger_accounts a ON a.id = e."accountId"
+        JOIN players pl ON pl.id = a."playerId"
+        WHERE t.type = 'RECHARGE' AND e.direction = 'CREDIT' AND a."ownerType" = 'PLAYER'
+          AND e.currency::text = ${currency}
+          AND e."createdAt" >= ${from} AND e."createdAt" < ${to}
+        GROUP BY pl."operatorId"
+      ) sold ON sold.opid = o.id
+      LEFT JOIN (
+        SELECT pl."operatorId" AS opid, SUM(e."amountMinor") AS removed
+        FROM ledger_entries e
+        JOIN ledger_transactions t ON t.id = e."transactionId"
+        JOIN ledger_accounts a ON a.id = e."accountId"
+        JOIN players pl ON pl.id = a."playerId"
+        WHERE t.type = 'CREDIT_REMOVAL' AND e.direction = 'DEBIT' AND a."ownerType" = 'PLAYER'
+          AND e.currency::text = ${currency}
+          AND e."createdAt" >= ${from} AND e."createdAt" < ${to}
+        GROUP BY pl."operatorId"
+      ) removed ON removed.opid = o.id
+      WHERE (o.path = ${path} OR o.path LIKE ${pathPrefix})
+      ORDER BY sold DESC NULLS LAST, o."displayName" ASC`);
+
+    return {
+      currency,
+      items: rows.map((r) => ({
+        operatorId: r.operatorId,
+        displayName: r.displayName,
+        tier: r.tier,
+        holdingsMinor: r.holdings.toString(),
+        soldToPlayersMinor: r.sold.toString(),
+        removedFromPlayersMinor: r.removed.toString(),
+        netToPlayersMinor: (r.sold - r.removed).toString(),
+      })),
+    };
+  }
+
   /** House edge accrued from games in the subtree (docs/06 §3.9). Branch-scoped. */
   async revenue(caller: OperatorPrincipal, query: ReportRangeQuery): Promise<RevenueReport> {
     const path = await this.scopedPath(caller, query.operatorId);
@@ -371,6 +442,12 @@ export class ReportsService {
         const r = await this.playerActivity(caller, range);
         headers = ["playerId", "username", "operatorId", "rechargedMinor", "redeemedMinor", "netMinor"];
         rows = r.items.map((i) => [i.playerId, i.username, i.operatorId, i.rechargedMinor, i.redeemedMinor, i.netMinor]);
+        break;
+      }
+      case "agent-sales": {
+        const r = await this.agentSales(caller, range);
+        headers = ["operatorId", "displayName", "tier", "holdingsMinor", "soldToPlayersMinor", "removedFromPlayersMinor", "netToPlayersMinor"];
+        rows = r.items.map((i) => [i.operatorId, i.displayName, i.tier, i.holdingsMinor, i.soldToPlayersMinor, i.removedFromPlayersMinor, i.netToPlayersMinor]);
         break;
       }
       case "revenue": {

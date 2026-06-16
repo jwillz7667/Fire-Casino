@@ -26,6 +26,7 @@ export type CreditFlowQuery = z.infer<typeof creditFlowQuerySchema>;
 export const reportTypeSchema = z.enum([
   "credit-flow",
   "player-activity",
+  "agent-sales",
   "revenue",
   "margin",
   "settlement",

@@ -5,6 +5,7 @@ import {
   effectivePermissions,
   hasBasePermission,
   hasGrant,
+  isGrantablePermission,
 } from "./permissions";
 import { tierRequiresMfa } from "./enums";
 import { isInSubtree } from "./scope";
@@ -44,6 +45,17 @@ describe("permission matrix (docs/04 §3)", () => {
     expect(hasGrant(null, "credit.mint")).toBe(false);
     expect(hasGrant({}, "credit.mint")).toBe(false);
     expect(hasGrant({ permissions: ["credit.mint"] }, "credit.mint")).toBe(true);
+  });
+
+  it("player.deduct (credit removal) is an agent ability, not grantable or self-mintable", () => {
+    // Same actors as recharge: ADMIN + STORE hold it; distributors and super admin do not.
+    expect(hasBasePermission("STORE", "player.deduct")).toBe(true);
+    expect(hasBasePermission("ADMIN", "player.deduct")).toBe(true);
+    expect(hasBasePermission("DISTRIBUTOR", "player.deduct")).toBe(false);
+    expect(hasBasePermission("SUPER_ADMIN", "player.deduct")).toBe(false);
+    // Structural — cannot be conferred via a grant, and a STORE holding it still cannot mint.
+    expect(isGrantablePermission("player.deduct")).toBe(false);
+    expect(can("STORE", null, "credit.mint")).toBe(false);
   });
 
   it("effectivePermissions merges base and grants", () => {

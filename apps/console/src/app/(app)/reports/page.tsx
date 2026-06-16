@@ -4,11 +4,11 @@ import { type ReactElement, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import { exportReportSchema, type ReportType, reportTypeSchema } from "@aureus/shared";
-import { Button, EmptyState, Field, ForbiddenState, Input, Panel, SectionTitle, Skeleton, Tabs, useToast } from "@aureus/ui";
+import { Badge, Button, EmptyState, Field, ForbiddenState, Input, Money, Panel, SectionTitle, Skeleton, Tabs, useToast } from "@aureus/ui";
 import { api } from "@/lib/api";
 import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
-import type { CreditFlowReport } from "@/lib/types";
+import type { AgentSalesReport, CreditFlowReport } from "@/lib/types";
 import { errorMessage } from "@/lib/errors";
 import { PageHeader } from "@/components/page-header";
 import { CreditFlowChart } from "@/components/credit-flow-chart";
@@ -16,6 +16,7 @@ import { CreditFlowChart } from "@/components/credit-flow-chart";
 const TAB_LABELS: Record<ReportType, string> = {
   "credit-flow": "Credit flow",
   "player-activity": "Player activity",
+  "agent-sales": "Agent sales",
   revenue: "Revenue",
   margin: "Margin",
   settlement: "Settlement",
@@ -25,6 +26,7 @@ const TAB_LABELS: Record<ReportType, string> = {
 const TAB_DESCRIPTIONS: Record<ReportType, string> = {
   "credit-flow": "Issued, transferred, recharged and redeemed over time.",
   "player-activity": "Recharges, redemptions and net by player and agent.",
+  "agent-sales": "Per-agent holdings, plus credits sold and removed to players.",
   revenue: "House edge accrued to the REVENUE account by period.",
   margin: "Buy vs sell unit-price spread per node — the off-platform profit view.",
   settlement: "Outstanding cash owed up and down the chain.",
@@ -57,6 +59,21 @@ export default function ReportsPage(): ReactElement {
       return api.get<CreditFlowReport>(`/reports/credit-flow?${params.toString()}`);
     },
     enabled: canView && tab === "credit-flow",
+    retry: false,
+  });
+
+  const agentSales = useQuery({
+    queryKey: ["reports", "agent-sales", from, to],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      const f = toIso(from);
+      const t = toIso(to);
+      if (f) params.set("from", f);
+      if (t) params.set("to", t);
+      const qs = params.toString();
+      return api.get<AgentSalesReport>(`/reports/agent-sales${qs ? `?${qs}` : ""}`);
+    },
+    enabled: canView && tab === "agent-sales",
     retry: false,
   });
 
@@ -117,6 +134,50 @@ export default function ReportsPage(): ReactElement {
             <CreditFlowChart points={creditFlow.data.points} />
           ) : (
             <EmptyState title="No data" description="Adjust the date range or export to CSV." />
+          )
+        ) : tab === "agent-sales" ? (
+          agentSales.isLoading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : agentSales.data && agentSales.data.items.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-hairline text-left text-xs uppercase tracking-wide text-text-lo">
+                    <th className="py-2 pr-4 font-medium">Agent</th>
+                    <th className="py-2 pr-4 text-right font-medium">Holdings</th>
+                    <th className="py-2 pr-4 text-right font-medium">Sold to players</th>
+                    <th className="py-2 pr-4 text-right font-medium">Removed</th>
+                    <th className="py-2 text-right font-medium">Net to players</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {agentSales.data.items.map((row) => (
+                    <tr key={row.operatorId} className="border-b border-hairline/60">
+                      <td className="py-2.5 pr-4">
+                        <span className="flex items-center gap-2">
+                          <span className="text-text-hi">{row.displayName}</span>
+                          <Badge intent="info">{row.tier}</Badge>
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-right">
+                        <Money valueMinor={row.holdingsMinor} currency={agentSales.data.currency} size="sm" />
+                      </td>
+                      <td className="py-2.5 pr-4 text-right">
+                        <Money valueMinor={row.soldToPlayersMinor} currency={agentSales.data.currency} size="sm" />
+                      </td>
+                      <td className="py-2.5 pr-4 text-right">
+                        <Money valueMinor={row.removedFromPlayersMinor} currency={agentSales.data.currency} size="sm" />
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <Money valueMinor={row.netToPlayersMinor} currency={agentSales.data.currency} size="sm" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="No agents yet" description="Per-agent sales will appear once agents recharge players." />
           )
         ) : (
           <EmptyState

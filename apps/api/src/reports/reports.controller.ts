@@ -52,6 +52,16 @@ export class ReportsController {
     return this.reports.playerActivity(caller, query);
   }
 
+  /** Per-agent holdings + credits sold/removed to players (R3, docs/06 §3.9). */
+  @Get("agent-sales")
+  @RequirePermission("report.view")
+  agentSales(
+    @CurrentUser() caller: OperatorPrincipal,
+    @Query(new ZodValidationPipe(reportRangeQuerySchema)) query: ReportRangeQuery,
+  ) {
+    return this.reports.agentSales(caller, query);
+  }
+
   @Get("revenue")
   @RequirePermission("report.view")
   revenue(

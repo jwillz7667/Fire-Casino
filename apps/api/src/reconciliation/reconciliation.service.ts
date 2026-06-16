@@ -33,8 +33,9 @@ export interface TransactionLookup {
 /**
  * Expected resting sign of each system account (docs/03 §2). MINT and PROMO are
  * sources — debited to move credits out — so they trend non-positive; clearing
- * holds burned credits pending settlement and must never be negative; REVENUE,
- * ADJUSTMENT and ROUNDING can land either way.
+ * holds burned credits pending settlement and must never be negative; SINK
+ * accumulates credits removed from players and is write-only, so it only ever
+ * rises (never negative); REVENUE, ADJUSTMENT and ROUNDING can land either way.
  */
 const SYSTEM_SIGN: Record<SystemAccount, ExpectedSign> = {
   MINT: "negative",
@@ -43,6 +44,7 @@ const SYSTEM_SIGN: Record<SystemAccount, ExpectedSign> = {
   PROMO: "negative",
   ADJUSTMENT: "any",
   ROUNDING: "any",
+  SINK: "non_negative",
 };
 
 function okForSign(sign: ExpectedSign, balance: bigint): boolean {
@@ -251,6 +253,9 @@ export class ReconciliationService {
     for (const r of sysRows) {
       if (r.systemKey === "REDEMPTION_CLEARING" && r.balance < 0n) {
         problems.push(`REDEMPTION_CLEARING[${r.currency}] negative ${r.balance.toString()}`);
+      }
+      if (r.systemKey === "SINK" && r.balance < 0n) {
+        problems.push(`SINK[${r.currency}] negative ${r.balance.toString()}`);
       }
       if (r.systemKey === "MINT" && r.balance > 0n) {
         problems.push(`MINT[${r.currency}] positive ${r.balance.toString()}`);

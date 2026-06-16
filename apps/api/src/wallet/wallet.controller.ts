@@ -6,6 +6,8 @@ import {
   rechargeSchema,
   type RechargeRequestInput,
   rechargeRequestSchema,
+  type RemoveCreditsInput,
+  removeCreditsSchema,
   type WalletHistoryQuery,
   walletHistoryQuerySchema,
 } from "@aureus/shared";
@@ -44,6 +46,22 @@ export class WalletController {
     @Req() req: Request,
   ) {
     return this.wallet.recharge(caller, body, idempotencyKey, ctxOf(req));
+  }
+
+  @Post("remove")
+  @HttpCode(200)
+  @Auth("operator")
+  @UseGuards(ThrottlerGuard)
+  @Throttle(MONEY_RATE_LIMIT)
+  @RequirePermission("player.deduct")
+  @ScopeCheck({ playerIdFrom: [{ source: "body", key: "playerId" }] })
+  removeCredits(
+    @CurrentUser() caller: OperatorPrincipal,
+    @Body(new ZodValidationPipe(removeCreditsSchema)) body: RemoveCreditsInput,
+    @IdempotencyKey() idempotencyKey: string,
+    @Req() req: Request,
+  ) {
+    return this.wallet.removeCredits(caller, body, idempotencyKey, ctxOf(req));
   }
 
   @Get()

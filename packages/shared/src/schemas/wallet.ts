@@ -9,6 +9,18 @@ export const rechargeSchema = z.object({
 });
 export type RechargeInput = z.infer<typeof rechargeSchema>;
 
+/**
+ * Agent removes credits from a player's wallet (docs/03 §4.4). The amount is
+ * burned to the SINK account — the agent's balance is never credited. A reason
+ * is required because the action is irreversible and audited.
+ */
+export const removeCreditsSchema = z.object({
+  playerId: z.string().min(1),
+  amountMinor: zMinorPositive,
+  reason: z.string().min(1).max(280),
+});
+export type RemoveCreditsInput = z.infer<typeof removeCreditsSchema>;
+
 export const rechargeRequestSchema = z.object({
   amountMinor: zMinorPositive,
   note: z.string().max(280).optional(),

@@ -5,8 +5,10 @@ import {
   type Currency,
   type Env,
   isInSubtree,
+  operatorCurrency,
   type RechargeInput,
   type RechargeRequestInput,
+  type RemoveCreditsInput,
   type WalletHistoryQuery,
 } from "@aureus/shared";
 import { type OperatorPrincipal, type PlayerPrincipal } from "../common/auth/principal";
@@ -117,6 +119,67 @@ export class WalletService {
       mode: "COMPLIANCE",
       transactionId: results[0]?.transactionId,
       prizeBonusMinor: prizeBonus.toString(),
+    };
+  }
+
+  /**
+   * Agent removes credits from a player's wallet (docs/03 §4.4). The removed
+   * amount is BURNED: the player is debited and the system SINK account is
+   * credited in the same currency — the agent's own balance is never touched, so
+   * a removal can never refund or inflate the agent. The player cannot be driven
+   * negative (the ledger rejects it), so an agent can only remove up to the
+   * spendable balance it funded. Removal targets the operator-funded currency
+   * (CREDIT in OPERATOR mode, PLAY in COMPLIANCE mode); redeemable PRIZE winnings
+   * are never reachable here.
+   */
+  async removeCredits(
+    caller: OperatorPrincipal,
+    input: RemoveCreditsInput,
+    idempotencyKey: string,
+    ctx: ActionContext,
+  ) {
+    const player = await this.prisma.player.findUnique({
+      where: { id: input.playerId },
+      select: { id: true, operatorId: true, operator: { select: { path: true } } },
+    });
+    if (!player) throw new NotFoundError("Player not found");
+    // Defense-in-depth subtree check on the write path (docs/04 §7), matching recharge.
+    if (!isInSubtree(caller.path, player.operator.path)) throw new OutOfScopeError();
+
+    await this.operators.assertOperatorActionable(caller.operatorId);
+
+    const currency: Currency = operatorCurrency(this.env.PLATFORM_MODE);
+    const result = await this.ledger.post({
+      type: "CREDIT_REMOVAL",
+      currency,
+      idempotencyKey: `remove:${caller.operatorId}:${idempotencyKey}`,
+      actor: { userId: caller.userId },
+      ref: { type: "CreditRemoval", id: player.id },
+      memo: input.reason,
+      legs: [
+        { account: { kind: "player", playerId: player.id, currency }, direction: "DEBIT", amountMinor: input.amountMinor },
+        { account: { kind: "system", systemKey: "SINK", currency }, direction: "CREDIT", amountMinor: input.amountMinor },
+      ],
+    });
+
+    await this.audit.record({
+      ...auditActor(caller),
+      action: "wallet.remove",
+      targetType: "Player",
+      targetId: input.playerId,
+      after: {
+        amountMinor: input.amountMinor.toString(),
+        currency,
+        reason: input.reason,
+        transactionId: result.transactionId,
+      },
+      ...ctx,
+    });
+
+    return {
+      transactionId: result.transactionId,
+      removedMinor: input.amountMinor.toString(),
+      currency,
     };
   }
 

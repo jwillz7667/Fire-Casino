@@ -4,7 +4,7 @@ import { type ReactElement, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, KeyRound, Wallet } from "lucide-react";
+import { Ban, KeyRound, MinusCircle, Wallet } from "lucide-react";
 import {
   Badge,
   BalanceChip,
@@ -20,12 +20,14 @@ import {
 import { api, ApiError } from "@/lib/api";
 import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
+import { OPERATOR_CURRENCY } from "@/lib/platform";
 import type { Page, PlayerComplianceState, PlayerDetail, PlayerHistoryEvent } from "@/lib/types";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary } from "@/components/query-boundary";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RechargeDialog } from "@/components/players/recharge-dialog";
+import { RemoveCreditsDialog } from "@/components/players/remove-credits-dialog";
 import { ResetPasswordDialog } from "@/components/players/reset-password-dialog";
 import { formatDateTime, humanize } from "@/lib/format";
 
@@ -37,6 +39,7 @@ export default function PlayerDetailPage(): ReactElement {
   const principal = usePrincipal();
 
   const [rechargeOpen, setRechargeOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [suspendOpen, setSuspendOpen] = useState(false);
 
@@ -66,6 +69,7 @@ export default function PlayerDetailPage(): ReactElement {
   });
 
   const canRecharge = hasPermission(principal, "player.recharge");
+  const canDeduct = hasPermission(principal, "player.deduct");
   const canSuspend = hasPermission(principal, "player.suspend");
 
   const p = player.data;
@@ -93,6 +97,18 @@ export default function PlayerDetailPage(): ReactElement {
                     <Button onClick={() => { setRechargeOpen(true); }} disabled={p.status !== "ACTIVE"}>
                       <Wallet className="h-4 w-4" />
                       Recharge
+                    </Button>
+                  ) : null}
+                  {canDeduct ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => { setRemoveOpen(true); }}
+                      disabled={
+                        BigInt(p.wallets.find((w) => w.currency === OPERATOR_CURRENCY)?.balanceMinor ?? "0") <= 0n
+                      }
+                    >
+                      <MinusCircle className="h-4 w-4" />
+                      Remove credits
                     </Button>
                   ) : null}
                   {canSuspend ? (
@@ -170,6 +186,13 @@ export default function PlayerDetailPage(): ReactElement {
               onClose={() => { setRechargeOpen(false); }}
               playerId={id}
               playerUsername={p.username}
+            />
+            <RemoveCreditsDialog
+              open={removeOpen}
+              onClose={() => { setRemoveOpen(false); }}
+              playerId={id}
+              playerUsername={p.username}
+              playerWallets={p.wallets}
             />
             <ResetPasswordDialog open={resetOpen} onClose={() => { setResetOpen(false); }} playerId={id} />
             <ConfirmDialog
