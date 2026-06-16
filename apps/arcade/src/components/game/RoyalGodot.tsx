@@ -19,7 +19,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * a plain static host (Vercel) serves it — no external CDN/R2 step. The env var can
  * still override it (e.g. to move the build to a CDN later).
  */
-const SAME_ORIGIN_URL = "/royal-ascendant/v2/index.html";
+const SAME_ORIGIN_URL = "/royal-ascendant/v3/index.html";
 export const ROYAL_GAME_URL = process.env.NEXT_PUBLIC_ROYAL_GAME_URL ?? SAME_ORIGIN_URL;
 
 const GAME_URL = ROYAL_GAME_URL;

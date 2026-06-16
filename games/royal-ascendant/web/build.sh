@@ -7,7 +7,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # games/royal-ascendant
 REPO="$(cd "$HERE/../.." && pwd)"
 GODOT="${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}"
-DEST="$REPO/apps/arcade/public/royal-ascendant/v2"
+DEST="$REPO/apps/arcade/public/royal-ascendant/v3"
 
 "$GODOT" --headless --path "$HERE" --import
 mkdir -p "$HERE/build"
