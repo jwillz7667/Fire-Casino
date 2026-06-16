@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,7 +19,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * a plain static host (Vercel) serves it — no external CDN/R2 step. The env var can
  * still override it (e.g. to move the build to a CDN later).
  */
-const SAME_ORIGIN_URL = "/royal-ascendant/v1/index.html";
+const SAME_ORIGIN_URL = "/royal-ascendant/v2/index.html";
 export const ROYAL_GAME_URL = process.env.NEXT_PUBLIC_ROYAL_GAME_URL ?? SAME_ORIGIN_URL;
 
 const GAME_URL = ROYAL_GAME_URL;
@@ -49,6 +49,37 @@ export function RoyalGodot({
   const wallet = useWallet();
   const sessionRef = useRef<StartSessionResponse | null>(null);
   const balanceRef = useRef<string>("0");
+
+  // The game is landscape (1280×720). On a portrait phone, fitting 16:9 into a tall
+  // screen leaves huge black bars, so rotate the iframe 90° to fill the long axis
+  // (the player turns the phone to play). In landscape it fills upright.
+  const [frameStyle, setFrameStyle] = useState<React.CSSProperties>({ width: "100%", height: "100%" });
+  useEffect(() => {
+    function apply(): void {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      if (h > w) {
+        setFrameStyle({
+          position: "absolute",
+          width: `${h}px`,
+          height: `${w}px`,
+          left: `${(w - h) / 2}px`,
+          top: `${(h - w) / 2}px`,
+          transform: "rotate(90deg)",
+          transformOrigin: "center center",
+        });
+      } else {
+        setFrameStyle({ width: "100%", height: "100%", transform: "none" });
+      }
+    }
+    apply();
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
+    };
+  }, []);
 
   const sendInitRef = useRef<() => void>(() => {});
 
@@ -161,14 +192,15 @@ export function RoyalGodot({
   // Full-screen overlay: the Godot canvas fills the viewport and its stretch system
   // letterboxes the 1280×720 landscape design to fit.
   return (
-    <div className="fixed inset-0 z-50 bg-black">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-black">
       <iframe
         ref={iframeRef}
         src={GAME_URL}
         onLoad={sendInit}
         title="Royal Ascendant"
         allow="autoplay; fullscreen"
-        className="h-full w-full border-0"
+        className="border-0"
+        style={frameStyle}
       />
       <Link
         href="/"

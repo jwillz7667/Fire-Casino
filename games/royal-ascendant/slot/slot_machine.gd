@@ -79,6 +79,8 @@ var max_bet := 2000000
 var currency := "CREDIT"
 var busy := false
 var bridge = null
+var _bet_cb = null             # MUST stay referenced or Godot GCs the JS callback
+                               # before the bet reply fires (→ reels spin forever)
 
 var BET_STEPS := [1000, 5000, 10000, 50000, 100000, 250000, 500000, 1000000]
 
@@ -318,8 +320,8 @@ func request_spin() -> void:
 	for col in COLS:
 		reels[col].state = "spin"
 	if bridge != null:
-		var cb := JavaScriptBridge.create_callback(_on_bridge_result)
-		bridge.placeBet(bet_minor, cb)
+		_bet_cb = JavaScriptBridge.create_callback(_on_bridge_result)
+		bridge.placeBet(bet_minor, _bet_cb)
 	else:
 		await get_tree().create_timer(0.9).timeout
 		_resolve(_mock_outcome())
