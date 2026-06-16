@@ -1,14 +1,12 @@
-# Keep the Vercel deploy archive small: upload only what the Next.js arcade build needs
-# (apps/* + packages/*). The Godot games are served from Cloudflare R2 (Phoenix, Dragon)
-# or apps/arcade/public (Royal), so their sources, raw art, and build caches must NOT be
-# bundled into the deployment upload.
-games/
-Dragon-icons/
-slot-icons/
-docs/
+# Keep the Vercel deploy archive small: upload only what the Next.js arcade build needs.
+# The Godot games are served from Cloudflare R2 (Phoenix, Royal, Dragon), so their
+# sources, raw art, and caches must NOT be bundled. Patterns are ANCHORED with a leading
+# slash so they match ONLY the repo-root dirs — an unanchored `games/` would also match
+# apps/arcade/public/games/ (the lobby thumbnails) and 404 them.
+/games/
+/Dragon-icons/
+/slot-icons/
+/docs/
 /Screenshot*.png
 **/.godot/
-**/node_modules/
-.git/
-.turbo/
 **/.next/cache/
