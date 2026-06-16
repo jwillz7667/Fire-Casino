@@ -14,13 +14,15 @@ import { qk } from "@/lib/queries";
 import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from "@/lib/types";
 
 /**
- * Hosted Godot/WASM build, served SAME-ORIGIN from the arcade's own static dir
- * (public/royal-ascendant/v1). The `nothreads` export needs no COOP/COEP headers, so
- * a plain static host (Vercel) serves it — no external CDN/R2 step. The env var can
- * still override it (e.g. to move the build to a CDN later).
+ * Hosted Godot/WASM build on public Cloudflare R2 (bucket `goldwave`, prefix
+ * royal-ascendant/v5) — the ~49MB build is served from R2 (like Phoenix and Dragon),
+ * not bundled into the Vercel deploy. The `nothreads` export needs no COOP/COEP
+ * headers. NEXT_PUBLIC_ROYAL_GAME_URL overrides it. Re-upload via the game's build.sh
+ * and bump the version prefix per rebuild.
  */
-const SAME_ORIGIN_URL = "/royal-ascendant/v5/index.html";
-export const ROYAL_GAME_URL = process.env.NEXT_PUBLIC_ROYAL_GAME_URL ?? SAME_ORIGIN_URL;
+const R2_GAME_URL =
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/royal-ascendant/v5/index.html";
+export const ROYAL_GAME_URL = process.env.NEXT_PUBLIC_ROYAL_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = ROYAL_GAME_URL;
 // Resolve a CONCRETE origin so postMessage validates by origin (not just by `source`).

@@ -42,3 +42,5 @@ Thumbs.db
 
 # Dragon's Hoard Godot build is served from Cloudflare R2, not committed.
 apps/arcade/public/dragon-hoard/
+# Royal Ascendant Godot build is served from Cloudflare R2, not committed.
+apps/arcade/public/royal-ascendant/
