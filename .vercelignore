@@ -1,0 +1,14 @@
+# Keep the Vercel deploy archive small: upload only what the Next.js arcade build needs
+# (apps/* + packages/*). The Godot games are served from Cloudflare R2 (Phoenix, Dragon)
+# or apps/arcade/public (Royal), so their sources, raw art, and build caches must NOT be
+# bundled into the deployment upload.
+games/
+Dragon-icons/
+slot-icons/
+docs/
+/Screenshot*.png
+**/.godot/
+**/node_modules/
+.git/
+.turbo/
+**/.next/cache/

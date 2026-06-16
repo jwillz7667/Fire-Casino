@@ -14,13 +14,15 @@ import { qk } from "@/lib/queries";
 import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from "@/lib/types";
 
 /**
- * Hosted Godot/WASM build, served SAME-ORIGIN from the arcade's own static dir
- * (public/dragon-hoard/v1). The `nothreads` export needs no COOP/COEP headers, so a
- * plain static host (Vercel) serves it — no external CDN/R2 step. The env var can still
- * override it (e.g. to move the build to a CDN later).
+ * Hosted Godot/WASM build on public Cloudflare R2 (bucket `goldwave`, prefix
+ * dragon-hoard/v1) — the ~46MB build is too large to bundle into the Vercel deploy, so
+ * it is served from R2 like Phoenix. The `nothreads` export needs no COOP/COEP headers.
+ * NEXT_PUBLIC_DRAGON_GAME_URL overrides it (e.g. a different CDN or a local build).
+ * Re-upload with games/dragon-hoard/web/build.sh (bump the version prefix per rebuild).
  */
-const SAME_ORIGIN_URL = "/dragon-hoard/v1/index.html";
-export const DRAGON_GAME_URL = process.env.NEXT_PUBLIC_DRAGON_GAME_URL ?? SAME_ORIGIN_URL;
+const R2_GAME_URL =
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/dragon-hoard/v1/index.html";
+export const DRAGON_GAME_URL = process.env.NEXT_PUBLIC_DRAGON_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = DRAGON_GAME_URL;
 // Resolve a CONCRETE origin so postMessage validates by origin (not just by `source`).

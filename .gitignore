@@ -37,3 +37,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.pem
+.vercel
+.env*.local
+
+# Dragon's Hoard Godot build is served from Cloudflare R2, not committed.
+apps/arcade/public/dragon-hoard/
