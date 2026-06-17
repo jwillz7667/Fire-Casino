@@ -44,3 +44,6 @@ Thumbs.db
 apps/arcade/public/dragon-hoard/
 # Royal Ascendant Godot build is served from Cloudflare R2, not committed.
 apps/arcade/public/royal-ascendant/
+
+# Raw ElevenLabs mp3 intermediate for the lobby loop (regenerable; the .mp3 is committed).
+apps/arcade/public/audio/raw/
