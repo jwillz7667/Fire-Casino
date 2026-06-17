@@ -33,7 +33,7 @@ export class SessionsController {
     @Body(new ZodValidationPipe(placeBetSchema)) body: PlaceBetInput,
     @IdempotencyKey() idempotencyKey: string,
   ) {
-    return this.games.placeBet(player, id, body.betMinor, idempotencyKey);
+    return this.games.placeBet(player, id, body.betMinor, idempotencyKey, body.params ?? {});
   }
 
   @Post(":id/end")

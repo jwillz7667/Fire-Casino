@@ -157,7 +157,13 @@ export class GamesService {
   }
 
   /** Server-authoritative round (docs/05 §10). Idempotent per client bet key. */
-  async placeBet(player: PlayerPrincipal, sessionId: string, betMinor: bigint, idemKey: string) {
+  async placeBet(
+    player: PlayerPrincipal,
+    sessionId: string,
+    betMinor: bigint,
+    idemKey: string,
+    params: Record<string, unknown> = {},
+  ) {
     const betKey = `round:${sessionId}:${idemKey}`;
 
     const existing = await this.prisma.gameRound.findUnique({ where: { idempotencyKey: betKey } });
@@ -194,7 +200,9 @@ export class GamesService {
             nonce: (max._max.nonce ?? 0) + 1,
             betMinor,
             winMinor: 0n,
-            outcome: { kind: "pending" },
+            // Stash the bet params on the pending shell so whichever request finalizes the
+            // round (incl. an idempotent retry) runs the engine with the SAME inputs.
+            outcome: { kind: "pending", params } as Prisma.InputJsonObject,
             idempotencyKey: betKey,
           },
         });
@@ -287,6 +295,8 @@ export class GamesService {
       ],
     });
 
+    const betParams =
+      (round.outcome as { params?: Record<string, unknown> } | null)?.params ?? {};
     const result = this.provider.play({
       sessionId: round.sessionId,
       gameCode: session.game.code,
@@ -298,6 +308,7 @@ export class GamesService {
       clientSeed: session.clientSeed ?? "",
       nonce: round.nonce,
       config: session.game.config as Record<string, unknown>,
+      params: betParams,
     });
 
     let winTxId: string | undefined;

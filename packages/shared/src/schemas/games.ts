@@ -42,5 +42,8 @@ export type StartSessionInput = z.infer<typeof startSessionSchema>;
 
 export const placeBetSchema = z.object({
   betMinor: zMinorPositive,
+  // Optional game-specific bet parameters (e.g. Fortune Wheel risk, Plinko rows). Each
+  // engine validates/sanitizes what it needs; unknown games ignore it.
+  params: z.record(z.string(), z.unknown()).optional(),
 });
 export type PlaceBetInput = z.infer<typeof placeBetSchema>;

@@ -42,6 +42,7 @@ describe("PlaceholderRgsProvider — honors RTP over many rounds", () => {
         clientSeed: "c",
         nonce,
         config: {},
+        params: {},
       };
       const result = provider.play(req);
       totalWin += result.winMinor;
@@ -72,6 +73,7 @@ describe("PlaceholderRgsProvider — honors RTP over many rounds", () => {
       clientSeed: "y",
       nonce: 7,
       config: {},
+      params: {},
     });
     expect(result.outcome.demo).toBe(true);
     expect(result.winMinor >= 0n).toBe(true);

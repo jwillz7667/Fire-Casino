@@ -12,6 +12,9 @@ export interface RoundRequest {
   clientSeed: string;
   nonce: number;
   config: Record<string, unknown>;
+  /** Per-bet, game-specific parameters (e.g. wheel risk, plinko rows). Defaults to {}.
+   *  Engines read only what they need; the round persists these so retries are stable. */
+  params: Record<string, unknown>;
 }
 
 /** The outcome the server decides. The client never computes a win. */
