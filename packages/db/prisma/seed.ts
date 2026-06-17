@@ -259,42 +259,9 @@ async function seedGames(): Promise<void> {
       thumbnailUrl: "/games/dragon-hoard/thumb.png",
       config: { engine: "dragon-hoard", renderer: "dragon-hoard" },
     },
-    {
-      code: "reef-rumble",
-      name: "Reef Rumble",
-      type: "FISH",
-      rtpBps: 9400,
-      minBetMinor: 100n,
-      maxBetMinor: 5_000_000n,
-      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 3,
-      thumbnailUrl: null,
-      config: {},
-    },
-    {
-      code: "golden-depths",
-      name: "Golden Depths",
-      type: "SLOT",
-      rtpBps: 9600,
-      minBetMinor: 500n,
-      maxBetMinor: 2_000_000n,
-      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 4,
-      thumbnailUrl: null,
-      config: {},
-    },
-    {
-      code: "lumen-keno",
-      name: "Lumen Keno",
-      type: "KENO",
-      rtpBps: 9200,
-      minBetMinor: 100n,
-      maxBetMinor: 1_000_000n,
-      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 5,
-      thumbnailUrl: null,
-      config: {},
-    },
+    // The placeholder catalog games (reef-rumble / golden-depths / lumen-keno) were
+    // removed — only real, server-authoritative games ship. Any existing rows are set
+    // to HIDDEN by migration 20260617150000_hide_placeholder_games.
   ];
   for (const g of games) {
     await prisma.game.upsert({
