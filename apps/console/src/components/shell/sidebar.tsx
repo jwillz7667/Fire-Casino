@@ -5,11 +5,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import type { OperatorSummary } from "@aureus/shared";
-import { CoinMark, ScopeIndicator, cn } from "@aureus/ui";
+import { ScopeIndicator, cn } from "@aureus/ui";
 import { api } from "@/lib/api";
 import type { Page, RedemptionQueueItem } from "@/lib/types";
 import type { CreditOrder } from "@/lib/types";
 import { hasPermission } from "@/lib/permissions";
+import { BrandLogo } from "./brand-logo";
 import { NAV_ITEMS, type NavBadge } from "./nav-config";
 
 function useBadgeCounts(principal: OperatorSummary): Record<NavBadge, number> {
@@ -42,7 +43,7 @@ export function Sidebar({ principal }: { principal: OperatorSummary }): ReactEle
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-hairline bg-surface-1">
       <div className="flex items-center gap-2.5 px-4 py-4">
-        <CoinMark size="md" glow />
+        <BrandLogo size="md" glow priority />
         <span className="font-display text-lg font-semibold text-text-hi">Goldwave</span>
       </div>
 

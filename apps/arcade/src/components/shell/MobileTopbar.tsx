@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { CircleUserRound } from "lucide-react";
-import { BalanceChip, CoinMark, Skeleton } from "@aureus/ui";
+import { BalanceChip, Skeleton } from "@aureus/ui";
 import { walletCurrencies } from "@aureus/shared";
 import { useAuth } from "@/lib/auth-context";
 import { useWallet } from "@/lib/hooks";
 import { balanceFor, currencyLabel } from "@/lib/mode";
+import { BrandLogo } from "./BrandLogo";
 import { LobbyMusic } from "./LobbyMusic";
 
 /** Always-visible balance + profile (docs/07 §1). Dual PLAY/PRIZE in compliance. */
@@ -26,7 +27,7 @@ export function MobileTopbar(): React.ReactElement {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-hairline bg-trench/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-trench/80">
       <Link href="/" className="flex items-center gap-2" aria-label="Goldwave Casino home">
-        <CoinMark size="md" glow />
+        <BrandLogo size="md" glow priority />
         <span className="font-display text-lg font-semibold text-gold-light">Goldwave</span>
       </Link>
 

@@ -2,11 +2,12 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, CoinMark, CoinSpinner, Field, Input, RegionBlockedState } from "@aureus/ui";
+import { Button, Card, CoinSpinner, Field, Input, RegionBlockedState } from "@aureus/ui";
 import { playerLoginSchema } from "@aureus/shared";
 import { useAuth } from "@/lib/auth-context";
 import { ERROR_CODES, isErrorCode, messageForError } from "@/lib/errors";
 import { ChangePasswordForm } from "@/components/account/ChangePasswordForm";
+import { BrandLogo } from "@/components/shell/BrandLogo";
 
 const AGE_KEY = "aureus.age_confirmed";
 const pwAckKey = (playerId: string): string => `aureus.pw_ack.${playerId}`;
@@ -94,7 +95,7 @@ export default function LoginPage(): React.ReactElement {
   return (
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col justify-center gap-6 px-6 py-10">
       <div className="flex flex-col items-center gap-3 text-center">
-        <CoinMark size="xl" glow />
+        <BrandLogo size="xl" glow priority />
         <h1 className="font-display text-4xl font-semibold text-gold-light">Goldwave Casino</h1>
         <p className="text-sm text-text-mid">
           {phase === "force-pw"
@@ -156,7 +157,7 @@ export default function LoginPage(): React.ReactElement {
 function AgeGate({ onConfirm }: { onConfirm: () => void }): React.ReactElement {
   return (
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col items-center justify-center gap-6 px-6 text-center">
-      <CoinMark size="xl" variant="ember" glow />
+      <BrandLogo size="xl" glow />
       <h1 className="font-display text-3xl font-semibold text-text-hi">Are you 21 or older?</h1>
       <p className="max-w-xs text-sm text-text-mid">
         You must be 21+ to play. By continuing you confirm you meet the age requirement in your

@@ -4,10 +4,11 @@ import { type ReactElement, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { operatorLoginSchema } from "@aureus/shared";
-import { Button, Card, CoinMark, Field, Input } from "@aureus/ui";
+import { Button, Card, Field, Input } from "@aureus/ui";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { errorMessage } from "@/lib/errors";
+import { BrandLogo } from "@/components/shell/brand-logo";
 
 export default function LoginPage(): ReactElement {
   const router = useRouter();
@@ -60,7 +61,7 @@ export default function LoginPage(): ReactElement {
     <main className="flex min-h-screen items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <CoinMark size="xl" glow />
+          <BrandLogo size="xl" glow priority />
           <h1 className="font-display text-3xl font-semibold text-text-hi">Goldwave Console</h1>
           <p className="text-sm text-text-mid">Sign in to your operator account.</p>
         </div>
