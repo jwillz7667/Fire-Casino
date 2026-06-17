@@ -268,10 +268,14 @@ func _apply_layout() -> void:
 	if hub_spr and hub_spr.texture:
 		hub_spr.scale = Vector2.ONE * (wheel_radius * 0.52 / hub_spr.texture.get_width())
 	if pointer_spr and pointer_spr.texture:
-		var ph := wheel_radius * 0.5
+		# Anchor the pointer's TOP at the rim's top edge and its TIP into the wedge ring,
+		# so the whole pointer sits ON the wheel (no floating above) while clearly marking
+		# the winning segment.
+		var top_d := rim_outer_r              # pointer top = rim outer edge
+		var tip_d := wheel_radius * 0.80      # pointer tip dips into the wedges
+		var ph := top_d - tip_d
 		pointer_spr.scale = Vector2.ONE * (ph / pointer_spr.texture.get_height())
-		# Sit at the very top of the rim, tip dipping into the wedges.
-		pointer_spr.position = wheel_center + Vector2(0, -rim_outer_r - ph * 0.5 + ph * 0.62)
+		pointer_spr.position = Vector2(wheel_center.x, wheel_center.y - (top_d + tip_d) * 0.5)
 	_layout_hud()
 
 # ------------------------------------------------------------------------ HUD

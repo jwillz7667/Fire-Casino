@@ -20,7 +20,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * web/build.sh (bump the version prefix per rebuild).
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/fortune-wheel/v1/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/fortune-wheel/v2/index.html";
 export const WHEEL_GAME_URL = process.env.NEXT_PUBLIC_WHEEL_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = WHEEL_GAME_URL;
