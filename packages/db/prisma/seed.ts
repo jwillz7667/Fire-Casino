@@ -188,7 +188,7 @@ async function seedGames(): Promise<void> {
   const games: {
     code: string;
     name: string;
-    type: "FISH" | "SLOT" | "KENO";
+    type: "FISH" | "SLOT" | "KENO" | "TABLE" | "OTHER";
     rtpBps: number;
     minBetMinor: bigint;
     maxBetMinor: bigint;
@@ -197,6 +197,21 @@ async function seedGames(): Promise<void> {
     thumbnailUrl: string | null;
     config: Prisma.InputJsonObject;
   }[] = [
+    {
+      // First "originals" game: a provably-fair 30-segment Fortune Wheel with selectable
+      // risk (LOW/MEDIUM/HIGH). config.engine routes rounds to apps/api .../engines/wheel;
+      // each risk layout means 0.96 (96% RTP). Godot client on R2, served via WheelGodot.
+      code: "fortune-wheel",
+      name: "Fortune Wheel",
+      type: "OTHER",
+      rtpBps: 9600,
+      minBetMinor: 1000n,
+      maxBetMinor: 2_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
+      sortOrder: 0,
+      thumbnailUrl: "/games/fortune-wheel/thumb.png",
+      config: { engine: "fortune-wheel", renderer: "fortune-wheel" },
+    },
     {
       // The one real engine: server-authoritative 5×3 / 243-ways slot. config.engine
       // routes rounds to the Phoenix math (apps/api .../engines/phoenix); its measured
@@ -208,7 +223,7 @@ async function seedGames(): Promise<void> {
       minBetMinor: 1000n,
       maxBetMinor: 2_000_000n,
       supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
-      sortOrder: 0,
+      sortOrder: 1,
       thumbnailUrl: "/games/phoenix-ascendant/thumb.png",
       config: { engine: "phoenix-ascendant", renderer: "phoenix-ascendant" },
     },

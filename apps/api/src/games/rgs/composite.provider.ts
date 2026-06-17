@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { DRAGON_ENGINE, DragonHoardProvider } from "../engines/dragon/dragon.provider";
 import { PHOENIX_ENGINE, PhoenixAscendantProvider } from "../engines/phoenix/phoenix.provider";
 import { ROYAL_ENGINE, RoyalAscendantProvider } from "../engines/royal/royal.provider";
+import { WHEEL_ENGINE, FortuneWheelProvider } from "../engines/wheel/wheel.provider";
 import { PlaceholderRgsProvider } from "./placeholder.provider";
 import { type GameProvider, type RoundRequest, type RoundResult } from "./provider";
 
@@ -20,11 +21,13 @@ export class CompositeGameProvider implements GameProvider {
     phoenix: PhoenixAscendantProvider,
     royal: RoyalAscendantProvider,
     dragon: DragonHoardProvider,
+    wheel: FortuneWheelProvider,
   ) {
     this.engines = {
       [PHOENIX_ENGINE]: phoenix,
       [ROYAL_ENGINE]: royal,
       [DRAGON_ENGINE]: dragon,
+      [WHEEL_ENGINE]: wheel,
     };
   }
 

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://d8fortunewheelmain0"]
+
+[ext_resource type="Script" path="res://slot/wheel_machine.gd" id="1_wheel"]
+
+[node name="WheelMachine" type="Node2D"]
+script = ExtResource("1_wheel")

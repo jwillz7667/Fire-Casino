@@ -13,3 +13,4 @@ export * from "./reports";
 export * from "./royal";
 export * from "./settings";
 export * from "./wallet";
+export * from "./wheel";

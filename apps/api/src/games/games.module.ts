@@ -5,6 +5,7 @@ import { GamesService } from "./games.service";
 import { DragonHoardProvider } from "./engines/dragon/dragon.provider";
 import { PhoenixAscendantProvider } from "./engines/phoenix/phoenix.provider";
 import { RoyalAscendantProvider } from "./engines/royal/royal.provider";
+import { FortuneWheelProvider } from "./engines/wheel/wheel.provider";
 import { CompositeGameProvider } from "./rgs/composite.provider";
 import { PlaceholderRgsProvider } from "./rgs/placeholder.provider";
 import { GAME_PROVIDER } from "./rgs/provider";
@@ -22,6 +23,7 @@ import { GAME_PROVIDER } from "./rgs/provider";
     PhoenixAscendantProvider,
     RoyalAscendantProvider,
     DragonHoardProvider,
+    FortuneWheelProvider,
     { provide: GAME_PROVIDER, useClass: CompositeGameProvider },
   ],
   exports: [GamesService],
