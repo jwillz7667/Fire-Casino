@@ -7,6 +7,7 @@ import { walletCurrencies } from "@aureus/shared";
 import { useAuth } from "@/lib/auth-context";
 import { useWallet } from "@/lib/hooks";
 import { balanceFor, currencyLabel } from "@/lib/mode";
+import { LobbyMusic } from "./LobbyMusic";
 
 /** Always-visible balance + profile (docs/07 §1). Dual PLAY/PRIZE in compliance. */
 export function MobileTopbar(): React.ReactElement {
@@ -35,6 +36,7 @@ export function MobileTopbar(): React.ReactElement {
         ) : (
           <BalanceChip balances={balances} size="sm" />
         )}
+        <LobbyMusic />
         <Link
           href="/me"
           aria-label="Account"
