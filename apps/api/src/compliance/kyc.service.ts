@@ -140,6 +140,31 @@ export class KycService {
     return this.storage.presignUpload("kyc", `players/${playerId}`, input.filename);
   }
 
+  /**
+   * Time-limited signed read of a player's KYC document for a privileged
+   * reviewer (docs/05 §8). The key is recovered from the stored URL and must
+   * resolve to this player's own folder in our `kyc` bucket — so a tampered
+   * documentUrl can never presign someone else's object. Audited as a view.
+   */
+  async previewDocument(caller: OperatorPrincipal, playerId: string, ctx: ActionContext) {
+    await this.assertPlayerInSubtree(caller, playerId);
+    const record = await this.prisma.kycRecord.findUnique({ where: { playerId } });
+    if (!record?.documentUrl) throw new NotFoundError("No KYC document on file");
+    const key = this.storage.keyFromFileUrl("kyc", record.documentUrl);
+    if (!key || !key.startsWith(`players/${playerId}/`)) {
+      throw new NotFoundError("KYC document is not available for preview");
+    }
+    const url = this.storage.presignDownload("kyc", key);
+    await this.audit.record({
+      ...auditActor(caller),
+      action: "kyc.document_view",
+      targetType: "KycRecord",
+      targetId: record.id,
+      ...ctx,
+    });
+    return { url, expiresInSeconds: 300 };
+  }
+
   // ---- internals -------------------------------------------------------------
 
   private async assertActorScope(actor: Principal, playerId: string): Promise<void> {

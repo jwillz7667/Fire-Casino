@@ -13,17 +13,6 @@ import { errorMessage } from "@/lib/errors";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatDate } from "@/lib/format";
 
-/** Only http(s) URLs are safe to render into an href (defense-in-depth vs the API). */
-function isHttpUrl(value: string | null | undefined): value is string {
-  if (!value) return false;
-  try {
-    const proto = new URL(value).protocol;
-    return proto === "http:" || proto === "https:";
-  } catch {
-    return false;
-  }
-}
-
 export function KycQueue(): ReactElement {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -37,6 +26,32 @@ export function KycQueue(): ReactElement {
     api.get<Page<KycQueueItem>>(`/compliance/kyc/queue?limit=50${cursor ? `&cursor=${cursor}` : ""}`),
     { enabled: canManage },
   );
+
+  // The stored documentUrl is a private object — view it through a short-lived
+  // signed GET. Open the tab synchronously (avoids popup blockers), then redirect
+  // it to the signed URL once the API returns it.
+  const previewDoc = useMutation({
+    mutationFn: (playerId: string) =>
+      api.get<{ url: string; expiresInSeconds: number }>(`/compliance/players/${playerId}/kyc/document`),
+    onError: (err) => {
+      toast.push({ title: "Preview failed", description: errorMessage(err), intent: "danger" });
+    },
+  });
+
+  const openDoc = (playerId: string) => {
+    const win = window.open("about:blank", "_blank");
+    previewDoc.mutate(playerId, {
+      onSuccess: (data) => {
+        if (win) {
+          win.opener = null;
+          win.location.replace(data.url);
+        } else {
+          window.open(data.url, "_blank", "noopener,noreferrer");
+        }
+      },
+      onError: () => { win?.close(); },
+    });
+  };
 
   const decide = useMutation({
     mutationFn: (input: { playerId: string; decision: "VERIFIED" | "REJECTED"; reason?: string }) =>
@@ -65,15 +80,15 @@ export function KycQueue(): ReactElement {
       key: "doc",
       header: "Document",
       render: (k) =>
-        isHttpUrl(k.documentUrl) ? (
-          <a
-            href={k.documentUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-lumen hover:underline"
+        k.documentUrl ? (
+          <button
+            type="button"
+            onClick={() => { openDoc(k.playerId); }}
+            disabled={previewDoc.isPending}
+            className="inline-flex items-center gap-1 text-lumen hover:underline disabled:opacity-50"
           >
             View <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+          </button>
         ) : (
           "—"
         ),

@@ -60,6 +60,28 @@ export class StorageService {
     return { key, uploadUrl, fileUrl };
   }
 
+  /**
+   * Recover the object key from a stored file URL, but only if it points at our
+   * configured storage (the R2 host or the dev stub) and the named bucket. Used
+   * to presign a read for a document we previously stored a canonical URL for.
+   * Returns null for any URL we don't own — never presign an arbitrary host.
+   */
+  keyFromFileUrl(bucket: "assets" | "kyc", fileUrl: string): string | null {
+    let parsed: URL;
+    try {
+      parsed = new URL(fileUrl);
+    } catch {
+      return null;
+    }
+    const ownHost =
+      parsed.hostname === "r2.stub.local" || parsed.hostname.endsWith(".r2.cloudflarestorage.com");
+    if (!ownHost) return null;
+    const prefix = `/${this.bucketName(bucket)}/`;
+    if (!parsed.pathname.startsWith(prefix)) return null;
+    const key = decodeURIComponent(parsed.pathname.slice(prefix.length));
+    return key.length > 0 ? key : null;
+  }
+
   /** Time-limited signed GET so privileged reviewers can view a private object (KYC docs). */
   presignDownload(bucket: "assets" | "kyc", key: string): string {
     const bucketName = this.bucketName(bucket);

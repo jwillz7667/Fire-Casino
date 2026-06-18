@@ -298,6 +298,18 @@ export class ComplianceController {
     return this.kyc.presignDoc(caller, id, body);
   }
 
+  @Get("players/:id/kyc/document")
+  @Auth("operator")
+  @RequirePermission("compliance.manage")
+  @ScopeCheck(SCOPE_PLAYER_ID)
+  previewPlayerKycDoc(
+    @CurrentUser() caller: OperatorPrincipal,
+    @Param("id") id: string,
+    @Req() req: Request,
+  ) {
+    return this.kyc.previewDocument(caller, id, ctxOf(req));
+  }
+
   @Post("players/:id/kyc/decision")
   @HttpCode(200)
   @Auth("operator")
