@@ -54,7 +54,7 @@ export class ComplianceService {
     opts: GateContext & { amountMinor?: bigint } = {},
   ): Promise<void> {
     await this.assertPlayerActionable(playerId);
-    this.assertRegionAllowed(opts.region);
+    await this.assertRegionAllowed(opts.region);
     if (opts.amountMinor !== undefined) {
       await this.assertRgLimit(playerId, "DEPOSIT", opts.amountMinor);
     }
@@ -66,7 +66,7 @@ export class ComplianceService {
     opts: GateContext & { betMinor?: bigint } = {},
   ): Promise<void> {
     await this.assertPlayerActionable(playerId);
-    this.assertRegionAllowed(opts.region);
+    await this.assertRegionAllowed(opts.region);
     await this.assertSessionTime(playerId);
     if (opts.betMinor !== undefined) {
       await this.assertRgLimit(playerId, "WAGER", opts.betMinor);
@@ -85,14 +85,14 @@ export class ComplianceService {
     opts: GateContext = {},
   ): Promise<void> {
     await this.assertPlayerActionable(playerId);
-    this.assertRegionAllowed(opts.region);
+    await this.assertRegionAllowed(opts.region);
     await this.assertKycForAmount(playerId, amountMinor);
     await this.assertNoOpenAml(playerId);
   }
 
   /** Gate on login (docs/04 §2, docs/07 §2.1): region must be allowed. */
-  checkLogin(region?: string): void {
-    this.assertRegionAllowed(region);
+  async checkLogin(region?: string): Promise<void> {
+    await this.assertRegionAllowed(region);
   }
 
   /** Shared: the player exists, is ACTIVE, and is not under an active self-exclusion. */
@@ -175,12 +175,15 @@ export class ComplianceService {
 
   // ---- internals -------------------------------------------------------------
 
-  private assertRegionAllowed(region?: string): void {
-    // Region enforcement is best-effort: it only applies when the caller resolved
-    // a region (from request IP). Player records carry no stored region, so an
+  private async assertRegionAllowed(region?: string): Promise<void> {
+    // Region enforcement applies only when the caller resolved a region (from the
+    // request IP / CF-IPCountry). Player records carry no stored region, so an
     // absent region cannot be blocked. GeoRule rows are the allow/deny source.
+    // NOTE: the rule promise is now AWAITED — previously a floating `void` swallowed
+    // the RegionBlockedError, so a BLOCK rule failed open (CR1). Region resolution
+    // at the HTTP boundary is the remaining wiring to make this fully enforce.
     if (!region) return;
-    void this.applyRegionRule(region);
+    await this.applyRegionRule(region);
   }
 
   private async applyRegionRule(region: string): Promise<void> {
