@@ -22,9 +22,9 @@ export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
 
-  // auth
-  JWT_ACCESS_SECRET: z.string().min(16),
-  JWT_REFRESH_SECRET: z.string().min(16),
+  // auth — require ≥32 chars (256-bit) secrets; prod uses 64-char values (VAL).
+  JWT_ACCESS_SECRET: z.string().min(32),
+  JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_TTL: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL: z.coerce.number().int().positive().default(2_592_000),
   JWT_KID: z.string().default("key-1"),

@@ -9,6 +9,7 @@ import { AllExceptionsFilter } from "../common/errors/exception.filter";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { LoginThrottleService } from "./login-throttle.service";
+import { MfaCryptoService } from "./mfa-crypto.service";
 import { PasswordService } from "./password.service";
 import { TokenService } from "./token.service";
 
@@ -26,6 +27,7 @@ import { TokenService } from "./token.service";
     PasswordService,
     TokenService,
     LoginThrottleService,
+    MfaCryptoService,
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: AccessTokenGuard },
     { provide: APP_GUARD, useClass: MfaEnrollmentGuard },

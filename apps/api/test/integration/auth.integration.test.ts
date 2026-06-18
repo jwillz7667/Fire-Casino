@@ -4,6 +4,7 @@ import { loadEnv } from "@aureus/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { AuthService } from "../../src/auth/auth.service";
 import { LoginThrottleService } from "../../src/auth/login-throttle.service";
+import { MfaCryptoService } from "../../src/auth/mfa-crypto.service";
 import { PasswordService } from "../../src/auth/password.service";
 import { TokenService } from "../../src/auth/token.service";
 import { RedisService } from "../../src/redis/redis.service";
@@ -16,7 +17,7 @@ const tokens = new TokenService(new JwtService({}), env);
 const audit = new AuditService(testPrisma);
 const redis = new RedisService(env);
 const throttle = new LoginThrottleService(redis);
-const auth = new AuthService(testPrisma, passwords, tokens, audit, throttle);
+const auth = new AuthService(testPrisma, passwords, tokens, audit, throttle, new MfaCryptoService(env));
 const ctx = { ip: "127.0.0.1", userAgent: "vitest" };
 const PASSWORD = "Sup3rSecret!";
 

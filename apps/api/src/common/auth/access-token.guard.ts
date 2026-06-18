@@ -65,11 +65,14 @@ export class AccessTokenGuard implements CanActivate {
   }
 
   private extractToken(req: IncomingRequest): string | null {
+    // Bearer header only. The access token is never issued as a cookie (the
+    // refresh cookie is httpOnly and scoped to /auth), so a cookie-borne access
+    // token would only be a CSRF-reachable surface — drop the latent fallback (VAL).
     const header = req.headers.authorization;
     if (typeof header === "string" && header.startsWith("Bearer ")) {
       return header.slice("Bearer ".length).trim();
     }
-    return req.cookies?.fc_access ?? null;
+    return null;
   }
 
   private async loadPrincipal(claims: AccessClaims): Promise<Principal> {
