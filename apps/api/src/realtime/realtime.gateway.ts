@@ -40,7 +40,14 @@ function corsOrigins(): string[] {
 /** The principal we attach to each authenticated socket (socket.io types data as any). */
 interface SocketData {
   principal?: Principal;
+  rateWindowStart?: number;
+  msgCount?: number;
 }
+
+// Per-socket message flood control (R2): a single connection can't drive unbounded
+// subscribe work (each subscribe does up to 50 DB lookups). In-memory per-connection.
+const SOCKET_MSG_WINDOW_MS = 10_000;
+const SOCKET_MSG_MAX = 30;
 
 /**
  * Socket.io gateway (docs/05 §11). Authenticates the handshake token, auto-joins
@@ -114,6 +121,10 @@ export class RealtimeGateway
       client.disconnect(true);
       return { joined: [] };
     }
+    if (!this.allowMessage(client)) {
+      client.emit("error", { code: "RATE_LIMITED" });
+      return { joined: [] };
+    }
     const parsed = subscribeSchema.safeParse(body);
     if (!parsed.success) return { joined: [] };
 
@@ -132,6 +143,7 @@ export class RealtimeGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() body: unknown,
   ): Promise<{ left: string[] }> {
+    if (!this.allowMessage(client)) return { left: [] };
     const parsed = subscribeSchema.safeParse(body);
     if (!parsed.success) return { left: [] };
     const left: string[] = [];
@@ -159,6 +171,18 @@ export class RealtimeGateway
 
   private principalOf(client: Socket): Principal | undefined {
     return (client.data as SocketData).principal;
+  }
+
+  /** Per-socket sliding-window flood control for inbound messages (R2). */
+  private allowMessage(client: Socket): boolean {
+    const data = client.data as SocketData;
+    const now = Date.now();
+    if (data.rateWindowStart === undefined || now - data.rateWindowStart > SOCKET_MSG_WINDOW_MS) {
+      data.rateWindowStart = now;
+      data.msgCount = 0;
+    }
+    data.msgCount = (data.msgCount ?? 0) + 1;
+    return data.msgCount <= SOCKET_MSG_MAX;
   }
 
   private async mayJoin(principal: Principal, room: string): Promise<boolean> {
