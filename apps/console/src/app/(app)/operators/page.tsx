@@ -31,13 +31,19 @@ export default function OperatorsPage(): ReactElement {
   );
 
   const columns: Column<OperatorNode>[] = [
-    { key: "name", header: "Operator", render: (o) => <span className="font-medium text-text-hi">{o.displayName}</span> },
-    { key: "tier", header: "Tier", render: (o) => <Badge intent="gold">{humanize(o.tier)}</Badge> },
-    { key: "status", header: "Status", render: (o) => <StatusPill status={o.status} /> },
+    {
+      key: "name",
+      header: "Operator",
+      sortAccessor: (o) => o.displayName,
+      render: (o) => <span className="font-medium text-text-hi">{o.displayName}</span>,
+    },
+    { key: "tier", header: "Tier", sortAccessor: (o) => o.depth, render: (o) => <Badge intent="gold">{humanize(o.tier)}</Badge> },
+    { key: "status", header: "Status", sortAccessor: (o) => o.status, render: (o) => <StatusPill status={o.status} /> },
     {
       key: "balance",
       header: "Balance",
       numeric: true,
+      sortAccessor: (o) => (o.balances ?? []).reduce((sum, b) => sum + BigInt(b.balanceMinor), 0n),
       render: (o) =>
         o.balances && o.balances.length > 0 ? (
           <span className="flex flex-col items-end gap-0.5">
@@ -49,8 +55,8 @@ export default function OperatorsPage(): ReactElement {
           <span className="text-text-lo">—</span>
         ),
     },
-    { key: "depth", header: "Depth", numeric: true, render: (o) => o.depth },
-    { key: "created", header: "Created", render: (o) => formatDate(o.createdAt) },
+    { key: "depth", header: "Depth", numeric: true, sortAccessor: (o) => o.depth, render: (o) => o.depth },
+    { key: "created", header: "Created", sortAccessor: (o) => o.createdAt, render: (o) => formatDate(o.createdAt) },
   ];
 
   if (!canView) return <ForbiddenState />;

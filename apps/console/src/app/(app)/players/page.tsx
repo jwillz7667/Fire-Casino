@@ -59,6 +59,7 @@ export default function PlayersPage(): ReactElement {
     {
       key: "username",
       header: "Player",
+      sortAccessor: (p) => p.username,
       render: (p) => (
         <div className="flex flex-col">
           <span className="font-medium text-text-hi">{p.username}</span>
@@ -66,11 +67,17 @@ export default function PlayersPage(): ReactElement {
         </div>
       ),
     },
-    { key: "agent", header: "Owning agent", render: (p) => <span className="text-text-mid">{p.owningAgentName}</span> },
+    {
+      key: "agent",
+      header: "Owning agent",
+      sortAccessor: (p) => p.owningAgentName,
+      render: (p) => <span className="text-text-mid">{p.owningAgentName}</span>,
+    },
     {
       key: "balance",
       header: "Balance",
       numeric: true,
+      sortAccessor: (p) => p.wallets.reduce((sum, w) => sum + BigInt(w.balanceMinor), 0n),
       render: (p) =>
         p.wallets.length > 0 ? (
           <div className="flex flex-col items-end gap-0.5">
@@ -86,16 +93,23 @@ export default function PlayersPage(): ReactElement {
       key: "recharged",
       header: "Lifetime recharged",
       numeric: true,
+      sortAccessor: (p) => BigInt(p.lifetimeRechargedMinor),
       render: (p) => <Money valueMinor={p.lifetimeRechargedMinor} size="sm" />,
     },
     {
       key: "redeemed",
       header: "Lifetime redeemed",
       numeric: true,
+      sortAccessor: (p) => BigInt(p.lifetimeRedeemedMinor),
       render: (p) => <Money valueMinor={p.lifetimeRedeemedMinor} size="sm" />,
     },
-    { key: "status", header: "Status", render: (p) => <StatusPill status={p.status} /> },
-    { key: "lastLogin", header: "Last active", render: (p) => formatDate(p.lastLoginAt) },
+    { key: "status", header: "Status", sortAccessor: (p) => p.status, render: (p) => <StatusPill status={p.status} /> },
+    {
+      key: "lastLogin",
+      header: "Last active",
+      sortAccessor: (p) => p.lastLoginAt ?? "",
+      render: (p) => formatDate(p.lastLoginAt),
+    },
   ];
 
   if (!canView) return <ForbiddenState />;
