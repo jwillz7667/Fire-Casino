@@ -16,7 +16,7 @@ import { assertLedgerIntegrity, assertNoOwnerNegative } from "../helpers/ledger"
 
 const env = loadEnv();
 const audit = new AuditService(testPrisma);
-const compliance = new ComplianceService(testPrisma, env, new PlatformSettingsProvider(testPrisma, env));
+const compliance = new ComplianceService(testPrisma, env, new PlatformSettingsProvider(testPrisma, env), new AmlService(testPrisma, audit));
 const storage = new StorageService(env);
 const ledger = new LedgerService(testPrisma);
 const geo = new GeoService(testPrisma, audit);
@@ -180,6 +180,25 @@ describe("Compliance management (docs/09 Phase 9)", () => {
     // Second attempt is over the per-player cap and posts nothing.
     await expect(promotions.redeem(playerP, { code: "welcome" }, ctx)).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await ledger.getBalance({ kind: "player", playerId, currency: "PLAY" })).toBe(50_000n);
+  });
+
+  it("AML detection raises (and dedupes) a flag on a large redemption (CR2)", async () => {
+    const { playerId } = await setup();
+
+    await aml.screenRedemption(playerId, 5_000_000n);
+    const flags = await testPrisma.amlFlag.findMany({
+      where: { subjectId: playerId, ruleCode: "LARGE_REDEMPTION" },
+    });
+    expect(flags).toHaveLength(1);
+
+    // The open flag now blocks redemption at the gate.
+    await expect(compliance.checkRedeem(playerId, 10_000n)).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    // Re-screening doesn't spawn a duplicate open flag.
+    await aml.screenRedemption(playerId, 6_000_000n);
+    expect(
+      await testPrisma.amlFlag.count({ where: { subjectId: playerId, ruleCode: "LARGE_REDEMPTION", status: "OPEN" } }),
+    ).toBe(1);
   });
 
   it("an open AML flag blocks redemption until it is resolved", async () => {

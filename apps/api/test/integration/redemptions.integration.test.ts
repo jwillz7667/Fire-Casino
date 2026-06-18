@@ -5,6 +5,7 @@ import { AuditService } from "../../src/audit/audit.service";
 import { PasswordService } from "../../src/auth/password.service";
 import { ComplianceService } from "../../src/compliance/compliance.service";
 import { PlatformSettingsProvider } from "../../src/settings/platform-settings.provider";
+import { AmlService } from "../../src/compliance/aml.service";
 import { LedgerService } from "../../src/ledger/ledger.service";
 import { OperatorsService } from "../../src/operators/operators.service";
 import { RedemptionsService } from "../../src/redemptions/redemptions.service";
@@ -16,8 +17,8 @@ import { assertLedgerIntegrity, assertNoOwnerNegative, assertSnapshotContinuity 
 const baseEnv = loadEnv();
 const env: Env = { ...baseEnv, PLATFORM_MODE: "COMPLIANCE" };
 const ledger = new LedgerService(testPrisma);
-const compliance = new ComplianceService(testPrisma, env, new PlatformSettingsProvider(testPrisma, env));
 const audit = new AuditService(testPrisma);
+const compliance = new ComplianceService(testPrisma, env, new PlatformSettingsProvider(testPrisma, env), new AmlService(testPrisma, audit));
 const passwords = new PasswordService(env);
 const storage = new StorageService(env);
 

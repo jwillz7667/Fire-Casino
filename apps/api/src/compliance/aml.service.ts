@@ -16,6 +16,12 @@ interface ActionContext {
   userAgent?: string;
 }
 
+// Detection thresholds (docs/05 §8, CR2). Sensible defaults; tune per jurisdiction.
+const LARGE_REDEMPTION_MINOR = 5_000_000n; // single cashout ≥ 5,000 credits → flag
+const HIGH_REDEMPTION_MINOR = 20_000_000n; // ≥ 20,000 credits → HIGH severity
+const VELOCITY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const VELOCITY_COUNT = 5; // ≥ 5 redemption requests in the window → flag
+
 /** Internal hook input for raising an AML flag from another module/job. */
 export interface CreateAmlFlagInput {
   subjectType: "PLAYER" | "OPERATOR";
@@ -83,6 +89,64 @@ export class AmlService {
       ...ctx,
     });
     return updated;
+  }
+
+  /**
+   * Detection rules run on a redemption request (CR2): a single large cashout and
+   * a rapid-redemption velocity rule. Each raises at most one OPEN flag per
+   * rule+subject so repeated activity doesn't spam the queue. Never throws — a
+   * detection hiccup must not block the player's request; the flag (if raised)
+   * blocks the redemption at approval via assertNoOpenAml.
+   */
+  async screenRedemption(playerId: string, amountMinor: bigint): Promise<void> {
+    if (amountMinor >= LARGE_REDEMPTION_MINOR) {
+      await this.raiseIfAbsent(
+        playerId,
+        "LARGE_REDEMPTION",
+        amountMinor >= HIGH_REDEMPTION_MINOR ? "HIGH" : "MEDIUM",
+        { amountMinor: amountMinor.toString() },
+      );
+    }
+    const since = new Date(Date.now() - VELOCITY_WINDOW_MS);
+    const recent = await this.prisma.redemptionRequest.count({
+      where: { playerId, createdAt: { gte: since } },
+    });
+    if (recent >= VELOCITY_COUNT) {
+      await this.raiseIfAbsent(playerId, "RAPID_REDEMPTIONS", "MEDIUM", {
+        recentCount: recent,
+        windowMinutes: VELOCITY_WINDOW_MS / 60_000,
+      });
+    }
+  }
+
+  /** Raise a flag only if no open one already exists for this subject+rule (no spam). */
+  private async raiseIfAbsent(
+    subjectId: string,
+    ruleCode: string,
+    severity: AmlSeverity,
+    details: Prisma.InputJsonValue,
+  ): Promise<void> {
+    const open = await this.prisma.amlFlag.findFirst({
+      where: { subjectType: "PLAYER", subjectId, ruleCode, status: { in: ["OPEN", "ESCALATED", "REVIEWING"] } },
+      select: { id: true },
+    });
+    if (open) return;
+    await this.createFlag({ subjectType: "PLAYER", subjectId, ruleCode, severity, details });
+  }
+
+  /** Operator-initiated manual flag (subtree-checked + audited). */
+  async raiseManual(caller: OperatorPrincipal, input: CreateAmlFlagInput, ctx: ActionContext) {
+    await this.assertSubjectInSubtree(caller, input.subjectId, input.subjectType);
+    const flag = await this.createFlag(input);
+    await this.audit.record({
+      ...auditActor(caller),
+      action: "aml.raise",
+      targetType: "AmlFlag",
+      targetId: flag.id,
+      after: { subjectId: input.subjectId, ruleCode: input.ruleCode, severity: input.severity },
+      ...ctx,
+    });
+    return flag;
   }
 
   /**

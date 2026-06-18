@@ -12,6 +12,7 @@ import {
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { PlatformSettingsProvider } from "../settings/platform-settings.provider";
+import { AmlService } from "./aml.service";
 
 interface GateContext {
   /** Region code resolved from request IP (ISO-ish). Absent → region not enforced. */
@@ -48,7 +49,13 @@ export class ComplianceService {
     @Inject(PRISMA_SYSTEM) private readonly prisma: PrismaClient,
     @Inject(ENV) private readonly env: Env,
     private readonly settings: PlatformSettingsProvider,
+    private readonly aml: AmlService,
   ) {}
+
+  /** Run AML detection rules for a redemption request (CR2). Never throws. */
+  async screenRedemption(playerId: string, amountMinor: bigint): Promise<void> {
+    await this.aml.screenRedemption(playerId, amountMinor);
+  }
 
   /** Gate before a recharge/deposit (docs/03 §4.3). */
   async checkDeposit(

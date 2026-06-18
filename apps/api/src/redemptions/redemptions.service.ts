@@ -137,6 +137,10 @@ export class RedemptionsService {
       return redemption;
     });
 
+    // Run AML detection on the new request (CR2). A raised flag blocks approval
+    // via the compliance gate; screening never throws so it can't fail the request.
+    await this.compliance.screenRedemption(player.playerId, input.amountMinor);
+
     await this.audit.record({
       ...auditActor(player),
       action: "redemption.request",
