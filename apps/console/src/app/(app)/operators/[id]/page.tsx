@@ -195,7 +195,38 @@ export default function OperatorDetailPage(): ReactElement {
                   <Detail label="Sell price" value={formatCents(node.sellUnitPriceCents)} />
                   <Detail label="Depth" value={String(node.depth)} />
                   <Detail label="Created" value={formatDate(node.createdAt)} />
+                  <Detail
+                    label="Prize bonus"
+                    value={node.prizeBonusBps != null ? `${node.prizeBonusBps} bps` : "—"}
+                  />
                 </dl>
+
+                <div className="flex flex-col gap-2 rounded-md border border-hairline bg-surface-2 p-3">
+                  <span className="text-xs font-medium uppercase tracking-wide text-text-mid">Redemption routing</span>
+                  {node.redemptionApproval ? (
+                    <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+                      <Detail
+                        label="Approver tier"
+                        value={node.redemptionApproval.approverTier ? humanize(node.redemptionApproval.approverTier) : "—"}
+                      />
+                      <Detail
+                        label="Threshold"
+                        value={
+                          node.redemptionApproval.thresholdMinor != null
+                            ? String(node.redemptionApproval.thresholdMinor)
+                            : "—"
+                        }
+                      />
+                      <Detail
+                        label="Funding"
+                        value={node.redemptionApproval.funding ? humanize(node.redemptionApproval.funding) : "—"}
+                      />
+                    </dl>
+                  ) : (
+                    <span className="text-sm text-text-lo">Not routed — redemptions follow the default path.</span>
+                  )}
+                </div>
+
                 {canEdit ? (
                   <div>
                     <Button variant="secondary" size="sm" onClick={() => { setEditOpen(true); }}>

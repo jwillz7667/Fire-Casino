@@ -44,6 +44,13 @@ export interface OperatorNode {
   balances?: BalanceEntry[];
   /** Per-operator permission grants (only present on GET /operators/:id). */
   grants?: string[];
+  /** Effective node settings (only present on GET /operators/:id). */
+  prizeBonusBps?: number | null;
+  redemptionApproval?: {
+    thresholdMinor?: string | number | null;
+    approverTier?: string;
+    funding?: string;
+  } | null;
 }
 
 export interface OperatorTreeNode extends OperatorNode {

@@ -183,12 +183,18 @@ export class OperatorsService {
     });
     if (!operator) throw new NotFoundError("Operator not found");
     const { settings, ...node } = operator;
+    const settingsObj = (settings ?? {}) as Record<string, unknown>;
     // Surface the node's per-operator grants so the console grants editor can
     // prefill the current set (grants are written only via setGrants).
-    const grants = Array.isArray((settings as { permissions?: unknown })?.permissions)
-      ? ((settings as { permissions?: string[] }).permissions ?? [])
-      : [];
-    return { ...node, grants };
+    const grants = Array.isArray(settingsObj.permissions) ? (settingsObj.permissions as string[]) : [];
+    // Surface the node's effective settings blob (prize bonus + redemption
+    // routing) so the operator-detail Settings tab shows more than pricing.
+    const prizeBonusBps = typeof settingsObj.prizeBonusBps === "number" ? settingsObj.prizeBonusBps : null;
+    const redemptionApproval =
+      settingsObj.redemptionApproval && typeof settingsObj.redemptionApproval === "object"
+        ? (settingsObj.redemptionApproval as Record<string, unknown>)
+        : null;
+    return { ...node, grants, prizeBonusBps, redemptionApproval };
   }
 
   /** Nested subtree rooted at `id`, bounded by `depth`. */
