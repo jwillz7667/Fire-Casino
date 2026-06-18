@@ -16,9 +16,19 @@ export const IS_PUBLIC_KEY = "auth:isPublic";
 export const AUDIENCE_KEY = "auth:audience";
 export const PERMISSIONS_KEY = "auth:permissions";
 export const SCOPE_CHECK_KEY = "auth:scopeCheck";
+export const ALLOW_MFA_ENROLLMENT_KEY = "auth:allowMfaEnrollment";
 
 /** Marks a route as not requiring authentication. */
 export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(IS_PUBLIC_KEY, true);
+
+/**
+ * Marks a route as reachable by an MFA-required operator who has not yet enrolled
+ * (the only routes usable until they complete enrollment: the MFA enable/confirm
+ * flow plus /me and /logout). Every other privileged route is blocked by
+ * MfaEnrollmentGuard until `mfaEnabled` is true.
+ */
+export const AllowMfaEnrollment = (): MethodDecorator =>
+  SetMetadata(ALLOW_MFA_ENROLLMENT_KEY, true);
 
 /** Declares the token audience a route requires (operator console vs player arcade). */
 export const Auth = (audience: Audience): MethodDecorator & ClassDecorator =>

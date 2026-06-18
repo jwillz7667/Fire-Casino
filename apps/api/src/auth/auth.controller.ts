@@ -14,7 +14,13 @@ import {
   type PlayerSummary,
   type Env,
 } from "@aureus/shared";
-import { Auth, CurrentPrincipal, CurrentUser, Public } from "../common/auth/auth.decorators";
+import {
+  AllowMfaEnrollment,
+  Auth,
+  CurrentPrincipal,
+  CurrentUser,
+  Public,
+} from "../common/auth/auth.decorators";
 import { type OperatorPrincipal, type Principal } from "../common/auth/principal";
 import { UnauthorizedError } from "../common/errors/domain-error";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
@@ -82,6 +88,7 @@ export class AuthController {
     return rest;
   }
 
+  @AllowMfaEnrollment()
   @Post("logout")
   @HttpCode(204)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
@@ -92,6 +99,7 @@ export class AuthController {
     res.clearCookie(REFRESH_COOKIE, refreshCookieOptions(this.env));
   }
 
+  @AllowMfaEnrollment()
   @Post("password/change")
   @HttpCode(204)
   async changePassword(
@@ -101,6 +109,7 @@ export class AuthController {
     await this.auth.changePassword(principal, body);
   }
 
+  @AllowMfaEnrollment()
   @Auth("operator")
   @Post("operator/mfa/enable")
   @HttpCode(200)
@@ -108,6 +117,7 @@ export class AuthController {
     return this.auth.mfaEnable(user);
   }
 
+  @AllowMfaEnrollment()
   @Auth("operator")
   @Post("operator/mfa/confirm")
   @HttpCode(204)
@@ -118,6 +128,7 @@ export class AuthController {
     await this.auth.mfaConfirm(user, body.totp);
   }
 
+  @AllowMfaEnrollment()
   @Get("me")
   me(@CurrentPrincipal() principal: Principal): Promise<OperatorSummary | PlayerSummary> {
     return principal.kind === "operator"

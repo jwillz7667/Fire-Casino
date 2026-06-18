@@ -3,6 +3,7 @@ import { type Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vitest";
 import { type PrismaClient } from "@aureus/db";
 import { AppError } from "../errors/domain-error";
+import { MfaEnrollmentGuard } from "./mfa-enrollment.guard";
 import { PermissionGuard } from "./permission.guard";
 import { ScopeGuard } from "./scope.guard";
 import { type OperatorPrincipal, type PlayerPrincipal } from "./principal";
@@ -67,6 +68,52 @@ describe("PermissionGuard (docs/04 §3)", () => {
   it("rejects a player on a permission-gated route", () => {
     const guard = new PermissionGuard(reflectorReturning(["player.view"]));
     expect(() => guard.canActivate(mockContext({ principal: player }))).toThrow(AppError);
+  });
+});
+
+describe("MfaEnrollmentGuard (forced 2FA, docs/01 §4)", () => {
+  const admin: OperatorPrincipal = { ...operator, tier: "ADMIN", mfaEnabled: false };
+
+  it("passes a player principal (MFA is operator-only)", () => {
+    const guard = new MfaEnrollmentGuard(reflectorReturning(false));
+    expect(guard.canActivate(mockContext({ principal: player }))).toBe(true);
+  });
+
+  it("passes a public route with no principal", () => {
+    const guard = new MfaEnrollmentGuard(reflectorReturning(false));
+    expect(guard.canActivate(mockContext({}))).toBe(true);
+  });
+
+  it("passes a non-MFA tier even when unenrolled", () => {
+    const guard = new MfaEnrollmentGuard(reflectorReturning(false));
+    expect(guard.canActivate(mockContext({ principal: operator }))).toBe(true);
+  });
+
+  it("blocks an unenrolled MFA-required admin on a normal route", () => {
+    const guard = new MfaEnrollmentGuard(reflectorReturning(false));
+    expect(() => guard.canActivate(mockContext({ principal: admin }))).toThrow(AppError);
+  });
+
+  it("emits MFA_ENROLLMENT_REQUIRED for the blocked admin", () => {
+    const guard = new MfaEnrollmentGuard(reflectorReturning(false));
+    try {
+      guard.canActivate(mockContext({ principal: admin }));
+      throw new Error("expected to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AppError);
+      expect((e as AppError).code).toBe("MFA_ENROLLMENT_REQUIRED");
+    }
+  });
+
+  it("allows the admin onto an @AllowMfaEnrollment route", () => {
+    const guard = new MfaEnrollmentGuard(reflectorReturning(true));
+    expect(guard.canActivate(mockContext({ principal: admin }))).toBe(true);
+  });
+
+  it("passes an enrolled MFA-required admin on any route", () => {
+    const guard = new MfaEnrollmentGuard(reflectorReturning(false));
+    const enrolled: OperatorPrincipal = { ...admin, mfaEnabled: true };
+    expect(guard.canActivate(mockContext({ principal: enrolled }))).toBe(true);
   });
 });
 
