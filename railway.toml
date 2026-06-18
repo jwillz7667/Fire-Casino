@@ -6,6 +6,22 @@
 [build]
 builder = "dockerfile"
 dockerfilePath = "Dockerfile"
+# Only redeploy the API when something it actually ships changes. Without this,
+# Railway's default watch behaviour skipped backend-relevant commits (notably DB
+# migrations under packages/db) whenever they shared a push with frontend-only
+# commits, so `prisma migrate deploy` never ran. Crucially this list includes the
+# Railway config files themselves, so a change to watchPatterns bootstraps its own
+# deploy. Frontend apps (apps/arcade, apps/console) deploy on Vercel, not here.
+watchPatterns = [
+  "apps/api/**",
+  "packages/**",
+  "Dockerfile",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "turbo.json",
+  "railway.toml",
+  "railway.worker.toml",
+]
 
 [deploy]
 startCommand = "node apps/api/dist/main.js"

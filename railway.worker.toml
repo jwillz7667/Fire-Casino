@@ -7,6 +7,18 @@
 [build]
 builder = "dockerfile"
 dockerfilePath = "Dockerfile"
+# Same backend-only watch list as the web service (railway.toml): the worker
+# ships the API image, so frontend-only commits should not redeploy it either.
+watchPatterns = [
+  "apps/api/**",
+  "packages/**",
+  "Dockerfile",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "turbo.json",
+  "railway.toml",
+  "railway.worker.toml",
+]
 
 [deploy]
 startCommand = "node apps/api/dist/worker.js"
