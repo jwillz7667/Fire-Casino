@@ -8,6 +8,7 @@ import { ScopeGuard } from "../common/auth/scope.guard";
 import { AllExceptionsFilter } from "../common/errors/exception.filter";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
+import { LoginThrottleService } from "./login-throttle.service";
 import { PasswordService } from "./password.service";
 import { TokenService } from "./token.service";
 
@@ -24,6 +25,7 @@ import { TokenService } from "./token.service";
     AuthService,
     PasswordService,
     TokenService,
+    LoginThrottleService,
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: AccessTokenGuard },
     { provide: APP_GUARD, useClass: MfaEnrollmentGuard },
