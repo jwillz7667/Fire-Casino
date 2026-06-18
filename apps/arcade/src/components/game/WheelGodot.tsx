@@ -189,6 +189,7 @@ export function WheelGodot({
       <Link
         href="/"
         aria-label="Back to lobby"
+        style={{ top: "calc(env(safe-area-inset-top) + 0.75rem)", left: "calc(env(safe-area-inset-left) + 0.75rem)" }}
         className="absolute left-3 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm active:scale-95"
       >
         <ArrowLeft className="h-5 w-5" />

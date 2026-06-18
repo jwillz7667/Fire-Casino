@@ -25,7 +25,13 @@ export function MobileTopbar(): React.ReactElement {
     : [];
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-hairline bg-trench/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-trench/80">
+    // pt accounts for the iOS notch/status bar in standalone (home-screen) mode: the app
+    // uses a black-translucent status bar + viewport-fit=cover, so content draws under it.
+    // The header bg fills the status-bar area while its controls sit safely below it.
+    <header
+      className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-hairline bg-trench/95 px-3 pb-2 backdrop-blur supports-[backdrop-filter]:bg-trench/80"
+      style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}
+    >
       <Link href="/" className="flex items-center gap-2" aria-label="Goldwave Casino home">
         <BrandLogo size="md" glow priority />
         <span className="font-display text-lg font-semibold text-gold-light">Goldwave</span>
