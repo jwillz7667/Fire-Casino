@@ -48,18 +48,19 @@ export class PlayersController {
   @Get(":id")
   @RequirePermission("player.view")
   @ScopeCheck({ playerIdFrom: [{ source: "params", key: "id" }] })
-  get(@Param("id") id: string) {
-    return this.players.get(id);
+  get(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string) {
+    return this.players.get(caller, id);
   }
 
   @Get(":id/history")
   @RequirePermission("player.view")
   @ScopeCheck({ playerIdFrom: [{ source: "params", key: "id" }] })
   history(
+    @CurrentUser() caller: OperatorPrincipal,
     @Param("id") id: string,
     @Query(new ZodValidationPipe(playerHistoryQuerySchema)) query: PlayerHistoryQuery,
   ) {
-    return this.players.history(id, query);
+    return this.players.history(caller, id, query);
   }
 
   @Patch(":id")
