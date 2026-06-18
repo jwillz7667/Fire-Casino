@@ -9,6 +9,8 @@ import {
   playerHistoryQuerySchema,
   type ResetPlayerPasswordInput,
   resetPlayerPasswordSchema,
+  type SessionRoundsQuery,
+  sessionRoundsQuerySchema,
   type TransferPlayerInput,
   transferPlayerSchema,
   type UpdatePlayerInput,
@@ -61,6 +63,18 @@ export class PlayersController {
     @Query(new ZodValidationPipe(playerHistoryQuerySchema)) query: PlayerHistoryQuery,
   ) {
     return this.players.history(caller, id, query);
+  }
+
+  @Get(":id/sessions/:sessionId/rounds")
+  @RequirePermission("player.view")
+  @ScopeCheck({ playerIdFrom: [{ source: "params", key: "id" }] })
+  sessionRounds(
+    @CurrentUser() caller: OperatorPrincipal,
+    @Param("id") id: string,
+    @Param("sessionId") sessionId: string,
+    @Query(new ZodValidationPipe(sessionRoundsQuerySchema)) query: SessionRoundsQuery,
+  ) {
+    return this.players.sessionRounds(caller, id, sessionId, query);
   }
 
   @Patch(":id")

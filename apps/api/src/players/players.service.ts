@@ -9,6 +9,7 @@ import {
   type ListPlayersQuery,
   type PlayerHistoryQuery,
   type ResetPlayerPasswordInput,
+  type SessionRoundsQuery,
   type UpdatePlayerInput,
   walletCurrencies,
 } from "@aureus/shared";
@@ -300,6 +301,63 @@ export class PlayersService {
     return {
       items: page,
       nextCursor: hasMore ? page[page.length - 1]?.at.toISOString() : undefined,
+    };
+  }
+
+  /**
+   * Round-by-round drill-down of one play session (docs/06 play history). The
+   * session must belong to the named player, who must live in the caller's
+   * subtree — so a guessed sessionId can't expose another player's rounds.
+   */
+  async sessionRounds(caller: OperatorPrincipal, playerId: string, sessionId: string, query: SessionRoundsQuery) {
+    await this.assertInSubtree(caller, playerId);
+    const session = await this.system.gameSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        playerId: true,
+        currency: true,
+        startedAt: true,
+        endedAt: true,
+        serverSeed: true,
+        serverSeedHash: true,
+        clientSeed: true,
+        game: { select: { code: true, name: true } },
+      },
+    });
+    if (!session || session.playerId !== playerId) throw new NotFoundError("Session not found");
+
+    const rounds = await this.system.gameRound.findMany({
+      where: { sessionId },
+      select: { id: true, nonce: true, betMinor: true, winMinor: true, outcome: true, createdAt: true },
+      orderBy: { nonce: "desc" },
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    });
+    const hasMore = rounds.length > query.limit;
+    const page = hasMore ? rounds.slice(0, query.limit) : rounds;
+
+    return {
+      session: {
+        id: sessionId,
+        gameCode: session.game.code,
+        gameName: session.game.name,
+        currency: session.currency,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        // Provably-fair seeds: hash is always known; the seed is revealed at session end.
+        serverSeedHash: session.serverSeedHash,
+        serverSeed: session.serverSeed,
+        clientSeed: session.clientSeed,
+      },
+      items: page.map((r) => ({
+        id: r.id,
+        nonce: r.nonce,
+        betMinor: r.betMinor.toString(),
+        winMinor: r.winMinor.toString(),
+        outcome: r.outcome,
+        at: r.createdAt,
+      })),
+      nextCursor: hasMore ? page[page.length - 1]?.id : undefined,
     };
   }
 

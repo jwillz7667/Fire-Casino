@@ -45,3 +45,10 @@ export const playerHistoryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 export type PlayerHistoryQuery = z.infer<typeof playerHistoryQuerySchema>;
+
+/** Round-level drill-down of a single play session (cursor is the last round id). */
+export const sessionRoundsQuerySchema = z.object({
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type SessionRoundsQuery = z.infer<typeof sessionRoundsQuerySchema>;

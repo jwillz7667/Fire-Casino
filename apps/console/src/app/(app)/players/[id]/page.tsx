@@ -4,7 +4,7 @@ import { type ReactElement, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, KeyRound, MinusCircle, Wallet } from "lucide-react";
+import { Ban, ChevronDown, ChevronRight, KeyRound, MinusCircle, Wallet } from "lucide-react";
 import {
   Badge,
   BalanceChip,
@@ -29,6 +29,7 @@ import { QueryBoundary } from "@/components/query-boundary";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PlayerRtpPanel } from "@/components/players/player-rtp-panel";
 import { RgLimitsPanel } from "@/components/players/rg-limits-panel";
+import { SessionRounds } from "@/components/players/session-rounds";
 import { RechargeDialog } from "@/components/players/recharge-dialog";
 import { RemoveCreditsDialog } from "@/components/players/remove-credits-dialog";
 import { ResetPasswordDialog } from "@/components/players/reset-password-dialog";
@@ -252,6 +253,7 @@ const HISTORY_FILTERS: { key: string; label: string }[] = [
 
 function HistoryTimeline({ playerId }: { playerId: string }): ReactElement {
   const [view, setView] = useState("all");
+  const [expanded, setExpanded] = useState<string | null>(null);
   const list = useCursorList<PlayerHistoryEvent>(["player", playerId, "history"], (cursor) =>
     api.get<Page<PlayerHistoryEvent>>(`/players/${playerId}/history?limit=50${cursor ? `&cursor=${cursor}` : ""}`),
   );
@@ -273,17 +275,34 @@ function HistoryTimeline({ playerId }: { playerId: string }): ReactElement {
         <EmptyState title="Nothing here yet" description="Recharges, sessions and redemptions will appear here." />
       ) : (
       <ul className="flex flex-col divide-y divide-hairline">
-        {items.map((e) => (
-          <li key={`${e.kind}-${e.id}`} className="flex items-center justify-between gap-3 py-2.5">
-            <div className="flex items-center gap-2.5">
-              <Badge intent={e.kind === "redemption" ? "ember" : e.kind === "session" ? "info" : "gold"}>
-                {e.kind === "ledger" ? humanize(e.type) : e.kind === "session" ? "Session" : "Redemption"}
-              </Badge>
-              <span className="text-xs text-text-lo">{formatDateTime(e.at)}</span>
-            </div>
-            <HistoryAmount event={e} />
-          </li>
-        ))}
+        {items.map((e) => {
+          const isSession = e.kind === "session";
+          const isOpen = isSession && expanded === e.id;
+          return (
+            <li key={`${e.kind}-${e.id}`} className="flex flex-col">
+              <div
+                className={`flex items-center justify-between gap-3 py-2.5 ${isSession ? "cursor-pointer" : ""}`}
+                onClick={isSession ? () => { setExpanded(isOpen ? null : e.id); } : undefined}
+              >
+                <div className="flex items-center gap-2.5">
+                  {isSession ? (
+                    isOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5 text-text-lo" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 text-text-lo" />
+                    )
+                  ) : null}
+                  <Badge intent={e.kind === "redemption" ? "ember" : isSession ? "info" : "gold"}>
+                    {e.kind === "ledger" ? humanize(e.type) : isSession ? "Session" : "Redemption"}
+                  </Badge>
+                  <span className="text-xs text-text-lo">{formatDateTime(e.at)}</span>
+                </div>
+                <HistoryAmount event={e} />
+              </div>
+              {isOpen ? <SessionRounds playerId={playerId} sessionId={e.id} /> : null}
+            </li>
+          );
+        })}
       </ul>
       )}
       {list.nextCursor ? (

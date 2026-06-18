@@ -131,6 +131,31 @@ export type PlayerHistoryEvent =
       method: string | null;
     };
 
+export interface SessionRound {
+  id: string;
+  nonce: number;
+  betMinor: string;
+  winMinor: string;
+  outcome: unknown;
+  at: string;
+}
+
+export interface SessionRoundsPage {
+  session: {
+    id: string;
+    gameCode: string;
+    gameName: string;
+    currency: Currency;
+    startedAt: string;
+    endedAt: string | null;
+    serverSeedHash: string;
+    serverSeed: string | null;
+    clientSeed: string | null;
+  };
+  items: SessionRound[];
+  nextCursor?: string;
+}
+
 // ---- credit orders -----------------------------------------------------------
 
 export interface CreditOrder {
