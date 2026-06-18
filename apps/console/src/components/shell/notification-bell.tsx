@@ -2,25 +2,37 @@
 
 import { type ReactElement, useState } from "react";
 import { Bell } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { Badge, EmptyState, IconButton, Skeleton } from "@aureus/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, EmptyState, IconButton, Skeleton } from "@aureus/ui";
 import { api, ApiError } from "@/lib/api";
-import type { NotificationRow, Page } from "@/lib/types";
+import type { NotificationsPage } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 
 /** Bell with unread count, fed by Notification rows (+ socket invalidation). */
 export function NotificationBell(): ReactElement {
   const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
   const notifications = useQuery({
     queryKey: ["notifications"],
-    queryFn: () => api.get<Page<NotificationRow>>("/notifications?limit=20"),
+    queryFn: () => api.get<NotificationsPage>("/notifications?limit=20"),
     retry: false,
     refetchInterval: 60_000,
   });
 
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["notifications"] });
+  const markRead = useMutation({
+    mutationFn: (id: string) => api.post(`/notifications/${id}/read`),
+    onSuccess: () => { void invalidate(); },
+  });
+  const markAllRead = useMutation({
+    mutationFn: () => api.post("/notifications/read-all"),
+    onSuccess: () => { void invalidate(); },
+  });
+
   const items = notifications.data?.items ?? [];
   const unavailable = notifications.error instanceof ApiError;
-  const unread = items.filter((n) => n.readAt === null).length;
+  // Authoritative server count (not just the capped page).
+  const unread = notifications.data?.unreadCount ?? items.filter((n) => n.readAt === null).length;
 
   return (
     <div className="relative">
@@ -44,7 +56,16 @@ export function NotificationBell(): ReactElement {
           <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-md border border-hairline-strong bg-surface-1 shadow-2xl">
             <div className="flex items-center justify-between border-b border-hairline px-4 py-2.5">
               <span className="text-sm font-medium text-text-hi">Notifications</span>
-              {unread > 0 ? <Badge intent="ember">{unread} new</Badge> : null}
+              {unread > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { markAllRead.mutate(); }}
+                  loading={markAllRead.isPending}
+                >
+                  Mark all read
+                </Button>
+              ) : null}
             </div>
             <div className="max-h-96 overflow-y-auto">
               {notifications.isLoading ? (
@@ -58,7 +79,12 @@ export function NotificationBell(): ReactElement {
                   {items.map((n) => (
                     <li
                       key={n.id}
-                      className={n.readAt === null ? "bg-surface-2/50 px-4 py-3" : "px-4 py-3"}
+                      className={
+                        n.readAt === null
+                          ? "cursor-pointer bg-surface-2/50 px-4 py-3 hover:bg-surface-2"
+                          : "px-4 py-3"
+                      }
+                      onClick={n.readAt === null ? () => { markRead.mutate(n.id); } : undefined}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-medium text-text-hi">{n.title}</span>

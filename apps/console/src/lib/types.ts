@@ -470,3 +470,9 @@ export interface NotificationRow {
   readAt: string | null;
   createdAt: string;
 }
+
+export interface NotificationsPage {
+  items: NotificationRow[];
+  nextCursor?: string;
+  unreadCount: number;
+}
