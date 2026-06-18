@@ -775,16 +775,20 @@ func _shake(mag: float, dur: float) -> void:
 		t.tween_property(board, "position", origin + Vector2(randf_range(-m, m), randf_range(-m, m)), 0.04)
 	t.tween_property(board, "position", origin, 0.06)
 
+## Pop the win amount directly. (Previously an 18-step count-up tween; across the
+## base → bonus → free-spins phases those tweens overlapped and interleaved their writes
+## to lbl_win, so it read as "counts way too high, then snaps back to a smaller number".)
 func _count_up(total_bps: int) -> void:
 	var credits := float(total_bps) / 10000.0 * float(bet_minor) / 1000.0
 	if credits <= 0:
 		return
 	play("coin_tick")
-	var t := create_tween()
-	var steps := 18
-	for i in range(1, steps + 1):
-		var v := credits * float(i) / steps
-		t.tween_callback(func(): lbl_win.text = "WIN  %s" % _fmt(v)).set_delay(0.03)
+	lbl_win.text = "WIN  %s" % _fmt(credits)
+	# A quick scale bounce so the amount "pops" in.
+	lbl_win.pivot_offset = lbl_win.size * 0.5
+	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	lbl_win.scale = Vector2(1.28, 1.28)
+	t.tween_property(lbl_win, "scale", Vector2(1.0, 1.0), 0.24)
 
 # --------------------------------------------------------------- free spins
 func _run_free_spins(fs: Dictionary) -> void:
