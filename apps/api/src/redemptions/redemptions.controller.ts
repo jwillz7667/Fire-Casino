@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type CancelRedemptionInput,
@@ -21,10 +21,11 @@ import { Auth, CurrentPlayer, CurrentUser, RequirePermission } from "../common/a
 import { type OperatorPrincipal, type PlayerPrincipal } from "../common/auth/principal";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { MONEY_RATE_LIMIT } from "../common/throttler/throttler.config";
+import { regionFromRequest } from "../common/http/region";
 import { RedemptionsService } from "./redemptions.service";
 
-function ctxOf(req: Request): { ip?: string; userAgent?: string } {
-  return { ip: req.ip, userAgent: req.headers["user-agent"] };
+function ctxOf(req: Request): { ip?: string; userAgent?: string; region?: string } {
+  return { ip: req.ip, userAgent: req.headers["user-agent"], region: regionFromRequest(req) };
 }
 
 @Controller("redemptions")
@@ -36,7 +37,6 @@ export class RedemptionsController {
   @Post()
   @HttpCode(201)
   @Auth("player")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   request(
     @CurrentPlayer() player: PlayerPrincipal,
@@ -97,7 +97,6 @@ export class RedemptionsController {
   @Post(":id/approve")
   @HttpCode(200)
   @Auth("operator")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("redemption.approve")
   approve(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string, @Req() req: Request) {
@@ -120,7 +119,6 @@ export class RedemptionsController {
   @Post(":id/settle")
   @HttpCode(200)
   @Auth("operator")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("redemption.settle")
   settle(
@@ -135,7 +133,6 @@ export class RedemptionsController {
   @Post(":id/cancel")
   @HttpCode(200)
   @Auth("operator")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("redemption.approve")
   cancel(

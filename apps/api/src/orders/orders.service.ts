@@ -17,6 +17,7 @@ import {
   ForbiddenError,
   NotFoundError,
   OutOfScopeError,
+  ValidationError,
 } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
@@ -55,7 +56,15 @@ export class OrdersService {
     if (!seller) throw new NotFoundError("Upline operator not found");
 
     const unitPriceCents = buyer.buyUnitPriceCents ?? seller.sellUnitPriceCents ?? 0;
-    const totalCents = Number(input.quantityMinor / MINOR) * unitPriceCents;
+    // Multiply in BigInt BEFORE dividing so fractional credits aren't truncated
+    // away, and never float-multiply money (hard rule #1, audit D3). The previous
+    // `Number(qty / MINOR) * cents` dropped sub-credit quantities and lost
+    // precision on large orders.
+    const totalCentsBig = (input.quantityMinor * BigInt(unitPriceCents)) / MINOR;
+    if (totalCentsBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new ValidationError(undefined, "Order total exceeds the supported range");
+    }
+    const totalCents = Number(totalCentsBig);
 
     const order = await this.prisma.creditOrder.create({
       data: {

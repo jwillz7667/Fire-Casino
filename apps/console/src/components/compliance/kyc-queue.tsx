@@ -13,6 +13,17 @@ import { errorMessage } from "@/lib/errors";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatDate } from "@/lib/format";
 
+/** Only http(s) URLs are safe to render into an href (defense-in-depth vs the API). */
+function isHttpUrl(value: string | null | undefined): value is string {
+  if (!value) return false;
+  try {
+    const proto = new URL(value).protocol;
+    return proto === "http:" || proto === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function KycQueue(): ReactElement {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -54,7 +65,7 @@ export function KycQueue(): ReactElement {
       key: "doc",
       header: "Document",
       render: (k) =>
-        k.documentUrl ? (
+        isHttpUrl(k.documentUrl) ? (
           <a
             href={k.documentUrl}
             target="_blank"

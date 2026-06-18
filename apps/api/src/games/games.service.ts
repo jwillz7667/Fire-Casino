@@ -128,13 +128,13 @@ export class GamesService {
 
   // ---- sessions & play -------------------------------------------------------
 
-  async startSession(player: PlayerPrincipal, input: StartSessionInput) {
+  async startSession(player: PlayerPrincipal, input: StartSessionInput, region?: string) {
     const game = await this.prisma.game.findUnique({ where: { code: input.gameCode } });
     if (!game || game.status !== "ACTIVE") throw new NotFoundError("Game unavailable");
     if (!game.supportedCurrencies.includes(input.currency)) {
       throw new ValidationError(undefined, "Currency not supported by this game");
     }
-    await this.compliance.checkPlay(player.playerId);
+    await this.compliance.checkPlay(player.playerId, { region });
 
     const serverSeed = generateServerSeed();
     const session = await this.prisma.gameSession.create({
@@ -163,6 +163,7 @@ export class GamesService {
     betMinor: bigint,
     idemKey: string,
     params: Record<string, unknown> = {},
+    region?: string,
   ) {
     const betKey = `round:${sessionId}:${idemKey}`;
 
@@ -183,7 +184,7 @@ export class GamesService {
     }
     // Forward the bet so the WAGER/LOSS responsible-gaming limits are enforced
     // (docs/03 §4.4, hard rule #7), not just account status + self-exclusion.
-    await this.compliance.checkPlay(player.playerId, { betMinor });
+    await this.compliance.checkPlay(player.playerId, { betMinor, region });
 
     const balance = await this.ledger.getBalance({ kind: "player", playerId: player.playerId, currency: session.currency });
     if (balance < betMinor) throw new ConflictError("Insufficient wallet balance");

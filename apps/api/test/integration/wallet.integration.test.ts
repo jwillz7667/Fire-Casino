@@ -5,6 +5,7 @@ import { type Currency, type Env, loadEnv, type OperatorTier, type ScopeContext 
 import { AuditService } from "../../src/audit/audit.service";
 import { PasswordService } from "../../src/auth/password.service";
 import { ComplianceService } from "../../src/compliance/compliance.service";
+import { PlatformSettingsProvider } from "../../src/settings/platform-settings.provider";
 import { LedgerService } from "../../src/ledger/ledger.service";
 import { OperatorsService } from "../../src/operators/operators.service";
 import { PlayersService } from "../../src/players/players.service";
@@ -22,7 +23,7 @@ const scoped: ScopedPrismaClient = createScopedPrisma(testPrisma, () => scope);
 const passwords = new PasswordService(env);
 const audit = new AuditService(testPrisma);
 const ledger = new LedgerService(testPrisma);
-const compliance = new ComplianceService(testPrisma, env);
+const compliance = new ComplianceService(testPrisma, env, new PlatformSettingsProvider(testPrisma, env));
 const operators = new OperatorsService(scoped, testPrisma, env, passwords, audit);
 const players = new PlayersService(scoped, testPrisma, env, passwords, operators, audit);
 const walletOperator = new WalletService(testPrisma, env, ledger, compliance, operators, audit);

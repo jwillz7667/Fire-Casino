@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { loadEnv, type OperatorTier } from "@aureus/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { ComplianceService } from "../../src/compliance/compliance.service";
+import { PlatformSettingsProvider } from "../../src/settings/platform-settings.provider";
 import { GeoService } from "../../src/compliance/geo.service";
 import { KycService } from "../../src/compliance/kyc.service";
 import { AmlService } from "../../src/compliance/aml.service";
@@ -15,7 +16,7 @@ import { assertLedgerIntegrity, assertNoOwnerNegative } from "../helpers/ledger"
 
 const env = loadEnv();
 const audit = new AuditService(testPrisma);
-const compliance = new ComplianceService(testPrisma, env);
+const compliance = new ComplianceService(testPrisma, env, new PlatformSettingsProvider(testPrisma, env));
 const storage = new StorageService(env);
 const ledger = new LedgerService(testPrisma);
 const geo = new GeoService(testPrisma, audit);
@@ -81,6 +82,24 @@ describe("Compliance management (docs/09 Phase 9)", () => {
     const removed = await geo.remove(admin, "us", ctx);
     expect(removed).toMatchObject({ region: "US", removed: true });
     expect(await geo.list()).toHaveLength(0);
+  });
+
+  it("enforces a geo BLOCK rule when a region is resolved (CR1)", async () => {
+    const { root, playerId } = await setup();
+    const admin = operatorPrincipal(root, "SUPER_ADMIN");
+    const amount = 10_000n; // below KYC threshold + no AML flag, so only geo can block
+
+    await geo.upsert(admin, { region: "us", action: "BLOCK", reason: "test" }, ctx);
+
+    // Region resolved + matching BLOCK rule → rejected (the prior floating `void`
+    // swallowed this, so it failed open).
+    await expect(compliance.checkRedeem(playerId, amount, { region: "US" })).rejects.toMatchObject({
+      code: "REGION_BLOCKED",
+    });
+    // No region resolved → nothing to match, so it passes.
+    await expect(compliance.checkRedeem(playerId, amount)).resolves.toBeUndefined();
+    // A different region with no rule passes.
+    await expect(compliance.checkRedeem(playerId, amount, { region: "CA" })).resolves.toBeUndefined();
   });
 
   it("KYC submit then verify unblocks the redemption gate above the threshold", async () => {

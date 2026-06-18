@@ -49,6 +49,19 @@ describe("AuditService — append-only audit log (hard rule #5)", () => {
     expect(rows.map((r) => r.action)).toEqual(["a.one", "a.two", "a.three"]);
   });
 
+  it("the database rejects UPDATE and DELETE on audit_logs (append-only trigger, D1)", async () => {
+    await audit.record({ actorType: "USER", actorId: "u", action: "a.locked", targetType: "X", targetId: "1" });
+
+    await expect(
+      testPrisma.$executeRawUnsafe(`UPDATE audit_logs SET action = 'tampered'`),
+    ).rejects.toThrow(/append-only/i);
+    await expect(testPrisma.$executeRawUnsafe(`DELETE FROM audit_logs`)).rejects.toThrow(/append-only/i);
+
+    const rows = await testPrisma.auditLog.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.action).toBe("a.locked");
+  });
+
   it("exposes no update or delete path on the service surface", () => {
     const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(audit)).filter(
       (m) => m !== "constructor",

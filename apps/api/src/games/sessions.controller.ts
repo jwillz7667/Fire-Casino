@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Req } from "@nestjs/common";
+import type { Request } from "express";
 import {
   type PlaceBetInput,
   placeBetSchema,
@@ -9,6 +10,7 @@ import { Auth, CurrentPlayer } from "../common/auth/auth.decorators";
 import { IdempotencyKey } from "../common/auth/idempotency.decorator";
 import { type PlayerPrincipal } from "../common/auth/principal";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { regionFromRequest } from "../common/http/region";
 import { GamesService } from "./games.service";
 
 @Auth("player")
@@ -21,8 +23,9 @@ export class SessionsController {
   start(
     @CurrentPlayer() player: PlayerPrincipal,
     @Body(new ZodValidationPipe(startSessionSchema)) body: StartSessionInput,
+    @Req() req: Request,
   ) {
-    return this.games.startSession(player, body);
+    return this.games.startSession(player, body, regionFromRequest(req));
   }
 
   @Post(":id/bet")
@@ -32,8 +35,9 @@ export class SessionsController {
     @Param("id") id: string,
     @Body(new ZodValidationPipe(placeBetSchema)) body: PlaceBetInput,
     @IdempotencyKey() idempotencyKey: string,
+    @Req() req: Request,
   ) {
-    return this.games.placeBet(player, id, body.betMinor, idempotencyKey, body.params ?? {});
+    return this.games.placeBet(player, id, body.betMinor, idempotencyKey, body.params ?? {}, regionFromRequest(req));
   }
 
   @Post(":id/end")

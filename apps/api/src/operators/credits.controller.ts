@@ -1,5 +1,5 @@
-import { Body, Controller, HttpCode, Post, Req, UseGuards } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type IssueCreditsInput,
@@ -24,7 +24,6 @@ function ctxOf(req: Request): { ip?: string; userAgent?: string } {
 }
 
 @Auth("operator")
-@UseGuards(ThrottlerGuard)
 @Throttle(MONEY_RATE_LIMIT)
 @Controller("credits")
 export class CreditsController {

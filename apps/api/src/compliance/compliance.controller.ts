@@ -8,9 +8,8 @@ import {
   Post,
   Query,
   Req,
-  UseGuards,
 } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type AmlFlagsQuery,
@@ -223,7 +222,6 @@ export class ComplianceController {
   @Post("promotions/redeem")
   @HttpCode(200)
   @Auth("player")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   redeemPromotion(
     @CurrentPlayer() player: PlayerPrincipal,
