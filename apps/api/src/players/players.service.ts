@@ -280,6 +280,30 @@ export class PlayersService {
     return updated;
   }
 
+  /** Reverse a suspension (docs/06 §3.6). Won't override a SELF_EXCLUDED status. */
+  async reactivate(caller: OperatorPrincipal, id: string, ctx: ActionContext) {
+    await this.assertInSubtree(caller, id);
+    const player = await this.system.player.findUnique({ where: { id }, select: { status: true } });
+    if (!player) throw new NotFoundError("Player not found");
+    if (player.status === "SELF_EXCLUDED") {
+      throw new ForbiddenError("A self-excluded player cannot be reactivated here");
+    }
+    const updated = await this.system.player.update({
+      where: { id },
+      data: { status: "ACTIVE" },
+      select: PLAYER_SELECT,
+    });
+    await this.audit.record({
+      ...auditActor(caller),
+      action: "player.reactivate",
+      targetType: "Player",
+      targetId: id,
+      after: { status: "ACTIVE" },
+      ...ctx,
+    });
+    return updated;
+  }
+
   async resetPassword(
     caller: OperatorPrincipal,
     id: string,

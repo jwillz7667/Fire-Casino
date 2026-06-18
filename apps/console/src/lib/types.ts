@@ -295,6 +295,62 @@ export interface AgentSalesReport {
   items: AgentSalesRow[];
 }
 
+export interface PlayerActivityRow {
+  playerId: string;
+  username: string;
+  operatorId: string;
+  rechargedMinor: string;
+  redeemedMinor: string;
+  netMinor: string;
+}
+export interface PlayerActivityReport {
+  items: PlayerActivityRow[];
+}
+
+export interface RevenueReport {
+  currency: Currency;
+  betsMinor: string;
+  winsMinor: string;
+  revenueMinor: string;
+  platformRevenueMinor?: string;
+}
+
+export interface MarginNode {
+  operatorId: string;
+  displayName: string;
+  tier: string;
+  buyUnitPriceCents: number;
+  sellUnitPriceCents: number;
+  spreadCents: number;
+  marginCents: number;
+}
+export interface MarginReport {
+  nodes: MarginNode[];
+  totalMarginCents: number;
+}
+
+export interface SettlementRow {
+  id: string;
+  operatorId: string;
+  counterpartyId: string;
+  currency: Currency;
+  netCents: number;
+  lastEventAt: string;
+}
+export interface SettlementReport {
+  items: SettlementRow[];
+  receivableCents: number;
+  payableCents: number;
+  netCents: number;
+}
+
+export interface RedemptionsReport {
+  byStatus: { status: string; count: number; totalMinor: string }[];
+  pendingMinor: string;
+  approvedMinor: string;
+  settledMinor: string;
+}
+
 export interface ActivityItem {
   id: string;
   type: string;
