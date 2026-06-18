@@ -12,5 +12,10 @@ export const IdempotencyKey = createParamDecorator((_data: unknown, ctx: Executi
   if (!key || key.trim().length === 0) {
     throw new ValidationError(undefined, "Idempotency-Key header is required");
   }
-  return key.trim();
+  const trimmed = key.trim();
+  // Bound the key so it can't bloat the idempotency store (VAL).
+  if (trimmed.length > 200) {
+    throw new ValidationError(undefined, "Idempotency-Key is too long");
+  }
+  return trimmed;
 });

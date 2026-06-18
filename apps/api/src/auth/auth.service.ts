@@ -25,6 +25,7 @@ import {
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
 import { LoginThrottleService } from "./login-throttle.service";
+import { MfaCryptoService } from "./mfa-crypto.service";
 import { PasswordService } from "./password.service";
 import { TokenService } from "./token.service";
 
@@ -53,6 +54,7 @@ export class AuthService {
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
     private readonly loginThrottle: LoginThrottleService,
+    private readonly mfaCrypto: MfaCryptoService,
   ) {}
 
   /** Record a failed login for security monitoring (docs/01 §8). Never logs the password. */
@@ -102,7 +104,7 @@ export class AuthService {
     if (user.mfaEnabled) {
       // A missing code is a prompt for the second factor, not a failed attempt.
       if (!input.totp) throw new MfaRequiredError();
-      if (!user.mfaSecret || !authenticator.check(input.totp, user.mfaSecret)) {
+      if (!user.mfaSecret || !authenticator.check(input.totp, this.mfaCrypto.decrypt(user.mfaSecret))) {
         await this.loginThrottle.recordFailure("operator", input.identifier);
         await this.auditLoginFailure(input.identifier, "operator", "bad_mfa", ctx);
         throw new InvalidCredentialsError("Invalid MFA code");
@@ -312,8 +314,11 @@ export class AuthService {
   async mfaEnable(principal: OperatorPrincipal): Promise<{ secret: string; otpauthUrl: string }> {
     const secret = authenticator.generateSecret();
     const otpauthUrl = authenticator.keyuri(principal.username, MFA_ISSUER, secret);
-    // Store the (unconfirmed) secret; mfaEnabled flips on confirm.
-    await this.prisma.user.update({ where: { id: principal.userId }, data: { mfaSecret: secret } });
+    // Store the (unconfirmed) secret ENCRYPTED at rest; mfaEnabled flips on confirm.
+    await this.prisma.user.update({
+      where: { id: principal.userId },
+      data: { mfaSecret: this.mfaCrypto.encrypt(secret) },
+    });
     await this.audit.record({
       ...auditActor(principal),
       action: "auth.mfa_enable",
@@ -326,7 +331,7 @@ export class AuthService {
   async mfaConfirm(principal: OperatorPrincipal, totp: string): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { id: principal.userId } });
     if (!user?.mfaSecret) throw new ConflictError("MFA not initialized");
-    if (!authenticator.check(totp, user.mfaSecret)) {
+    if (!authenticator.check(totp, this.mfaCrypto.decrypt(user.mfaSecret))) {
       throw new InvalidCredentialsError("Invalid MFA code");
     }
     await this.prisma.user.update({ where: { id: user.id }, data: { mfaEnabled: true } });
