@@ -106,6 +106,7 @@ model Operator {
 
   players        Player[]
   ledgerAccounts LedgerAccount[]
+  rtpOverrides   GameRtpOverride[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -150,6 +151,7 @@ model Player {
   sessions      GameSession[]
   redemptions   RedemptionRequest[]
   rgLimits      ResponsibleGamingLimit[]
+  rtpOverrides  GameRtpOverride[]
   selfExclusion SelfExclusion?
 
   lastLoginAt DateTime?
@@ -353,11 +355,36 @@ model Game {
   config              Json          @default("{}")
   sortOrder           Int           @default(0)
   sessions            GameSession[]
+  rtpOverrides        GameRtpOverride[]
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
   @@index([status, sortOrder])
   @@map("games")
+}
+
+/**
+ * Per-agent (and optional per-player) RTP override (docs/06 §6.1). Resolved at bet
+ * time as player-specific → owning-agent → game default. Bounded to a platform band
+ * and audited; one override per scope is enforced in the service. playerId null =
+ * applies to all of the operator's players.
+ */
+model GameRtpOverride {
+  id          String   @id @default(cuid())
+  gameId      String
+  operatorId  String
+  playerId    String?
+  rtpBps      Int
+  setByUserId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  game     Game     @relation(fields: [gameId], references: [id])
+  operator Operator @relation(fields: [operatorId], references: [id])
+  player   Player?  @relation(fields: [playerId], references: [id])
+
+  @@index([gameId, operatorId, playerId])
+  @@map("game_rtp_overrides")
 }
 
 enum GameType {
