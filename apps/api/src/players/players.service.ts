@@ -128,18 +128,73 @@ export class PlayersService {
     if (query.status) where.status = query.status;
     if (query.q) where.username = { contains: query.q, mode: "insensitive" };
 
-    const items = await this.prisma.player.findMany({
+    const rows = await this.prisma.player.findMany({
       where,
-      select: PLAYER_SELECT,
+      select: {
+        ...PLAYER_SELECT,
+        operator: { select: { displayName: true } },
+        wallets: { select: { currency: true, balanceMinor: true } },
+      },
       orderBy: { createdAt: "desc" },
       take: query.limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     });
-    const hasMore = items.length > query.limit;
+    const hasMore = rows.length > query.limit;
+    const page = hasMore ? rows.slice(0, query.limit) : rows;
+    const ids = page.map((p) => p.id);
+
+    // Two bounded aggregate queries over the page's player ids (no N+1): the ids
+    // came from the scoped client, so they are already subtree-authorized.
+    const [recharged, redeemed] = await Promise.all([
+      this.aggRecharged(ids),
+      this.aggRedeemed(ids),
+    ]);
+
     return {
-      items: hasMore ? items.slice(0, query.limit) : items,
-      nextCursor: hasMore ? items[query.limit - 1]?.id : undefined,
+      items: page.map((p) => ({
+        id: p.id,
+        operatorId: p.operatorId,
+        owningAgentName: p.operator.displayName,
+        username: p.username,
+        displayName: p.displayName,
+        phone: p.phone,
+        email: p.email,
+        status: p.status,
+        lastLoginAt: p.lastLoginAt,
+        createdAt: p.createdAt,
+        wallets: p.wallets.map((w) => ({ currency: w.currency, balanceMinor: w.balanceMinor.toString() })),
+        lifetimeRechargedMinor: (recharged.get(p.id) ?? 0n).toString(),
+        lifetimeRedeemedMinor: (redeemed.get(p.id) ?? 0n).toString(),
+      })),
+      nextCursor: hasMore ? page[page.length - 1]?.id : undefined,
     };
+  }
+
+  /** Lifetime credits recharged into each player's wallet (RECHARGE credits). */
+  private async aggRecharged(ids: string[]): Promise<Map<string, bigint>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.system.$queryRaw<{ playerId: string; total: bigint }[]>(Prisma.sql`
+      SELECT a."playerId" AS "playerId", COALESCE(SUM(e."amountMinor"), 0)::bigint AS total
+      FROM ledger_entries e
+      JOIN ledger_accounts a ON a.id = e."accountId"
+      JOIN ledger_transactions t ON t.id = e."transactionId"
+      WHERE a."playerId" IN (${Prisma.join(ids)})
+        AND a."ownerType" = 'PLAYER'
+        AND e.direction = 'CREDIT'
+        AND t.type = 'RECHARGE'
+      GROUP BY a."playerId"`);
+    return new Map(rows.map((r) => [r.playerId, r.total]));
+  }
+
+  /** Lifetime credits successfully redeemed (settled/PAID redemptions) per player. */
+  private async aggRedeemed(ids: string[]): Promise<Map<string, bigint>> {
+    if (ids.length === 0) return new Map();
+    const grouped = await this.system.redemptionRequest.groupBy({
+      by: ["playerId"],
+      where: { playerId: { in: ids }, status: "PAID" },
+      _sum: { amountMinor: true },
+    });
+    return new Map(grouped.map((g) => [g.playerId, g._sum.amountMinor ?? 0n]));
   }
 
   async get(caller: OperatorPrincipal, id: string) {

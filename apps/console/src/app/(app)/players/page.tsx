@@ -8,6 +8,7 @@ import {
   type Column,
   DataTable,
   ForbiddenState,
+  Money,
   Panel,
   SearchInput,
   SegmentedControl,
@@ -16,7 +17,7 @@ import {
 import { api, toQuery } from "@/lib/api";
 import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
-import type { Page, PlayerRow } from "@/lib/types";
+import type { Page, PlayerListItem } from "@/lib/types";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { PageHeader } from "@/components/page-header";
 import { CreatePlayerDialog } from "@/components/players/create-player-dialog";
@@ -36,14 +37,14 @@ export default function PlayersPage(): ReactElement {
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
-  const [recharge, setRecharge] = useState<PlayerRow | null>(null);
+  const [recharge, setRecharge] = useState<PlayerListItem | null>(null);
 
   const canView = hasPermission(principal, "player.view");
   const canCreate = hasPermission(principal, "player.create");
   const canRecharge = hasPermission(principal, "player.recharge");
 
-  const list = useCursorList<PlayerRow>(["players", "list", status, search], (cursor) =>
-    api.get<Page<PlayerRow>>(
+  const list = useCursorList<PlayerListItem>(["players", "list", status, search], (cursor) =>
+    api.get<Page<PlayerListItem>>(
       `/players${toQuery({
         status: status === "all" ? undefined : status,
         q: search === "" ? undefined : search,
@@ -54,7 +55,7 @@ export default function PlayersPage(): ReactElement {
     { enabled: canView },
   );
 
-  const columns: Column<PlayerRow>[] = [
+  const columns: Column<PlayerListItem>[] = [
     {
       key: "username",
       header: "Player",
@@ -65,9 +66,36 @@ export default function PlayersPage(): ReactElement {
         </div>
       ),
     },
+    { key: "agent", header: "Owning agent", render: (p) => <span className="text-text-mid">{p.owningAgentName}</span> },
+    {
+      key: "balance",
+      header: "Balance",
+      numeric: true,
+      render: (p) =>
+        p.wallets.length > 0 ? (
+          <div className="flex flex-col items-end gap-0.5">
+            {p.wallets.map((w) => (
+              <Money key={w.currency} valueMinor={w.balanceMinor} currency={w.currency} size="sm" showCurrency />
+            ))}
+          </div>
+        ) : (
+          <span className="text-text-lo">—</span>
+        ),
+    },
+    {
+      key: "recharged",
+      header: "Lifetime recharged",
+      numeric: true,
+      render: (p) => <Money valueMinor={p.lifetimeRechargedMinor} size="sm" />,
+    },
+    {
+      key: "redeemed",
+      header: "Lifetime redeemed",
+      numeric: true,
+      render: (p) => <Money valueMinor={p.lifetimeRedeemedMinor} size="sm" />,
+    },
     { key: "status", header: "Status", render: (p) => <StatusPill status={p.status} /> },
     { key: "lastLogin", header: "Last active", render: (p) => formatDate(p.lastLoginAt) },
-    { key: "created", header: "Joined", render: (p) => formatDate(p.createdAt) },
   ];
 
   if (!canView) return <ForbiddenState />;

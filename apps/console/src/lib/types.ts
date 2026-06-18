@@ -77,6 +77,22 @@ export interface PlayerRow {
   createdAt: string;
 }
 
+export interface PlayerListItem {
+  id: string;
+  operatorId: string;
+  owningAgentName: string;
+  username: string;
+  displayName: string | null;
+  phone: string | null;
+  email: string | null;
+  status: PlayerStatus;
+  lastLoginAt: string | null;
+  createdAt: string;
+  wallets: BalanceEntry[];
+  lifetimeRechargedMinor: string;
+  lifetimeRedeemedMinor: string;
+}
+
 export interface PlayerDetail extends PlayerRow {
   kyc: { status: KycStatus; level: number } | null;
   wallets: BalanceEntry[];
