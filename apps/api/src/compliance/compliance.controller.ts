@@ -24,6 +24,8 @@ import {
   kycSubmitSchema,
   type PresignKycDocInput,
   presignKycDocSchema,
+  type RaiseAmlFlagInput,
+  raiseAmlFlagSchema,
   type RedeemPromoInput,
   redeemPromoSchema,
   type ResolveAmlFlagInput,
@@ -184,6 +186,28 @@ export class ComplianceController {
     @Query(new ZodValidationPipe(amlFlagsQuerySchema)) query: AmlFlagsQuery,
   ) {
     return this.aml.listFlags(caller, query);
+  }
+
+  @Post("aml/flags")
+  @HttpCode(200)
+  @Auth("operator")
+  @RequirePermission("compliance.manage")
+  raiseAmlFlag(
+    @CurrentUser() caller: OperatorPrincipal,
+    @Body(new ZodValidationPipe(raiseAmlFlagSchema)) body: RaiseAmlFlagInput,
+    @Req() req: Request,
+  ) {
+    return this.aml.raiseManual(
+      caller,
+      {
+        subjectType: body.subjectType,
+        subjectId: body.subjectId,
+        ruleCode: body.ruleCode,
+        severity: body.severity,
+        details: { reason: body.reason, manual: true },
+      },
+      ctxOf(req),
+    );
   }
 
   @Post("aml/flags/:id/resolve")

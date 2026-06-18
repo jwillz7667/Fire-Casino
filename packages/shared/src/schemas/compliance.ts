@@ -103,6 +103,16 @@ export const resolveAmlFlagSchema = z.object({
 });
 export type ResolveAmlFlagInput = z.infer<typeof resolveAmlFlagSchema>;
 
+/** Operator-initiated manual AML flag (the "raise a flag" action in the queue). */
+export const raiseAmlFlagSchema = z.object({
+  subjectType: z.enum(["PLAYER", "OPERATOR"]),
+  subjectId: z.string().min(1),
+  ruleCode: z.string().min(2).max(60).regex(/^[A-Z0-9_]+$/, "uppercase letters, digits, underscores"),
+  severity: amlSeveritySchema,
+  reason: z.string().min(3).max(280),
+});
+export type RaiseAmlFlagInput = z.infer<typeof raiseAmlFlagSchema>;
+
 // ---- promotions --------------------------------------------------------------
 
 export const createPromotionSchema = z.object({
