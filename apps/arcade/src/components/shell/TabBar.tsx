@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpFromLine, Gamepad2, User, Wallet } from "lucide-react";
+import { Gamepad2, User, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@aureus/ui";
 
-export type TabKey = "play" | "wallet" | "cashout" | "me";
+export type TabKey = "play" | "wallet" | "me";
 
 interface TabDef {
   key: TabKey;
@@ -17,7 +17,6 @@ interface TabDef {
 const TABS: TabDef[] = [
   { key: "play", href: "/", label: "Play", Icon: Gamepad2 },
   { key: "wallet", href: "/wallet", label: "Wallet", Icon: Wallet },
-  { key: "cashout", href: "/cashout", label: "Cash Out", Icon: ArrowUpFromLine },
   { key: "me", href: "/me", label: "Me", Icon: User },
 ];
 

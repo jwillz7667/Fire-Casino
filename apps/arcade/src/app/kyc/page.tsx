@@ -42,11 +42,11 @@ function Kyc(): React.ReactElement {
           {status ? <StatusPill status={status} /> : null}
           <p className="max-w-xs text-sm text-text-mid">
             {status === "VERIFIED"
-              ? "You're verified — cash outs are unlocked."
+              ? "You're verified. Redeem your winnings with your agent."
               : "Your documents are under review. We'll update you soon."}
           </p>
-          <Link href="/cashout" className="text-sm font-medium text-gold-light">
-            Go to cash out
+          <Link href="/" className="text-sm font-medium text-gold-light">
+            Back to games
           </Link>
         </Card>
       ) : (
