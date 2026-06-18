@@ -150,6 +150,8 @@ export interface CreditOrder {
   decidedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  buyerName: string | null;
+  sellerName: string | null;
 }
 
 export interface PresignResult {

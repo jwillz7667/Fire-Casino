@@ -107,9 +107,28 @@ export class OrdersService {
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     });
     const hasMore = items.length > query.limit;
+    const page = hasMore ? items.slice(0, query.limit) : items;
+
+    // Attach counterparty display names so the inbox/outbox can show WHO the order
+    // is with (docs/06 §3.5). One lookup over the page's buyer+seller ids; these
+    // are the caller's own orders so the names are authorized to show.
+    const ids = [
+      ...new Set(
+        page.flatMap((o) => [o.buyerOperatorId, o.sellerOperatorId]).filter((x): x is string => Boolean(x)),
+      ),
+    ];
+    const ops = ids.length
+      ? await this.prisma.operator.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true } })
+      : [];
+    const nameById = new Map(ops.map((o) => [o.id, o.displayName]));
+
     return {
-      items: hasMore ? items.slice(0, query.limit) : items,
-      nextCursor: hasMore ? items[query.limit - 1]?.id : undefined,
+      items: page.map((o) => ({
+        ...o,
+        buyerName: nameById.get(o.buyerOperatorId) ?? null,
+        sellerName: o.sellerOperatorId ? (nameById.get(o.sellerOperatorId) ?? null) : null,
+      })),
+      nextCursor: hasMore ? page[page.length - 1]?.id : undefined,
     };
   }
 

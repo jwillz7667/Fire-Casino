@@ -41,6 +41,13 @@ export default function CreditsPage(): ReactElement {
 
   const columns: Column<CreditOrder>[] = [
     {
+      key: "counterparty",
+      header: role === "seller" ? "Buyer" : "Seller",
+      render: (o) => (
+        <span className="text-text-mid">{(role === "seller" ? o.buyerName : o.sellerName) ?? "—"}</span>
+      ),
+    },
+    {
       key: "quantity",
       header: "Quantity",
       numeric: true,
