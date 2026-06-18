@@ -11,6 +11,7 @@ import { ForbiddenError, NotFoundError } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
+import { PlatformSettingsProvider } from "./platform-settings.provider";
 
 interface ActionContext {
   ip?: string;
@@ -32,6 +33,7 @@ export class SettingsService {
     @Inject(PRISMA_SYSTEM) private readonly prisma: PrismaClient,
     @Inject(ENV) private readonly env: Env,
     private readonly audit: AuditService,
+    private readonly runtimeSettings: PlatformSettingsProvider,
   ) {}
 
   async getPlatform() {
@@ -83,6 +85,10 @@ export class SettingsService {
         create: { key, value, updatedBy: caller.userId },
       });
     }
+
+    // Settings now drive enforcement at runtime — drop the cached snapshot so the
+    // change applies on the next request without a restart (CR6).
+    this.runtimeSettings.invalidate();
 
     await this.audit.record({
       ...auditActor(caller),

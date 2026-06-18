@@ -21,10 +21,11 @@ import { Auth, CurrentPlayer, CurrentUser, RequirePermission } from "../common/a
 import { type OperatorPrincipal, type PlayerPrincipal } from "../common/auth/principal";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { MONEY_RATE_LIMIT } from "../common/throttler/throttler.config";
+import { regionFromRequest } from "../common/http/region";
 import { RedemptionsService } from "./redemptions.service";
 
-function ctxOf(req: Request): { ip?: string; userAgent?: string } {
-  return { ip: req.ip, userAgent: req.headers["user-agent"] };
+function ctxOf(req: Request): { ip?: string; userAgent?: string; region?: string } {
+  return { ip: req.ip, userAgent: req.headers["user-agent"], region: regionFromRequest(req) };
 }
 
 @Controller("redemptions")

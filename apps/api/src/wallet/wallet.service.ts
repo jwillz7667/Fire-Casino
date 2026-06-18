@@ -61,7 +61,9 @@ export class WalletService {
     if (!isInSubtree(caller.path, player.operator.path)) throw new OutOfScopeError();
 
     await this.operators.assertOperatorActionable(caller.operatorId);
-    await this.compliance.checkDeposit(player.id);
+    // Pass the amount so the DEPOSIT responsible-gaming limit is actually enforced
+    // (CR3 — it was previously called without an amount and silently skipped).
+    await this.compliance.checkDeposit(player.id, { amountMinor: input.amountMinor });
 
     const keyBase = `recharge:${caller.operatorId}:${idempotencyKey}`;
 

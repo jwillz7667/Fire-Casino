@@ -24,6 +24,7 @@ import { ComplianceModule } from "./compliance/compliance.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 import { ReportsModule } from "./reports/reports.module";
 import { SettingsModule } from "./settings/settings.module";
+import { PlatformSettingsModule } from "./settings/platform-settings.provider";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { StorageModule } from "./storage/storage.module";
 import { HealthModule } from "./health/health.module";
@@ -44,6 +45,7 @@ import { HealthModule } from "./health/health.module";
     }),
     ClsModule.forRoot({ global: true, middleware: { mount: true } }),
     ConfigModule,
+    PlatformSettingsModule,
     ScopeModule,
     PrismaModule,
     RedisModule,

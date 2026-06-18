@@ -13,6 +13,7 @@ import {
 import { AuditService } from "../../src/audit/audit.service";
 import { PasswordService } from "../../src/auth/password.service";
 import { ComplianceService } from "../../src/compliance/compliance.service";
+import { PlatformSettingsProvider } from "../../src/settings/platform-settings.provider";
 import { GamesService } from "../../src/games/games.service";
 import { PlaceholderRgsProvider } from "../../src/games/rgs/placeholder.provider";
 import { LedgerService } from "../../src/ledger/ledger.service";
@@ -31,7 +32,7 @@ import {
 
 const baseEnv = loadEnv();
 const ledger = new LedgerService(testPrisma);
-const compliance = new ComplianceService(testPrisma, baseEnv);
+const compliance = new ComplianceService(testPrisma, baseEnv, new PlatformSettingsProvider(testPrisma, baseEnv));
 const audit = new AuditService(testPrisma);
 const passwords = new PasswordService(baseEnv);
 const rgs = new PlaceholderRgsProvider();

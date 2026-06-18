@@ -11,6 +11,7 @@ import {
 } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
+import { PlatformSettingsProvider } from "../settings/platform-settings.provider";
 
 interface GateContext {
   /** Region code resolved from request IP (ISO-ish). Absent → region not enforced. */
@@ -46,6 +47,7 @@ export class ComplianceService {
   constructor(
     @Inject(PRISMA_SYSTEM) private readonly prisma: PrismaClient,
     @Inject(ENV) private readonly env: Env,
+    private readonly settings: PlatformSettingsProvider,
   ) {}
 
   /** Gate before a recharge/deposit (docs/03 §4.3). */
@@ -125,7 +127,8 @@ export class ComplianceService {
 
   /** Verified KYC required at/above the configured threshold (docs/05 §7). */
   async assertKycForAmount(playerId: string, amountMinor: bigint): Promise<void> {
-    const threshold = BigInt(this.env.REDEMPTION_KYC_THRESHOLD_MINOR);
+    if (!(await this.settings.kycEnforced())) return; // enforcement toggled off (CR6)
+    const threshold = await this.settings.kycThresholdMinor();
     if (threshold === 0n) return; // threshold 0 → KYC not required by amount
     if (amountMinor < threshold) return;
     const kyc = await this.prisma.kycRecord.findUnique({
@@ -176,13 +179,12 @@ export class ComplianceService {
   // ---- internals -------------------------------------------------------------
 
   private async assertRegionAllowed(region?: string): Promise<void> {
-    // Region enforcement applies only when the caller resolved a region (from the
-    // request IP / CF-IPCountry). Player records carry no stored region, so an
-    // absent region cannot be blocked. GeoRule rows are the allow/deny source.
-    // NOTE: the rule promise is now AWAITED — previously a floating `void` swallowed
-    // the RegionBlockedError, so a BLOCK rule failed open (CR1). Region resolution
-    // at the HTTP boundary is the remaining wiring to make this fully enforce.
+    // Region enforcement applies only when GEO_ENFORCED is on (CR6) and the caller
+    // resolved a region (from CF-IPCountry / X-Vercel-IP-Country at the HTTP edge,
+    // CR1). An absent region cannot be matched against a GeoRule. The rule promise
+    // is AWAITED so a BLOCK actually throws (the prior floating `void` failed open).
     if (!region) return;
+    if (!(await this.settings.geoEnforced())) return;
     await this.applyRegionRule(region);
   }
 

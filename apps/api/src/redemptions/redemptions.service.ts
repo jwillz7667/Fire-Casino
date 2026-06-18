@@ -31,6 +31,7 @@ import { StorageService } from "../storage/storage.service";
 interface ActionContext {
   ip?: string;
   userAgent?: string;
+  region?: string;
 }
 
 interface RedemptionRow {
@@ -81,7 +82,8 @@ export class RedemptionsService {
   /** Player requests a cashout. Places no hold; routes to the approving operator. */
   async request(player: PlayerPrincipal, input: CreateRedemptionInput, ctx: ActionContext) {
     const currency = this.redeemCurrency();
-    await this.compliance.checkRedeem(player.playerId, input.amountMinor);
+    // Player-initiated: geo-check against the player's resolved region (CR1).
+    await this.compliance.checkRedeem(player.playerId, input.amountMinor, { region: ctx.region });
 
     const owner = await this.system.operator.findUnique({
       where: { id: player.operatorId },
