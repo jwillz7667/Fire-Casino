@@ -1,0 +1,22 @@
+# Keep `railway up` uploads lean. The API image only needs the pnpm workspace
+# (apps/api, apps/console, apps/arcade, packages/*). Everything below is rebuilt
+# in-image, hosted elsewhere (Godot games live on R2), or raw source art.
+#
+# IMPORTANT: anchor directory excludes with a leading "/". An unanchored name
+# like `games` matches at EVERY level and would wrongly drop apps/api/src/games.
+
+# Build + dependency artifacts (regenerated during the image build).
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+**/coverage
+.git
+
+# Godot game projects + builds — hosted on Cloudflare R2, not part of the API build.
+/games
+
+# Raw source art the owner keeps locally (not used by any build).
+/assets
+/Screenshot*.png
