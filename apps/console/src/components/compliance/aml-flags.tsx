@@ -1,8 +1,9 @@
 "use client";
 
 import { type ReactElement, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldAlert } from "lucide-react";
+import { ExternalLink, ShieldAlert } from "lucide-react";
 import { amlSeveritySchema, raiseAmlFlagSchema, resolveAmlFlagSchema } from "@aureus/shared";
 import {
   Badge,
@@ -97,7 +98,19 @@ export function AmlFlags(): ReactElement {
 
   const columns: Column<AmlFlag>[] = [
     { key: "rule", header: "Rule", render: (f) => <span className="font-mono text-text-hi">{f.ruleCode}</span> },
-    { key: "subject", header: "Subject", render: (f) => `${f.subjectType} · ${f.subjectId.slice(0, 8)}` },
+    {
+      key: "subject",
+      header: "Subject",
+      render: (f) => {
+        const href = f.subjectType === "PLAYER" ? `/players/${f.subjectId}` : `/operators/${f.subjectId}`;
+        return (
+          <Link href={href} className="inline-flex items-center gap-1 text-lumen hover:underline" onClick={(e) => { e.stopPropagation(); }}>
+            {f.subjectType} · {f.subjectId.slice(0, 8)}
+            <ExternalLink className="h-3 w-3" />
+          </Link>
+        );
+      },
+    },
     {
       key: "severity",
       header: "Severity",

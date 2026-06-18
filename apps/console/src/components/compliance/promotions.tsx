@@ -37,6 +37,10 @@ export function Promotions(): ReactElement {
   const [description, setDescription] = useState("");
   const [grantMinor, setGrantMinor] = useState<bigint | undefined>();
   const [isAmoe, setIsAmoe] = useState(false);
+  const [maxRedemptions, setMaxRedemptions] = useState("");
+  const [perPlayerLimit, setPerPlayerLimit] = useState("1");
+  const [startsAt, setStartsAt] = useState("");
+  const [endsAt, setEndsAt] = useState("");
   const [error, setError] = useState<string | undefined>();
 
   const list = useQuery({
@@ -53,6 +57,10 @@ export function Promotions(): ReactElement {
         currency: OPERATOR_CURRENCY,
         grantMinor: (grantMinor ?? 0n).toString(),
         isAmoe,
+        maxRedemptions: maxRedemptions === "" ? undefined : Number(maxRedemptions),
+        perPlayerLimit: perPlayerLimit === "" ? undefined : Number(perPlayerLimit),
+        startsAt: startsAt === "" ? undefined : new Date(startsAt).toISOString(),
+        endsAt: endsAt === "" ? undefined : new Date(endsAt).toISOString(),
       });
       if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid promotion");
       return api.post<Promotion>("/compliance/promotions", { ...parsed.data, grantMinor: (grantMinor ?? 0n).toString() });
@@ -65,6 +73,10 @@ export function Promotions(): ReactElement {
       setDescription("");
       setGrantMinor(undefined);
       setIsAmoe(false);
+      setMaxRedemptions("");
+      setPerPlayerLimit("1");
+      setStartsAt("");
+      setEndsAt("");
     },
     onError: (err) => { setError(errorMessage(err)); },
   });
@@ -126,6 +138,29 @@ export function Promotions(): ReactElement {
           <Field label="Grant amount" required>
             <MoneyInput valueMinor={grantMinor} onChangeMinor={setGrantMinor} currency={OPERATOR_CURRENCY} />
           </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Max redemptions" hint="Total cap; blank = unlimited">
+              <Input
+                inputMode="numeric"
+                value={maxRedemptions}
+                onChange={(e) => { setMaxRedemptions(e.target.value.replace(/\D/g, "")); }}
+                placeholder="∞"
+              />
+            </Field>
+            <Field label="Per-player limit" hint="1–100">
+              <Input
+                inputMode="numeric"
+                value={perPlayerLimit}
+                onChange={(e) => { setPerPlayerLimit(e.target.value.replace(/\D/g, "")); }}
+              />
+            </Field>
+            <Field label="Starts" hint="Optional">
+              <Input type="datetime-local" value={startsAt} onChange={(e) => { setStartsAt(e.target.value); }} />
+            </Field>
+            <Field label="Ends" hint="Optional">
+              <Input type="datetime-local" value={endsAt} onChange={(e) => { setEndsAt(e.target.value); }} />
+            </Field>
+          </div>
           <Checkbox checked={isAmoe} onChange={setIsAmoe} label="No-purchase (AMoE) entry" />
           {error ? <p className="text-sm text-danger">{error}</p> : null}
         </div>
