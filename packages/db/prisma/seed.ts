@@ -4,6 +4,7 @@ import { config as loadEnvFile } from "dotenv";
 import { hash } from "@node-rs/argon2";
 import {
   type Currency,
+  GameStatus,
   type OperatorTier,
   type Prisma,
   PrismaClient,
@@ -196,6 +197,7 @@ async function seedGames(): Promise<void> {
     sortOrder: number;
     thumbnailUrl: string | null;
     config: Prisma.InputJsonObject;
+    status: GameStatus;
   }[] = [
     {
       // First "originals" game: a provably-fair 30-segment Fortune Wheel with selectable
@@ -211,11 +213,13 @@ async function seedGames(): Promise<void> {
       sortOrder: 0,
       thumbnailUrl: "/games/fortune-wheel/thumb.png",
       config: { engine: "fortune-wheel", renderer: "fortune-wheel" },
+      status: GameStatus.ACTIVE,
     },
     {
-      // The one real engine: server-authoritative 5×3 / 243-ways slot. config.engine
-      // routes rounds to the Phoenix math (apps/api .../engines/phoenix); its measured
-      // RTP is 96.0% (engine.simulation.test.ts). Art ships in the arcade's public dir.
+      // Phoenix Ascendant: real server-authoritative 5×3 / 243-ways engine, but
+      // retired from the player lobby (owner's call). Seeded HIDDEN so the row +
+      // engine stay available without surfacing in the catalog or play gate. Hidden
+      // on existing DBs by migration 20260617200000_hide_phoenix_and_placeholders.
       code: "phoenix-ascendant",
       name: "Phoenix Ascendant",
       type: "SLOT",
@@ -226,6 +230,7 @@ async function seedGames(): Promise<void> {
       sortOrder: 1,
       thumbnailUrl: "/games/phoenix-ascendant/thumb.png",
       config: { engine: "phoenix-ascendant", renderer: "phoenix-ascendant" },
+      status: GameStatus.HIDDEN,
     },
     {
       // Second real engine: server-authoritative 5×3 / 243-ways royal slot with a
@@ -242,6 +247,7 @@ async function seedGames(): Promise<void> {
       sortOrder: 2,
       thumbnailUrl: "/games/royal-ascendant/thumb.png",
       config: { engine: "royal-ascendant", renderer: "royal-ascendant" },
+      status: GameStatus.ACTIVE,
     },
     {
       // Third real engine: server-authoritative 5×3 / 25-payline dragon slot with a
@@ -258,6 +264,7 @@ async function seedGames(): Promise<void> {
       sortOrder: 1,
       thumbnailUrl: "/games/dragon-hoard/thumb.png",
       config: { engine: "dragon-hoard", renderer: "dragon-hoard" },
+      status: GameStatus.ACTIVE,
     },
     // The placeholder catalog games (reef-rumble / golden-depths / lumen-keno) were
     // removed — only real, server-authoritative games ship. Any existing rows are set
@@ -275,6 +282,7 @@ async function seedGames(): Promise<void> {
         sortOrder: g.sortOrder,
         thumbnailUrl: g.thumbnailUrl,
         config: g.config,
+        status: g.status,
       },
       create: g,
     });
