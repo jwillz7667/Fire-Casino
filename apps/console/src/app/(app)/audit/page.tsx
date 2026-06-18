@@ -18,20 +18,32 @@ export default function AuditPage(): ReactElement {
   const [actorType, setActorType] = useState("all");
   const [action, setAction] = useState("");
   const [targetType, setTargetType] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [selected, setSelected] = useState<AuditLogRow | null>(null);
+
+  const toIso = (d: string): string | undefined => {
+    if (d === "") return undefined;
+    const parsed = new Date(d);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  };
 
   const queryParams = auditQuerySchema.partial().parse({
     actorType: actorType === "all" ? undefined : (actorType as "USER" | "PLAYER" | "SYSTEM"),
     action: action === "" ? undefined : action,
     targetType: targetType === "" ? undefined : targetType,
+    from: toIso(from),
+    to: toIso(to),
   });
 
-  const list = useCursorList<AuditLogRow>(["audit", actorType, action, targetType], (cursor) =>
+  const list = useCursorList<AuditLogRow>(["audit", actorType, action, targetType, from, to], (cursor) =>
     api.get<Page<AuditLogRow>>(
       `/audit${toQuery({
         actorType: queryParams.actorType,
         action: queryParams.action,
         targetType: queryParams.targetType,
+        from: queryParams.from,
+        to: queryParams.to,
         limit: 50,
         cursor,
       })}`,
@@ -71,6 +83,12 @@ export default function AuditPage(): ReactElement {
         </Field>
         <Field label="Target type" className="w-48">
           <Input value={targetType} onChange={(e) => { setTargetType(e.target.value); }} placeholder="e.g. Operator" />
+        </Field>
+        <Field label="From" className="w-44">
+          <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); }} />
+        </Field>
+        <Field label="To" className="w-44">
+          <Input type="date" value={to} onChange={(e) => { setTo(e.target.value); }} />
         </Field>
       </div>
 
