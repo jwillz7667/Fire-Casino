@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { Badge, Card, EmptyState, Money, useToast } from "@aureus/ui";
 import {
+  COSMIC_GAME_CODE,
   DRAGON_GAME_CODE,
   PHOENIX_GAME_CODE,
   ROYAL_GAME_CODE,
@@ -21,6 +22,7 @@ import { PhoenixSlot } from "@/components/game/PhoenixSlot";
 import { PhoenixGodot, PHOENIX_GAME_URL } from "@/components/game/PhoenixGodot";
 import { RoyalGodot, ROYAL_GAME_URL } from "@/components/game/RoyalGodot";
 import { DragonGodot, DRAGON_GAME_URL } from "@/components/game/DragonGodot";
+import { CosmicGodot, COSMIC_GAME_URL } from "@/components/game/CosmicGodot";
 import { WheelGodot, WHEEL_GAME_URL } from "@/components/game/WheelGodot";
 import { FairnessDrawer } from "@/components/game/FairnessDrawer";
 import { gameTypeLabel } from "@/components/game/game-meta";
@@ -185,8 +187,9 @@ function GameScreen(): React.ReactElement {
   const useGodot = game.code === PHOENIX_GAME_CODE && PHOENIX_GAME_URL !== "" && playable;
   const useRoyal = game.code === ROYAL_GAME_CODE && ROYAL_GAME_URL !== "" && playable;
   const useDragon = game.code === DRAGON_GAME_CODE && DRAGON_GAME_URL !== "" && playable;
+  const useCosmic = game.code === COSMIC_GAME_CODE && COSMIC_GAME_URL !== "" && playable;
   const useWheel = game.code === WHEEL_GAME_CODE && WHEEL_GAME_URL !== "" && playable;
-  const useAnyGodot = useGodot || useRoyal || useDragon || useWheel;
+  const useAnyGodot = useGodot || useRoyal || useDragon || useCosmic || useWheel;
 
   return (
     <div className="flex flex-col gap-4">
@@ -205,6 +208,8 @@ function GameScreen(): React.ReactElement {
         <RoyalGodot game={game} currency={currency} />
       ) : useDragon ? (
         <DragonGodot game={game} currency={currency} />
+      ) : useCosmic ? (
+        <CosmicGodot game={game} currency={currency} />
       ) : useWheel ? (
         <WheelGodot game={game} currency={currency} />
       ) : game.code === PHOENIX_GAME_CODE ? (
