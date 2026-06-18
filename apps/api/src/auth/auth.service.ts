@@ -24,6 +24,7 @@ import {
 } from "../common/auth/principal";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
+import { LoginThrottleService } from "./login-throttle.service";
 import { PasswordService } from "./password.service";
 import { TokenService } from "./token.service";
 
@@ -51,6 +52,7 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
+    private readonly loginThrottle: LoginThrottleService,
   ) {}
 
   /** Record a failed login for security monitoring (docs/01 §8). Never logs the password. */
@@ -76,25 +78,37 @@ export class AuthService {
     input: OperatorLoginInput,
     ctx: AuthContext,
   ): Promise<IssuedSession & { operator: OperatorSummary }> {
+    // Per-account lockout (S3): reject early if the identifier is locked, and
+    // count password/MFA failures toward a cooldown that survives IP rotation.
+    if (await this.loginThrottle.isLocked("operator", input.identifier)) {
+      await this.auditLoginFailure(input.identifier, "operator", "locked_out", ctx);
+      throw new InvalidCredentialsError();
+    }
+
     const user = await this.prisma.user.findFirst({
       where: { OR: [{ username: input.identifier }, { email: input.identifier }] },
       include: { operator: true },
     });
     if (!user || user.status !== "ACTIVE" || !user.operator) {
+      await this.loginThrottle.recordFailure("operator", input.identifier);
       await this.auditLoginFailure(input.identifier, "operator", "unknown_or_inactive", ctx);
       throw new InvalidCredentialsError();
     }
     if (!(await this.passwords.verify(user.passwordHash, input.password))) {
+      await this.loginThrottle.recordFailure("operator", input.identifier);
       await this.auditLoginFailure(input.identifier, "operator", "bad_password", ctx);
       throw new InvalidCredentialsError();
     }
     if (user.mfaEnabled) {
+      // A missing code is a prompt for the second factor, not a failed attempt.
       if (!input.totp) throw new MfaRequiredError();
       if (!user.mfaSecret || !authenticator.check(input.totp, user.mfaSecret)) {
+        await this.loginThrottle.recordFailure("operator", input.identifier);
         await this.auditLoginFailure(input.identifier, "operator", "bad_mfa", ctx);
         throw new InvalidCredentialsError("Invalid MFA code");
       }
     }
+    await this.loginThrottle.clear("operator", input.identifier);
 
     const operator = user.operator;
     const session = await this.issueOperatorSession(user.id, operator.id, operator.tier, ctx);
@@ -124,19 +138,26 @@ export class AuthService {
     input: PlayerLoginInput,
     ctx: AuthContext,
   ): Promise<IssuedSession & { player: PlayerSummary }> {
+    if (await this.loginThrottle.isLocked("player", input.username)) {
+      await this.auditLoginFailure(input.username, "player", "locked_out", ctx);
+      throw new InvalidCredentialsError();
+    }
+
     const player = await this.prisma.player.findUnique({
       where: { username: input.username },
       include: { operator: true, wallets: true },
     });
     if (!player || player.status !== "ACTIVE") {
+      await this.loginThrottle.recordFailure("player", input.username);
       await this.auditLoginFailure(input.username, "player", "unknown_or_inactive", ctx);
       throw new InvalidCredentialsError();
     }
     if (!(await this.passwords.verify(player.passwordHash, input.password))) {
+      await this.loginThrottle.recordFailure("player", input.username);
       await this.auditLoginFailure(input.username, "player", "bad_password", ctx);
       throw new InvalidCredentialsError();
     }
-    // Region check on login is wired in Phase 9 (compliance).
+    await this.loginThrottle.clear("player", input.username);
 
     const session = await this.issuePlayerSession(player.id, player.operatorId, ctx);
     await this.prisma.player.update({ where: { id: player.id }, data: { lastLoginAt: new Date() } });
