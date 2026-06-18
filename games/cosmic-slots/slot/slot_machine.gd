@@ -115,12 +115,12 @@ var lbl_msg: Label
 var lbl_mult: Label
 var banner: Label
 var title_lbl: Label
-var spin_btn: Button
-var bet_minus_btn: Button
-var bet_plus_btn: Button
-var autospin_btn: Button
-var sound_btn: Button
-var info_btn: Button
+var spin_btn: TextureButton          # provided art (art/ui/btn_spin.png)
+var bet_minus_btn: TextureButton     # provided art (art/ui/btn_bet_minus.png)
+var bet_plus_btn: TextureButton      # provided art (art/ui/btn_bet_plus.png)
+var sound_btn: TextureButton         # provided art (art/ui/btn_sound.png)
+var info_btn: TextureButton          # provided art (art/ui/btn_info.png)
+var autospin_btn: Button             # no art provided → subtle code neon pill
 
 # audio
 var _audio := {}
@@ -864,11 +864,11 @@ func _build_hud() -> void:
 	lbl_bet.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(lbl_bet)
 
-	bet_minus_btn = _neon_button("BET −", CYAN)
+	bet_minus_btn = _tex_button("res://art/ui/btn_bet_minus.png")
 	bet_minus_btn.pressed.connect(func(): _change_bet(-1))
 	hud.add_child(bet_minus_btn)
 
-	bet_plus_btn = _neon_button("BET +", CYAN)
+	bet_plus_btn = _tex_button("res://art/ui/btn_bet_plus.png")
 	bet_plus_btn.pressed.connect(func(): _change_bet(1))
 	hud.add_child(bet_plus_btn)
 
@@ -876,15 +876,15 @@ func _build_hud() -> void:
 	autospin_btn.pressed.connect(_toggle_autospin)
 	hud.add_child(autospin_btn)
 
-	spin_btn = _neon_button("SPIN", MAGENTA)
+	spin_btn = _tex_button("res://art/ui/btn_spin.png")
 	spin_btn.pressed.connect(func(): play("button_tap"); request_spin())
 	hud.add_child(spin_btn)
 
-	sound_btn = _neon_button("♪", CYAN)
+	sound_btn = _tex_button("res://art/ui/btn_sound.png")
 	sound_btn.pressed.connect(_toggle_sound)
 	hud.add_child(sound_btn)
 
-	info_btn = _neon_button("i", CYAN)
+	info_btn = _tex_button("res://art/ui/btn_info.png")
 	info_btn.pressed.connect(func(): play("button_tap"))
 	hud.add_child(info_btn)
 
@@ -895,8 +895,8 @@ func _layout_hud() -> void:
 	var H := view.y
 	if portrait:
 		_place_lbl(title_lbl, Vector2(0, H * 0.045), Vector2(W, 78)); _set_font(title_lbl, 64)
-		_place_btn(info_btn, Vector2(W * 0.09, H * 0.05), Vector2(72, 72))
-		_place_btn(sound_btn, Vector2(W * 0.91, H * 0.05), Vector2(72, 72))
+		_place_btn(info_btn, Vector2(W * 0.10, H * 0.05), Vector2(84, 84))
+		_place_btn(sound_btn, Vector2(W * 0.90, H * 0.05), Vector2(84, 84))
 
 		var grid_bottom := frame_pos.y + frame_size.y
 		_place_lbl(lbl_mult, Vector2(0, frame_pos.y - H * 0.05), Vector2(W, 76))
@@ -910,16 +910,15 @@ func _layout_hud() -> void:
 		lbl_bet.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		_place_lbl(lbl_bet, Vector2(W * 0.42, H * 0.665), Vector2(W * 0.5, 44)); _set_font(lbl_bet, 34)
 
-		var spin_y := H * 0.86
-		_place_btn(spin_btn, Vector2(W * 0.5, spin_y), Vector2(W * 0.30, W * 0.30))
-		_set_font(spin_btn, 46)
-		_place_btn(bet_minus_btn, Vector2(W * 0.17, spin_y), Vector2(W * 0.24, W * 0.13))
-		_place_btn(bet_plus_btn, Vector2(W * 0.83, spin_y), Vector2(W * 0.24, W * 0.13))
-		_place_btn(autospin_btn, Vector2(W * 0.5, H * 0.745), Vector2(W * 0.22, W * 0.10))
+		var spin_y := H * 0.862
+		_place_btn(spin_btn, Vector2(W * 0.5, spin_y), Vector2(W * 0.34, W * 0.34))
+		_place_btn(bet_minus_btn, Vector2(W * 0.18, spin_y), Vector2(W * 0.29, W * 0.165))
+		_place_btn(bet_plus_btn, Vector2(W * 0.82, spin_y), Vector2(W * 0.29, W * 0.165))
+		_place_btn(autospin_btn, Vector2(W * 0.5, H * 0.742), Vector2(W * 0.22, W * 0.085))
 	else:
 		_place_lbl(title_lbl, Vector2(0, H * 0.04), Vector2(W, 70)); _set_font(title_lbl, 52)
-		_place_btn(info_btn, Vector2(W * 0.05, H * 0.07), Vector2(64, 64))
-		_place_btn(sound_btn, Vector2(W * 0.95, H * 0.07), Vector2(64, 64))
+		_place_btn(info_btn, Vector2(W * 0.05, H * 0.07), Vector2(76, 76))
+		_place_btn(sound_btn, Vector2(W * 0.95, H * 0.07), Vector2(76, 76))
 
 		var grid_bottom := frame_pos.y + frame_size.y
 		_place_lbl(lbl_mult, Vector2(W - W * 0.22, frame_pos.y), Vector2(W * 0.2, 70))
@@ -931,12 +930,12 @@ func _layout_hud() -> void:
 		var bar_y := H * 0.9
 		_place_lbl(lbl_balance, Vector2(W * 0.04, bar_y - 28), Vector2(W * 0.28, 40)); _set_font(lbl_balance, 30)
 		_place_lbl(lbl_win, Vector2(0, grid_bottom + 8), Vector2(W, 56)); _set_font(lbl_win, 44)
-		_place_btn(bet_minus_btn, Vector2(W * 0.4, bar_y), Vector2(140, 84))
+		_place_btn(bet_minus_btn, Vector2(W * 0.38, bar_y), Vector2(150, 86))
 		lbl_bet.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_place_lbl(lbl_bet, Vector2(W * 0.45, bar_y - 22), Vector2(W * 0.1, 44)); _set_font(lbl_bet, 32)
-		_place_btn(bet_plus_btn, Vector2(W * 0.6, bar_y), Vector2(140, 84))
-		_place_btn(autospin_btn, Vector2(W * 0.74, bar_y), Vector2(120, 84))
-		_place_btn(spin_btn, Vector2(W * 0.88, bar_y), Vector2(150, 150)); _set_font(spin_btn, 40)
+		_place_btn(bet_plus_btn, Vector2(W * 0.58, bar_y), Vector2(150, 86))
+		_place_btn(autospin_btn, Vector2(W * 0.73, bar_y), Vector2(120, 76))
+		_place_btn(spin_btn, Vector2(W * 0.88, bar_y), Vector2(150, 150))
 
 func _set_font(l: Control, size: int) -> void:
 	l.add_theme_font_size_override("font_size", size)
@@ -945,11 +944,22 @@ func _place_lbl(l: Label, pos: Vector2, size: Vector2) -> void:
 	l.position = pos
 	l.size = size
 
-func _place_btn(b: Button, center: Vector2, size: Vector2) -> void:
+func _place_btn(b: Control, center: Vector2, size: Vector2) -> void:
 	b.custom_minimum_size = size
 	b.size = size
 	b.position = center - size * 0.5
 	b.pivot_offset = size * 0.5
+
+## Button rendered from the OWNER-PROVIDED art (art/ui/btn_*.png); the texture scales to
+## fit its box keeping aspect, so the neon SPIN hexagon / BET pills / SOUND+INFO read crisp.
+func _tex_button(path: String) -> TextureButton:
+	var b := TextureButton.new()
+	if ResourceLoader.exists(path):
+		b.texture_normal = load(path)
+	b.ignore_texture_size = true
+	b.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+	b.pressed.connect(func(): _btn_feedback(b))
+	return b
 
 func _neon_button(text: String, accent: Color) -> Button:
 	var b := Button.new()
@@ -977,7 +987,7 @@ func _neon_button(text: String, accent: Color) -> Button:
 	b.pressed.connect(func(): _btn_feedback(b))
 	return b
 
-func _btn_feedback(b: Button) -> void:
+func _btn_feedback(b: Control) -> void:
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	b.scale = Vector2(0.92, 0.92)
 	t.tween_property(b, "scale", Vector2(1, 1), 0.18)
@@ -986,7 +996,8 @@ var _muted := false
 func _toggle_sound() -> void:
 	_muted = not _muted
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), _muted)
-	sound_btn.text = "♪̶" if _muted else "♪"
+	# No text on the art button — dim it to show the muted state.
+	sound_btn.modulate = Color(0.55, 0.55, 0.6) if _muted else Color(1, 1, 1)
 
 func _toggle_autospin() -> void:
 	play("bet_change")
