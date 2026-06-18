@@ -82,6 +82,7 @@ export class OrdersService {
         requestedByUserId: caller.userId,
       },
     });
+    await this.emitOrderUpdated(order);
     await this.audit.record({
       ...auditActor(caller),
       action: "order.request",
@@ -166,6 +167,7 @@ export class OrdersService {
       after: { paymentMethod: input.paymentMethod, status: "PAID" },
       ...ctx,
     });
+    await this.emitOrderUpdated(updated);
     return updated;
   }
 
@@ -238,6 +240,7 @@ export class OrdersService {
       after: { status: "ISSUED", transactionId: result.transactionId, isMint },
       ...ctx,
     });
+    await this.emitOrderUpdated(updated);
     return updated;
   }
 
@@ -287,6 +290,7 @@ export class OrdersService {
       after: { status: "CANCELLED", reason },
       ...ctx,
     });
+    await this.emitOrderUpdated(updated);
     return updated;
   }
 
@@ -306,7 +310,24 @@ export class OrdersService {
       after: { status },
       ...ctx,
     });
+    await this.emitOrderUpdated(updated);
     return updated;
+  }
+
+  /** Push order.updated to both parties' rooms so the consoles refresh live (R1). */
+  private async emitOrderUpdated(order: {
+    id: string;
+    status: string;
+    buyerOperatorId: string;
+    sellerOperatorId: string | null;
+  }): Promise<void> {
+    const rooms = [
+      `operator:${order.buyerOperatorId}`,
+      ...(order.sellerOperatorId ? [`operator:${order.sellerOperatorId}`] : []),
+    ];
+    await this.prisma.outboxEvent.create({
+      data: { type: "order.updated", payload: { orderId: order.id, status: order.status }, rooms },
+    });
   }
 
   private async loadAsSeller(caller: OperatorPrincipal, id: string) {

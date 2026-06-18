@@ -137,6 +137,20 @@ describe("Credit orders — no movement on reject/cancel", () => {
     const orderId = await fullCycle(distP, rootP, 1_000_000n);
     await expect(orders.cancel(distP, orderId, ctx)).rejects.toBeInstanceOf(AppError);
   });
+
+  it("emits order.updated to the buyer on each transition (R1)", async () => {
+    const order = await orders.request(distP, { quantityMinor: 1_000_000n }, ctx);
+    await orders.cancel(distP, order.id, ctx);
+
+    const events = await testPrisma.outboxEvent.findMany({ where: { type: "order.updated" } });
+    const statuses = events
+      .map((e) => e.payload as { orderId: string; status: string })
+      .filter((p) => p.orderId === order.id)
+      .map((p) => p.status);
+    expect(statuses).toContain("REQUESTED");
+    expect(statuses).toContain("CANCELLED");
+    expect(events.some((e) => (e.rooms as string[]).includes(`operator:${distId}`))).toBe(true);
+  });
 });
 
 describe("Credit orders — issue is idempotent at the workflow level", () => {
