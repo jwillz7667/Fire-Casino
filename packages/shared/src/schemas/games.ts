@@ -33,6 +33,12 @@ export const setGameStatusSchema = z.object({
 });
 export type SetGameStatusInput = z.infer<typeof setGameStatusSchema>;
 
+/** Agent/per-player RTP override (docs/06 §6.1). Band enforced here + in the service. */
+export const setRtpOverrideSchema = z.object({
+  rtpBps: z.number().int().min(8_000).max(10_000),
+});
+export type SetRtpOverrideInput = z.infer<typeof setRtpOverrideSchema>;
+
 export const startSessionSchema = z.object({
   gameCode: z.string().min(1),
   currency: currencySchema,

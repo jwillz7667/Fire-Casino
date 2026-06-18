@@ -34,6 +34,7 @@ export const PERMISSIONS = [
   "redemption.view",
   "game.configure",
   "game.rtp_override",
+  "game.rtp_agent",
   "compliance.manage",
   "compliance.view",
   "ledger.adjust",
@@ -135,6 +136,7 @@ const BASE_MATRIX: Record<Permission, OperatorTier[]> = {
   "redemption.view": ALL_TIERS,
   "game.configure": ["SUPER_ADMIN", "ADMIN"],
   "game.rtp_override": ["SUPER_ADMIN", "ADMIN"], // distributor tiers via cfg
+  "game.rtp_agent": ["SUPER_ADMIN", "ADMIN", "STORE"], // agents tune their own players' win rates
   "compliance.manage": ["SUPER_ADMIN", "ADMIN"],
   "compliance.view": ["SUPER_ADMIN", "ADMIN"],
   "ledger.adjust": ["SUPER_ADMIN"],

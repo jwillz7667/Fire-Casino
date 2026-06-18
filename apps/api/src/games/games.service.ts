@@ -4,6 +4,7 @@ import {
   can,
   type CreateGameInput,
   type Currency,
+  isInSubtree,
   type SetGameStatusInput,
   type StartSessionInput,
   type UpdateGameInput,
@@ -13,6 +14,7 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  OutOfScopeError,
   ValidationError,
 } from "../common/errors/domain-error";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
@@ -27,6 +29,12 @@ import { GAME_PROVIDER, type GameProvider } from "./rgs/provider";
 // jurisdiction if a tighter band is mandated.
 const RTP_MIN_BPS = 8_000;
 const RTP_MAX_BPS = 10_000;
+
+/** Scale a gross engine win to the effective RTP (effective/base), BigInt-exact. */
+export function scaleWinForRtp(grossWin: bigint, effectiveBps: number, baseBps: number): bigint {
+  if (effectiveBps === baseBps || baseBps <= 0) return grossWin;
+  return (grossWin * BigInt(effectiveBps)) / BigInt(baseBps);
+}
 
 interface RoundRow {
   id: string;
@@ -124,6 +132,124 @@ export class GamesService {
     const game = await this.prisma.game.update({ where: { id }, data: { status: input.status } });
     await this.audit.record({ ...auditActor(caller), action: "game.status", targetType: "Game", targetId: id, after: { status: input.status } });
     return game;
+  }
+
+  // ---- win-rate overrides (docs/06 §6.1) -------------------------------------
+
+  /** Effective RTP for a round: per-player override → owning-agent override → game default, clamped to the band. */
+  private async resolveEffectiveRtp(
+    gameId: string,
+    operatorId: string,
+    playerId: string,
+    defaultBps: number,
+  ): Promise<number> {
+    const overrides = await this.prisma.gameRtpOverride.findMany({
+      where: { gameId, operatorId, OR: [{ playerId }, { playerId: null }] },
+      select: { playerId: true, rtpBps: true },
+    });
+    const perPlayer = overrides.find((o) => o.playerId === playerId);
+    const perAgent = overrides.find((o) => o.playerId === null);
+    const resolved = perPlayer?.rtpBps ?? perAgent?.rtpBps ?? defaultBps;
+    return Math.min(RTP_MAX_BPS, Math.max(RTP_MIN_BPS, resolved));
+  }
+
+  /**
+   * Set an agent-level (playerId null) or per-player win-rate override. Keyed on the
+   * player's OWNING operator so resolution finds it; subtree-checked, banded, audited.
+   */
+  async setRtpOverride(caller: OperatorPrincipal, gameCode: string, rtpBps: number, playerId: string | null) {
+    if (!can(caller.tier, caller.settings, "game.rtp_agent")) {
+      throw new ForbiddenError("Your tier cannot set win rates");
+    }
+    if (rtpBps < RTP_MIN_BPS || rtpBps > RTP_MAX_BPS) {
+      throw new ValidationError(undefined, `RTP must be between ${RTP_MIN_BPS} and ${RTP_MAX_BPS} bps`);
+    }
+    const game = await this.prisma.game.findUnique({ where: { code: gameCode }, select: { id: true } });
+    if (!game) throw new NotFoundError("Game not found");
+
+    let operatorId = caller.operatorId;
+    if (playerId) {
+      const pl = await this.prisma.player.findUnique({
+        where: { id: playerId },
+        select: { operatorId: true, operator: { select: { path: true } } },
+      });
+      if (!pl) throw new NotFoundError("Player not found");
+      if (!isInSubtree(caller.path, pl.operator.path)) throw new OutOfScopeError();
+      operatorId = pl.operatorId; // key per-player overrides on the owning agent
+    }
+
+    const existing = await this.prisma.gameRtpOverride.findFirst({
+      where: { gameId: game.id, operatorId, playerId: playerId ?? null },
+      select: { id: true },
+    });
+    const row = existing
+      ? await this.prisma.gameRtpOverride.update({ where: { id: existing.id }, data: { rtpBps, setByUserId: caller.userId } })
+      : await this.prisma.gameRtpOverride.create({
+          data: { gameId: game.id, operatorId, playerId: playerId ?? null, rtpBps, setByUserId: caller.userId },
+        });
+    await this.audit.record({
+      ...auditActor(caller),
+      action: "game.rtp_override_set",
+      targetType: "Game",
+      targetId: game.id,
+      after: { gameCode, rtpBps, playerId: playerId ?? null, operatorId },
+    });
+    return { gameCode, rtpBps: row.rtpBps, playerId: row.playerId };
+  }
+
+  /** Clear an override (revert to the next scope up). */
+  async clearRtpOverride(caller: OperatorPrincipal, gameCode: string, playerId: string | null) {
+    if (!can(caller.tier, caller.settings, "game.rtp_agent")) {
+      throw new ForbiddenError("Your tier cannot set win rates");
+    }
+    const game = await this.prisma.game.findUnique({ where: { code: gameCode }, select: { id: true } });
+    if (!game) throw new NotFoundError("Game not found");
+    let operatorId = caller.operatorId;
+    if (playerId) {
+      const pl = await this.prisma.player.findUnique({
+        where: { id: playerId },
+        select: { operatorId: true, operator: { select: { path: true } } },
+      });
+      if (!pl) throw new NotFoundError("Player not found");
+      if (!isInSubtree(caller.path, pl.operator.path)) throw new OutOfScopeError();
+      operatorId = pl.operatorId;
+    }
+    await this.prisma.gameRtpOverride.deleteMany({ where: { gameId: game.id, operatorId, playerId: playerId ?? null } });
+    await this.audit.record({
+      ...auditActor(caller),
+      action: "game.rtp_override_clear",
+      targetType: "Game",
+      targetId: game.id,
+      after: { gameCode, playerId: playerId ?? null },
+    });
+    return { gameCode, cleared: true };
+  }
+
+  /** Win-rate slider data for the agent console: every active game with its default + this agent's override. */
+  async listAgentRtp(caller: OperatorPrincipal) {
+    const [games, overrides] = await Promise.all([
+      this.prisma.game.findMany({
+        where: { status: "ACTIVE" },
+        select: { code: true, name: true, rtpBps: true },
+        orderBy: { sortOrder: "asc" },
+      }),
+      this.prisma.gameRtpOverride.findMany({
+        where: { operatorId: caller.operatorId, playerId: null },
+        select: { gameId: true, rtpBps: true, game: { select: { code: true } } },
+      }),
+    ]);
+    const overrideByCode = new Map(overrides.map((o) => [o.game.code, o.rtpBps]));
+    return {
+      minBps: RTP_MIN_BPS,
+      maxBps: RTP_MAX_BPS,
+      items: games.map((g) => ({
+        code: g.code,
+        name: g.name,
+        defaultRtpBps: g.rtpBps,
+        agentRtpBps: overrideByCode.get(g.code) ?? null,
+        effectiveRtpBps: overrideByCode.get(g.code) ?? g.rtpBps,
+      })),
+    };
   }
 
   // ---- sessions & play -------------------------------------------------------
@@ -312,8 +438,19 @@ export class GamesService {
       params: betParams,
     });
 
+    // Apply the resolved win-rate override (player → owning-agent → game default).
+    // Uniform post-spin scale by effective/base, so it works for every engine and
+    // keeps the ledger exact (docs/06 §6.1, CR4). base = the game's certified RTP.
+    const effectiveRtpBps = await this.resolveEffectiveRtp(
+      session.gameId,
+      player.operatorId,
+      player.playerId,
+      session.game.rtpBps,
+    );
+    const winMinor = scaleWinForRtp(result.winMinor, effectiveRtpBps, session.game.rtpBps);
+
     let winTxId: string | undefined;
-    if (result.winMinor > 0n) {
+    if (winMinor > 0n) {
       const winResult = await this.ledger.post({
         type: "GAME_WIN",
         currency,
@@ -322,8 +459,8 @@ export class GamesService {
         actor: { playerId: player.playerId },
         ref: { type: "GameRound", id: round.id },
         legs: [
-          { account: { kind: "system", systemKey: "REVENUE", currency }, direction: "DEBIT", amountMinor: result.winMinor },
-          { account: { kind: "player", playerId: player.playerId, currency }, direction: "CREDIT", amountMinor: result.winMinor },
+          { account: { kind: "system", systemKey: "REVENUE", currency }, direction: "DEBIT", amountMinor: winMinor },
+          { account: { kind: "player", playerId: player.playerId, currency }, direction: "CREDIT", amountMinor: winMinor },
         ],
       });
       winTxId = winResult.transactionId;
@@ -335,7 +472,7 @@ export class GamesService {
         data: {
           betTxId: betResult.transactionId,
           winTxId,
-          winMinor: result.winMinor,
+          winMinor,
           outcome: result.outcome as Prisma.InputJsonObject,
         },
       });
