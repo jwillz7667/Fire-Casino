@@ -3,7 +3,7 @@
 import { type ReactElement, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { Badge, Button, type Column, DataTable, Panel, SegmentedControl, StatusPill } from "@aureus/ui";
+import { Badge, Button, type Column, DataTable, Money, Panel, SegmentedControl, StatusPill } from "@aureus/ui";
 import { api } from "@/lib/api";
 import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
@@ -34,6 +34,21 @@ export default function OperatorsPage(): ReactElement {
     { key: "name", header: "Operator", render: (o) => <span className="font-medium text-text-hi">{o.displayName}</span> },
     { key: "tier", header: "Tier", render: (o) => <Badge intent="gold">{humanize(o.tier)}</Badge> },
     { key: "status", header: "Status", render: (o) => <StatusPill status={o.status} /> },
+    {
+      key: "balance",
+      header: "Balance",
+      numeric: true,
+      render: (o) =>
+        o.balances && o.balances.length > 0 ? (
+          <span className="flex flex-col items-end gap-0.5">
+            {o.balances.map((b) => (
+              <Money key={b.currency} valueMinor={b.balanceMinor} currency={b.currency} size="sm" showCurrency />
+            ))}
+          </span>
+        ) : (
+          <span className="text-text-lo">—</span>
+        ),
+    },
     { key: "depth", header: "Depth", numeric: true, render: (o) => o.depth },
     { key: "created", header: "Created", render: (o) => formatDate(o.createdAt) },
   ];

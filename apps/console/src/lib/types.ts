@@ -40,6 +40,8 @@ export interface OperatorNode {
   buyUnitPriceCents: number | null;
   sellUnitPriceCents: number | null;
   createdAt: string;
+  /** Own ledger balances (present on list + tree views). */
+  balances?: BalanceEntry[];
   /** Per-operator permission grants (only present on GET /operators/:id). */
   grants?: string[];
 }

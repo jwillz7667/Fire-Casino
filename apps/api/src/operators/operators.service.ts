@@ -59,6 +59,23 @@ const NODE_SELECT = {
   createdAt: true,
 } satisfies Prisma.OperatorSelect;
 
+// NODE_SELECT plus the node's own ledger balances, for the list + tree views
+// (docs/06 §3.2 node cards show balance; audit L2).
+const NODE_WITH_BALANCE = {
+  ...NODE_SELECT,
+  ledgerAccounts: { select: { currency: true, balanceMinor: true } },
+} satisfies Prisma.OperatorSelect;
+
+function withBalances<T extends { ledgerAccounts: { currency: string; balanceMinor: bigint }[] }>(
+  o: T,
+): Omit<T, "ledgerAccounts"> & { balances: { currency: string; balanceMinor: string }[] } {
+  const { ledgerAccounts, ...rest } = o;
+  return {
+    ...rest,
+    balances: ledgerAccounts.map((a) => ({ currency: a.currency, balanceMinor: a.balanceMinor.toString() })),
+  };
+}
+
 @Injectable()
 export class OperatorsService {
   constructor(
@@ -139,13 +156,14 @@ export class OperatorsService {
     }
     const items = await this.prisma.operator.findMany({
       where,
-      select: NODE_SELECT,
+      select: NODE_WITH_BALANCE,
       orderBy: [{ depth: "asc" }, { createdAt: "asc" }],
       take: query.limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     });
     const hasMore = items.length > query.limit;
-    return { items: hasMore ? items.slice(0, query.limit) : items, nextCursor: hasMore ? items[query.limit - 1]?.id : undefined };
+    const page = (hasMore ? items.slice(0, query.limit) : items).map(withBalances);
+    return { items: page, nextCursor: hasMore ? items[query.limit - 1]?.id : undefined };
   }
 
   async listChildren(parentId: string, query: ListOperatorsQuery) {
@@ -179,10 +197,10 @@ export class OperatorsService {
         OR: [{ path: root.path }, { path: { startsWith: `${root.path}.` } }],
         depth: { lte: root.depth + depthLimit },
       },
-      select: NODE_SELECT,
+      select: NODE_WITH_BALANCE,
       orderBy: [{ depth: "asc" }, { pathSegment: "asc" }],
     });
-    return this.buildTree(nodes, root.id);
+    return this.buildTree(nodes.map(withBalances), root.id);
   }
 
   async update(caller: OperatorPrincipal, id: string, input: UpdateOperatorInput, ctx: ActionContext) {

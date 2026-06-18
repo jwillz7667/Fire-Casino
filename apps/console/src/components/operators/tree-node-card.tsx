@@ -3,7 +3,7 @@
 import type { ReactElement } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
-import { Badge, IconButton, StatusPill, cn } from "@aureus/ui";
+import { Badge, IconButton, Money, StatusPill, cn } from "@aureus/ui";
 import type { OperatorTreeNode } from "@/lib/types";
 import { humanize } from "@/lib/format";
 
@@ -46,8 +46,15 @@ export function TreeNodeCard({
         <span className="truncate text-sm font-medium text-text-hi">{node.displayName}</span>
         <Badge intent="gold">{humanize(node.tier)}</Badge>
         <StatusPill status={node.status} />
+        {node.balances && node.balances.length > 0 ? (
+          <span className="flex items-center gap-1.5">
+            {node.balances.map((b) => (
+              <Money key={b.currency} valueMinor={b.balanceMinor} currency={b.currency} size="sm" />
+            ))}
+          </span>
+        ) : null}
         {hasChildren ? (
-          <span className="text-[0.6875rem] text-text-lo">{node.children.length} direct</span>
+          <span className="ml-auto text-[0.6875rem] text-text-lo">{node.children.length} direct</span>
         ) : null}
       </Link>
 
