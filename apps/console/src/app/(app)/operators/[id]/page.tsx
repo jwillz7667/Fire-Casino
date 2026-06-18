@@ -23,7 +23,7 @@ import {
 import { api, ApiError } from "@/lib/api";
 import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
-import type { BalanceEntry, OperatorNode, OperatorStats, Page } from "@/lib/types";
+import type { BalanceEntry, CreditOrder, OperatorNode, OperatorStats, Page } from "@/lib/types";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary } from "@/components/query-boundary";
@@ -186,19 +186,7 @@ export default function OperatorDetailPage(): ReactElement {
             {tab === "overview" ? <OverviewTab balances={balance.data ?? []} stats={stats.data} /> : null}
             {tab === "children" ? <ChildrenTab parentId={id} /> : null}
             {tab === "credit" ? <CreditHistoryTab operatorId={id} /> : null}
-            {tab === "orders" ? (
-              <Panel>
-                <EmptyState
-                  title="Orders live on the Credits screen"
-                  description="Credit orders are managed from your inbox/outbox."
-                  action={
-                    <Link href="/credits" className="text-sm text-lumen hover:underline">
-                      Go to Credits →
-                    </Link>
-                  }
-                />
-              </Panel>
-            ) : null}
+            {tab === "orders" ? <OrdersTab operatorId={id} /> : null}
             {tab === "settings" ? (
               <Panel className="flex flex-col gap-4">
                 <SectionTitle>Pricing &amp; settings</SectionTitle>
@@ -361,6 +349,70 @@ function CreditHistoryTab({ operatorId }: { operatorId: string }): ReactElement 
         getRowId={(e) => e.id}
         loading={list.isLoading}
         emptyTitle="No credit history"
+        nextCursor={list.nextCursor}
+        onLoadMore={list.loadMore}
+        loadingMore={list.isFetchingNextPage}
+      />
+    </Panel>
+  );
+}
+
+function OrdersTab({ operatorId }: { operatorId: string }): ReactElement {
+  const router = useRouter();
+  const list = useCursorList<CreditOrder>(["operator", operatorId, "orders"], (cursor) =>
+    api.get<Page<CreditOrder>>(
+      `/orders?operatorId=${operatorId}&limit=50${cursor ? `&cursor=${cursor}` : ""}`,
+    ),
+  );
+
+  if (list.error instanceof ApiError) {
+    return (
+      <Panel>
+        <EmptyState title="Orders unavailable" description="No credit orders to show for this node yet." />
+      </Panel>
+    );
+  }
+
+  const columns: Column<CreditOrder>[] = [
+    {
+      key: "direction",
+      header: "Direction",
+      render: (o) =>
+        o.buyerOperatorId === operatorId ? (
+          <Badge intent="warning">Buying</Badge>
+        ) : (
+          <Badge intent="gold">Selling</Badge>
+        ),
+    },
+    {
+      key: "counterparty",
+      header: "Counterparty",
+      render: (o) =>
+        o.buyerOperatorId === operatorId
+          ? (o.sellerName ?? "Upline")
+          : (o.buyerName ?? o.buyerOperatorId.slice(0, 8)),
+    },
+    {
+      key: "quantity",
+      header: "Quantity",
+      numeric: true,
+      render: (o) => <Money valueMinor={o.quantityMinor} currency={o.currency} size="sm" />,
+    },
+    { key: "total", header: "Total", numeric: true, render: (o) => formatCents(o.totalCents) },
+    { key: "status", header: "Status", render: (o) => <StatusPill status={o.status} /> },
+    { key: "at", header: "Requested", render: (o) => formatDate(o.createdAt) },
+  ];
+
+  return (
+    <Panel className="p-0">
+      <DataTable
+        columns={columns}
+        rows={list.items}
+        getRowId={(o) => o.id}
+        loading={list.isLoading}
+        emptyTitle="No orders"
+        emptyDescription="This operator has no credit orders."
+        onRowClick={(o) => { router.push(`/credits?order=${o.id}`); }}
         nextCursor={list.nextCursor}
         onLoadMore={list.loadMore}
         loadingMore={list.isFetchingNextPage}

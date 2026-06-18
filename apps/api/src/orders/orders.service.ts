@@ -95,10 +95,25 @@ export class OrdersService {
   }
 
   async list(caller: OperatorPrincipal, query: ListOrdersQuery) {
-    const where: Prisma.CreditOrderWhereInput =
-      query.role === "seller"
-        ? { sellerOperatorId: caller.operatorId }
-        : { buyerOperatorId: caller.operatorId };
+    let where: Prisma.CreditOrderWhereInput;
+    if (query.operatorId) {
+      // Operator-detail Orders tab: every order touching this node. It must be
+      // inside the caller's subtree (hard rule #4 — never trust a client id).
+      const node = await this.prisma.operator.findUnique({
+        where: { id: query.operatorId },
+        select: { path: true },
+      });
+      if (!node) throw new NotFoundError("Operator not found");
+      if (!isInSubtree(caller.path, node.path)) throw new OutOfScopeError();
+      where = {
+        OR: [{ buyerOperatorId: query.operatorId }, { sellerOperatorId: query.operatorId }],
+      };
+    } else {
+      where =
+        query.role === "seller"
+          ? { sellerOperatorId: caller.operatorId }
+          : { buyerOperatorId: caller.operatorId };
+    }
     if (query.status) where.status = query.status;
 
     const items = await this.prisma.creditOrder.findMany({

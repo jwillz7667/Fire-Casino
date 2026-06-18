@@ -26,6 +26,10 @@ export type RejectOrderInput = z.infer<typeof rejectOrderSchema>;
 export const listOrdersQuerySchema = z.object({
   role: z.enum(["buyer", "seller"]).default("buyer"),
   status: creditOrderStatusSchema.optional(),
+  // When set, list every order where this operator is buyer or seller (its full
+  // order history on the operator-detail Orders tab). Must be in the caller's
+  // subtree — enforced server-side. Overrides `role`.
+  operatorId: z.string().optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
