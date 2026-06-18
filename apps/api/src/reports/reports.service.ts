@@ -518,6 +518,37 @@ export class ReportsService {
     return { OR: [{ path }, { path: { startsWith: `${path}.` } }] };
   }
 
+  /** Recent money-in events in the caller's subtree (docs/06 §3.1 activity feed). */
+  async activity(caller: OperatorPrincipal) {
+    const subtree = this.subtreeOp(caller.path);
+    const entries = await this.system.ledgerEntry.findMany({
+      where: {
+        direction: "CREDIT",
+        account: { OR: [{ operator: subtree }, { player: { operator: subtree } }] },
+      },
+      select: {
+        id: true,
+        amountMinor: true,
+        currency: true,
+        createdAt: true,
+        account: { select: { ownerType: true } },
+        transaction: { select: { type: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    return {
+      items: entries.map((e) => ({
+        id: e.id,
+        type: e.transaction.type,
+        actor: e.account.ownerType,
+        currency: e.currency,
+        amountMinor: e.amountMinor.toString(),
+        at: e.createdAt,
+      })),
+    };
+  }
+
   private createdAtFilter(query: ReportRangeQuery): Prisma.DateTimeFilter | undefined {
     if (!query.from && !query.to) return undefined;
     return {

@@ -9,6 +9,7 @@ import { api, ApiError } from "@/lib/api";
 import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
 import type {
+  ActivityItem,
   BalanceEntry,
   CreditFlowReport,
   CreditOrder,
@@ -18,7 +19,7 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
 import { CreditFlowChart } from "@/components/credit-flow-chart";
-import { timeAgo } from "@/lib/format";
+import { humanize, timeAgo } from "@/lib/format";
 
 export default function DashboardPage(): ReactElement {
   const principal = usePrincipal();
@@ -49,6 +50,11 @@ export default function DashboardPage(): ReactElement {
   const balance = useQuery({
     queryKey: ["self-balance", principal.operatorId],
     queryFn: () => api.get<BalanceEntry[]>(`/operators/${principal.operatorId}/balance`),
+    retry: false,
+  });
+  const activity = useQuery({
+    queryKey: ["reports", "activity"],
+    queryFn: () => api.get<{ items: ActivityItem[] }>("/reports/activity"),
     retry: false,
   });
 
@@ -162,6 +168,27 @@ export default function DashboardPage(): ReactElement {
           </div>
         </Panel>
       </div>
+
+      <Panel>
+        <SectionTitle className="mb-4">Recent activity</SectionTitle>
+        {activity.isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (activity.data?.items.length ?? 0) === 0 ? (
+          <p className="py-4 text-center text-sm text-text-lo">No recent activity in your subtree.</p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-hairline">
+            {(activity.data?.items ?? []).map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="flex items-center gap-2 text-sm">
+                  <span className="text-text-hi">{humanize(a.type)}</span>
+                  <span className="text-[0.6875rem] text-text-lo">{timeAgo(a.at)}</span>
+                </span>
+                <Money valueMinor={a.amountMinor} currency={a.currency} size="sm" />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
 
       {overview.error instanceof ApiError ? (
         <p className="text-xs text-text-lo">

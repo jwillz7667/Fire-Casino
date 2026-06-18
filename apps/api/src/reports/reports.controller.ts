@@ -25,6 +25,12 @@ export class ReportsController {
     return this.reports.overview(caller);
   }
 
+  @Get("activity")
+  @RequirePermission("report.view")
+  activity(@CurrentUser() caller: OperatorPrincipal) {
+    return this.reports.activity(caller);
+  }
+
   @Get("credit-flow")
   @RequirePermission("report.view")
   creditFlow(
