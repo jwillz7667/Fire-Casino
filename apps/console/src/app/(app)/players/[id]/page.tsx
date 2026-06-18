@@ -13,6 +13,7 @@ import {
   Money,
   Panel,
   SectionTitle,
+  SegmentedControl,
   Skeleton,
   StatusPill,
   useToast,
@@ -37,6 +38,8 @@ export default function PlayerDetailPage(): ReactElement {
   const toast = useToast();
   const queryClient = useQueryClient();
   const principal = usePrincipal();
+  // Owner directive: super admins work at aggregate level, not per-player history.
+  const isSuperAdmin = principal.tier === "SUPER_ADMIN";
 
   const [rechargeOpen, setRechargeOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
@@ -162,10 +165,12 @@ export default function PlayerDetailPage(): ReactElement {
                   )}
                 </Panel>
 
-                <Panel className="flex flex-col gap-3">
-                  <SectionTitle>Activity</SectionTitle>
-                  <HistoryTimeline playerId={id} />
-                </Panel>
+                {isSuperAdmin ? null : (
+                  <Panel className="flex flex-col gap-3">
+                    <SectionTitle>History</SectionTitle>
+                    <HistoryTimeline playerId={id} />
+                  </Panel>
+                )}
               </div>
 
               <div className="flex flex-col gap-6">
@@ -230,20 +235,37 @@ export default function PlayerDetailPage(): ReactElement {
   );
 }
 
+const HISTORY_FILTERS: { key: string; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "credit", label: "Credit" },
+  { key: "play", label: "Play" },
+  { key: "redemption", label: "Redemptions" },
+];
+
 function HistoryTimeline({ playerId }: { playerId: string }): ReactElement {
+  const [view, setView] = useState("all");
   const list = useCursorList<PlayerHistoryEvent>(["player", playerId, "history"], (cursor) =>
     api.get<Page<PlayerHistoryEvent>>(`/players/${playerId}/history?limit=50${cursor ? `&cursor=${cursor}` : ""}`),
   );
 
+  // Separate the merged feed into Credit (ledger) vs Play (sessions) vs Redemptions.
+  const items = list.items.filter((e) => {
+    if (view === "all") return true;
+    if (view === "credit") return e.kind === "ledger";
+    if (view === "play") return e.kind === "session";
+    return e.kind === "redemption";
+  });
+
   if (list.isLoading) return <Skeleton className="h-32 w-full" />;
-  if (list.items.length === 0) {
-    return <EmptyState title="No activity yet" description="Recharges, sessions and redemptions will appear here." />;
-  }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-3">
+      <SegmentedControl items={HISTORY_FILTERS} active={view} onChange={setView} />
+      {items.length === 0 ? (
+        <EmptyState title="Nothing here yet" description="Recharges, sessions and redemptions will appear here." />
+      ) : (
       <ul className="flex flex-col divide-y divide-hairline">
-        {list.items.map((e) => (
+        {items.map((e) => (
           <li key={`${e.kind}-${e.id}`} className="flex items-center justify-between gap-3 py-2.5">
             <div className="flex items-center gap-2.5">
               <Badge intent={e.kind === "redemption" ? "ember" : e.kind === "session" ? "info" : "gold"}>
@@ -255,6 +277,7 @@ function HistoryTimeline({ playerId }: { playerId: string }): ReactElement {
           </li>
         ))}
       </ul>
+      )}
       {list.nextCursor ? (
         <Button variant="ghost" size="sm" className="mt-2 self-center" onClick={list.loadMore} loading={list.isFetchingNextPage}>
           Load more
