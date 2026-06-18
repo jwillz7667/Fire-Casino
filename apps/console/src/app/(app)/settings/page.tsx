@@ -2,13 +2,14 @@
 
 import { type ReactElement, useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { platformModeSchema } from "@aureus/shared";
+import { operatorTierSchema, platformModeSchema } from "@aureus/shared";
 import {
   Badge,
   Button,
   Field,
   ForbiddenState,
   Input,
+  MoneyInput,
   Panel,
   SectionTitle,
   Select,
@@ -20,14 +21,24 @@ import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
 import { PLATFORM_MODE } from "@/lib/platform";
 import { errorMessage } from "@/lib/errors";
+import { humanize } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+
+type Funding = "AGENT_FUNDED" | "UPLINE_REIMBURSED";
+
+interface RedemptionApproval {
+  thresholdMinor?: string | number;
+  approverTier?: string;
+  funding?: Funding;
+}
 
 interface NodeSettings {
   displayName?: string;
   buyUnitPriceCents?: number;
   sellUnitPriceCents?: number;
   prizeBonusBps?: number;
+  redemptionApproval?: RedemptionApproval | null;
 }
 
 /** Flat payload sent on PUT /settings/platform (UpdatePlatformSettingsInput-shaped). */
@@ -86,6 +97,11 @@ function NodeSettingsPanel(): ReactElement {
   const [buy, setBuy] = useState("");
   const [sell, setSell] = useState("");
   const [prizeBonusBps, setPrizeBonusBps] = useState("");
+  // Redemption-approval routing (docs/04 §3). An empty approver tier means
+  // "not routed" and the whole block is omitted from the payload.
+  const [approverTier, setApproverTier] = useState("");
+  const [funding, setFunding] = useState<Funding>("AGENT_FUNDED");
+  const [threshold, setThreshold] = useState<bigint | undefined>(undefined);
 
   const settings = useQuery({
     queryKey: ["settings", "node"],
@@ -100,6 +116,10 @@ function NodeSettingsPanel(): ReactElement {
     setBuy(data.buyUnitPriceCents?.toString() ?? "");
     setSell(data.sellUnitPriceCents?.toString() ?? "");
     setPrizeBonusBps(data.prizeBonusBps?.toString() ?? "");
+    const ra = data.redemptionApproval;
+    setApproverTier(ra?.approverTier ?? "");
+    setFunding(ra?.funding ?? "AGENT_FUNDED");
+    setThreshold(ra?.thresholdMinor !== undefined && ra.thresholdMinor !== null ? BigInt(ra.thresholdMinor) : undefined);
   }, [settings.data]);
 
   const save = useMutation({
@@ -109,6 +129,14 @@ function NodeSettingsPanel(): ReactElement {
         buyUnitPriceCents: buy === "" ? undefined : Number(buy),
         sellUnitPriceCents: sell === "" ? undefined : Number(sell),
         prizeBonusBps: prizeBonusBps === "" ? undefined : Number(prizeBonusBps),
+        redemptionApproval:
+          approverTier === ""
+            ? undefined
+            : {
+                approverTier,
+                funding,
+                thresholdMinor: threshold !== undefined ? threshold.toString() : undefined,
+              },
       }),
     onSuccess: () => {
       toast.push({ title: "Node settings saved", intent: "success" });
@@ -136,6 +164,30 @@ function NodeSettingsPanel(): ReactElement {
           <Input inputMode="numeric" value={sell} onChange={(e) => { setSell(e.target.value.replace(/\D/g, "")); }} />
         </Field>
       </div>
+
+      <div className="flex flex-col gap-3 rounded-md border border-hairline bg-surface-2 p-3">
+        <span className="text-xs font-medium uppercase tracking-wide text-text-mid">Redemption routing</span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Approver tier" hint="Who signs off; blank = not routed">
+            <Select value={approverTier} onChange={(e) => { setApproverTier(e.target.value); }}>
+              <option value="">Not routed</option>
+              {operatorTierSchema.options.map((t) => (
+                <option key={t} value={t}>{humanize(t)}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Approval threshold" hint="At/above this needs approval">
+            <MoneyInput valueMinor={threshold} onChangeMinor={setThreshold} />
+          </Field>
+          <Field label="Funding">
+            <Select value={funding} onChange={(e) => { setFunding(e.target.value as Funding); }} disabled={approverTier === ""}>
+              <option value="AGENT_FUNDED">Agent funded</option>
+              <option value="UPLINE_REIMBURSED">Upline reimbursed</option>
+            </Select>
+          </Field>
+        </div>
+      </div>
+
       <div>
         <Button onClick={() => { save.mutate(); }} loading={save.isPending}>
           Save node settings
