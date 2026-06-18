@@ -48,6 +48,7 @@ export type SetOperatorGrantsInput = z.infer<typeof setOperatorGrantsSchema>;
 export const listOperatorsQuerySchema = z.object({
   parentId: z.string().optional(),
   scope: z.enum(["children", "subtree"]).default("children"),
+  q: z.string().max(120).optional(), // matches displayName or username (case-insensitive)
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });

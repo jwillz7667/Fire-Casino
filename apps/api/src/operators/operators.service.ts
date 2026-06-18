@@ -154,6 +154,12 @@ export class OperatorsService {
     if (query.scope === "children" && !query.parentId) {
       // children of the caller's own node would need the caller id; handled by controller default
     }
+    if (query.q) {
+      where.OR = [
+        { displayName: { contains: query.q, mode: "insensitive" } },
+        { user: { username: { contains: query.q, mode: "insensitive" } } },
+      ];
+    }
     const items = await this.prisma.operator.findMany({
       where,
       select: NODE_WITH_BALANCE,
