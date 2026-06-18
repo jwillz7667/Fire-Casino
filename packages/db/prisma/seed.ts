@@ -290,6 +290,24 @@ async function seedGames(): Promise<void> {
       config: { engine: "dragon-hoard", renderer: "dragon-hoard" },
       status: GameStatus.ACTIVE,
     },
+    {
+      // Fourth real engine: server-authoritative 5×3 / 25-payline cosmic slot with a WILD
+      // (interior reels), a galaxy SCATTER → rising-multiplier free spins, and a BONUS
+      // anticipation feature (2 BONUS → zoom + special spin, 3+ → an instant 20×/100×/500×
+      // credit prize with a jackpot siren). config.engine routes rounds to
+      // apps/api .../engines/cosmic; measured RTP is 96.16% (engines/cosmic/simulate.ts).
+      code: "cosmic-slots",
+      name: "Cosmic Spins",
+      type: "SLOT",
+      rtpBps: 9600,
+      minBetMinor: 1000n,
+      maxBetMinor: 2_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
+      sortOrder: 1,
+      thumbnailUrl: "/games/cosmic-slots/thumb.png",
+      config: { engine: "cosmic-slots", renderer: "cosmic-slots" },
+      status: GameStatus.ACTIVE,
+    },
     // The placeholder catalog games (reef-rumble / golden-depths / lumen-keno) were
     // removed — only real, server-authoritative games ship. Any existing rows are set
     // to HIDDEN by migration 20260617150000_hide_placeholder_games.

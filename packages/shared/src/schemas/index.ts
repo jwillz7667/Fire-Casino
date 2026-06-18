@@ -1,6 +1,7 @@
 export * from "./announcements";
 export * from "./auth";
 export * from "./compliance";
+export * from "./cosmic";
 export * from "./dragon";
 export * from "./games";
 export * from "./operators";
