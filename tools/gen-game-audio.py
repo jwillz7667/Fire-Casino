@@ -85,10 +85,35 @@ LOBBY = [
     ("lobby-music", "Seamless looping background music for a luxurious online casino lobby, a smooth sophisticated lounge groove with mellow electric piano, soft muted brass, gentle nu-jazz brushed drums and a warm bassline, classy relaxed and inviting, instrumental, no vocals", 22.0, True, 0.3),
 ]
 
+# Cosmic Slots: deep-space / neon-arcade / glassy-digital-synthwave theme. No vocals, no human speech.
+COSMIC = [
+    ("spin_start", "Short digital cosmic whoosh as neon slot reels start spinning, glassy synth sweep with a soft warp, no music, no vocals", 0.8, False, 0.55),
+    ("spin_loop", "Seamless hypnotic loop of spinning cosmic slot reels, a smooth digital synth whir with subtle warp shimmer, no music, no vocals", 2.5, True, 0.5),
+    ("reel_stop", "Single cosmic slot reel locking, a crisp glassy digital click with a short neon synth blip tail, no music", 0.5, False, 0.6),
+    ("reel_stop_b", "Single cosmic slot reel locking, a crisp glassy digital click with a short neon synth blip tail, no music", 0.5, False, 0.6),
+    ("reel_stop_c", "Single cosmic slot reel locking, a crisp glassy digital click with a short neon synth blip tail, no music", 0.5, False, 0.6),
+    ("anticipation_riser", "Tense rising cosmic riser, a swelling neon synth pad with an accelerating digital pulse and heartbeat, suspense for a near jackpot, no vocals", 3.0, False, 0.6),
+    ("bonus_alarm", "EMERGENCY JACKPOT ALARM: a loud clanging bell ringing repeatedly like a casino jackpot siren, layered with a pulsing cosmic digital synth and rising neon energy, urgent and celebratory, no vocals", 3.0, False, 0.7),
+    ("bonus_reveal", "Triumphant cosmic bonus reveal, a burst of sparkling digital chimes and a warm neon synth fanfare, rewarding, no vocals", 2.0, False, 0.6),
+    ("scatter_land", "Cosmic scatter symbol landing, a bright digital sparkle chime with a soft warp, important, no music", 0.8, False, 0.6),
+    ("scatter_trigger", "Free-spins triggered on a cosmic slot, a rising digital arpeggio into a neon synth swell, exciting reveal, no vocals", 2.0, False, 0.6),
+    ("wild_land", "Cosmic wild landing, a shimmering digital magic sparkle with a neon zap, no vocals", 1.0, False, 0.6),
+    ("win_small", "Short pleasant cosmic win chime, bright digital sparkles, cheerful, no vocals", 1.2, False, 0.6),
+    ("win_medium", "Rewarding medium cosmic win, ascending glassy synth arpeggio with neon shimmer, no vocals", 1.8, False, 0.6),
+    ("win_big", "Big cosmic win, soaring neon synth brass with cascading digital sparkles, triumphant, no vocals", 3.0, False, 0.6),
+    ("bigwin_fanfare", "Huge cosmic jackpot fanfare, epic neon synthwave swell with pulsing digital arps and shimmering cascades, grand celebration, no vocals", 4.0, False, 0.6),
+    ("coin_tick", "Tiny crisp digital credit counter tick, a short glassy blip, one-shot, no music", 0.5, False, 0.6),
+    ("button_tap", "Soft UI tap for a cosmic neon game, a gentle glassy click, crisp short, no music", 0.5, False, 0.6),
+    ("bet_change", "Quick UI blip changing a bet, a short digital two-note neon ping, clean, no music", 0.5, False, 0.6),
+    ("error_blip", "Gentle error, a soft low descending two-note digital buzz, polite negative, no music, no vocals", 0.5, False, 0.6),
+    ("music_base_loop", "Seamless looping background music for a cosmic neon slot game, mellow downtempo synthwave with warm analog pads, a gentle pulsing arp, deep space ambience, hypnotic and chill, no vocals, loopable", 12.0, True, 0.4),
+]
+
 GROUPS = {
     "dragon": (REPO / "games/dragon-hoard/audio", DRAGON),
     "wheel": (REPO / "games/fortune-wheel/audio", WHEEL),
     "lobby": (REPO / "apps/arcade/public/audio", LOBBY),
+    "cosmic": (REPO / "games/cosmic-slots/audio", COSMIC),
 }
 
 
@@ -174,7 +199,7 @@ def main() -> None:
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--no-convert", action="store_true")
     ap.add_argument("--only", default="")
-    ap.add_argument("--group", default="", help="dragon|wheel|lobby (default: all)")
+    ap.add_argument("--group", default="", help="dragon|wheel|lobby|cosmic (default: all)")
     args = ap.parse_args()
 
     key = resolve_key()
