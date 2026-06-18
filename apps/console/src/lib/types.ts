@@ -364,6 +364,19 @@ export interface SettlementReport {
   netCents: number;
 }
 
+export interface AgentRtpItem {
+  code: string;
+  name: string;
+  defaultRtpBps: number;
+  agentRtpBps: number | null;
+  effectiveRtpBps: number;
+}
+export interface AgentRtpResponse {
+  minBps: number;
+  maxBps: number;
+  items: AgentRtpItem[];
+}
+
 export interface RedemptionsReport {
   byStatus: { status: string; count: number; totalMinor: string }[];
   pendingMinor: string;
