@@ -8,8 +8,17 @@ import { Badge, Button, EmptyState, Field, ForbiddenState, Input, Money, Panel, 
 import { api } from "@/lib/api";
 import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
-import type { AgentSalesReport, CreditFlowReport } from "@/lib/types";
+import type {
+  AgentSalesReport,
+  CreditFlowReport,
+  MarginReport,
+  PlayerActivityReport,
+  RedemptionsReport,
+  RevenueReport,
+  SettlementReport,
+} from "@/lib/types";
 import { errorMessage } from "@/lib/errors";
+import { formatCents, formatDate, humanize } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { CreditFlowChart } from "@/components/credit-flow-chart";
 
@@ -87,6 +96,47 @@ export default function ReportsPage(): ReactElement {
       return api.get<AgentSalesReport>(`/reports/agent-sales${qs ? `?${qs}` : ""}`);
     },
     enabled: canView && tab === "agent-sales",
+    retry: false,
+  });
+
+  function rangeQs(): string {
+    const params = new URLSearchParams();
+    const f = toIso(from);
+    const t = toIso(to);
+    if (f) params.set("from", f);
+    if (t) params.set("to", t);
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  }
+
+  const playerActivity = useQuery({
+    queryKey: ["reports", "player-activity", from, to],
+    queryFn: () => api.get<PlayerActivityReport>(`/reports/player-activity${rangeQs()}`),
+    enabled: canView && tab === "player-activity",
+    retry: false,
+  });
+  const revenue = useQuery({
+    queryKey: ["reports", "revenue", from, to],
+    queryFn: () => api.get<RevenueReport>(`/reports/revenue${rangeQs()}`),
+    enabled: canView && tab === "revenue",
+    retry: false,
+  });
+  const margin = useQuery({
+    queryKey: ["reports", "margin"],
+    queryFn: () => api.get<MarginReport>("/reports/margin"),
+    enabled: canView && tab === "margin",
+    retry: false,
+  });
+  const settlement = useQuery({
+    queryKey: ["reports", "settlement"],
+    queryFn: () => api.get<SettlementReport>("/reports/settlement"),
+    enabled: canView && tab === "settlement",
+    retry: false,
+  });
+  const redemptions = useQuery({
+    queryKey: ["reports", "redemptions", from, to],
+    queryFn: () => api.get<RedemptionsReport>(`/reports/redemptions${rangeQs()}`),
+    enabled: canView && tab === "redemptions",
     retry: false,
   });
 
@@ -194,19 +244,197 @@ export default function ReportsPage(): ReactElement {
           ) : (
             <EmptyState title="No agents yet" description="Per-agent sales will appear once agents recharge players." />
           )
+        ) : tab === "player-activity" ? (
+          <PlayerActivityTable data={playerActivity.data} loading={playerActivity.isLoading} />
+        ) : tab === "revenue" ? (
+          <RevenuePanel data={revenue.data} loading={revenue.isLoading} />
+        ) : tab === "margin" ? (
+          <MarginTable data={margin.data} loading={margin.isLoading} />
+        ) : tab === "settlement" ? (
+          <SettlementPanel data={settlement.data} loading={settlement.isLoading} />
         ) : (
-          <EmptyState
-            title="Export to view"
-            description="This report is best consumed as a CSV. Use Export above for the selected range."
-            action={
-              <Button variant="secondary" size="sm" onClick={() => { exportReport.mutate(); }} loading={exportReport.isPending}>
-                <Download className="h-4 w-4" />
-                Export {TAB_LABELS[tab]}
-              </Button>
-            }
-          />
+          <RedemptionsPanel data={redemptions.data} loading={redemptions.isLoading} />
         )}
       </Panel>
+    </div>
+  );
+}
+
+function StatTile({ label, node }: { label: string; node: ReactElement }): ReactElement {
+  return (
+    <div className="rounded-md border border-hairline bg-surface-2 p-3">
+      <div className="text-xs uppercase tracking-wide text-text-lo">{label}</div>
+      <div className="mt-1.5">{node}</div>
+    </div>
+  );
+}
+
+const TH = "border-b border-hairline text-left text-xs uppercase tracking-wide text-text-lo";
+
+function PlayerActivityTable({ data, loading }: { data?: PlayerActivityReport; loading: boolean }): ReactElement {
+  if (loading) return <Skeleton className="h-56 w-full" />;
+  if (!data || data.items.length === 0)
+    return <EmptyState title="No player activity" description="Recharges and redemptions in the selected range will appear here." />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className={TH}>
+            <th className="py-2 pr-4 font-medium">Player</th>
+            <th className="py-2 pr-4 text-right font-medium">Recharged</th>
+            <th className="py-2 pr-4 text-right font-medium">Redeemed</th>
+            <th className="py-2 text-right font-medium">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.items.map((r) => (
+            <tr key={r.playerId} className="border-b border-hairline/60">
+              <td className="py-2.5 pr-4 text-text-hi">{r.username}</td>
+              <td className="py-2.5 pr-4 text-right"><Money valueMinor={r.rechargedMinor} size="sm" /></td>
+              <td className="py-2.5 pr-4 text-right"><Money valueMinor={r.redeemedMinor} size="sm" /></td>
+              <td className="py-2.5 text-right"><Money valueMinor={r.netMinor} signed size="sm" /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RevenuePanel({ data, loading }: { data?: RevenueReport; loading: boolean }): ReactElement {
+  if (loading) return <Skeleton className="h-28 w-full" />;
+  if (!data) return <EmptyState title="No revenue data" />;
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <StatTile label="Bets" node={<Money valueMinor={data.betsMinor} currency={data.currency} />} />
+      <StatTile label="Wins" node={<Money valueMinor={data.winsMinor} currency={data.currency} />} />
+      <StatTile label="House edge" node={<Money valueMinor={data.revenueMinor} currency={data.currency} signed />} />
+      {data.platformRevenueMinor ? (
+        <StatTile label="Platform REVENUE" node={<Money valueMinor={data.platformRevenueMinor} currency={data.currency} />} />
+      ) : null}
+    </div>
+  );
+}
+
+function MarginTable({ data, loading }: { data?: MarginReport; loading: boolean }): ReactElement {
+  if (loading) return <Skeleton className="h-56 w-full" />;
+  if (!data || data.nodes.length === 0)
+    return <EmptyState title="No margin data" description="Buy/sell spreads appear once nodes have pricing and settled orders." />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className={TH}>
+            <th className="py-2 pr-4 font-medium">Node</th>
+            <th className="py-2 pr-4 text-right font-medium">Buy ¢</th>
+            <th className="py-2 pr-4 text-right font-medium">Sell ¢</th>
+            <th className="py-2 pr-4 text-right font-medium">Spread ¢</th>
+            <th className="py-2 text-right font-medium">Margin</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.nodes.map((n) => (
+            <tr key={n.operatorId} className="border-b border-hairline/60">
+              <td className="py-2.5 pr-4">
+                <span className="flex items-center gap-2">
+                  <span className="text-text-hi">{n.displayName}</span>
+                  <Badge intent="info">{n.tier}</Badge>
+                </span>
+              </td>
+              <td className="py-2.5 pr-4 text-right text-text-mid">{formatCents(n.buyUnitPriceCents)}</td>
+              <td className="py-2.5 pr-4 text-right text-text-mid">{formatCents(n.sellUnitPriceCents)}</td>
+              <td className="py-2.5 pr-4 text-right text-text-mid">{formatCents(n.spreadCents)}</td>
+              <td className="py-2.5 text-right text-text-hi">{formatCents(n.marginCents)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td className="py-2.5 pr-4 text-xs uppercase tracking-wide text-text-lo" colSpan={4}>
+              Total margin
+            </td>
+            <td className="py-2.5 text-right font-medium text-text-hi">{formatCents(data.totalMarginCents)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+function SettlementPanel({ data, loading }: { data?: SettlementReport; loading: boolean }): ReactElement {
+  if (loading) return <Skeleton className="h-56 w-full" />;
+  if (!data) return <EmptyState title="No settlement data" />;
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile label="Receivable" node={<span className="text-success">{formatCents(data.receivableCents)}</span>} />
+        <StatTile label="Payable" node={<span className="text-danger">{formatCents(data.payableCents)}</span>} />
+        <StatTile label="Net" node={<span className="text-text-hi">{formatCents(data.netCents)}</span>} />
+      </div>
+      {data.items.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className={TH}>
+                <th className="py-2 pr-4 font-medium">Operator</th>
+                <th className="py-2 pr-4 font-medium">Counterparty</th>
+                <th className="py-2 pr-4 text-right font-medium">Net ¢</th>
+                <th className="py-2 text-right font-medium">Last event</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((r) => (
+                <tr key={r.id} className="border-b border-hairline/60">
+                  <td className="py-2.5 pr-4 font-mono text-xs text-text-mid">{r.operatorId.slice(0, 8)}</td>
+                  <td className="py-2.5 pr-4 font-mono text-xs text-text-mid">{r.counterpartyId.slice(0, 8)}</td>
+                  <td className="py-2.5 pr-4 text-right text-text-hi">{formatCents(r.netCents)}</td>
+                  <td className="py-2.5 text-right text-text-lo">{formatDate(r.lastEventAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyState title="No outstanding settlements" />
+      )}
+    </div>
+  );
+}
+
+function RedemptionsPanel({ data, loading }: { data?: RedemptionsReport; loading: boolean }): ReactElement {
+  if (loading) return <Skeleton className="h-40 w-full" />;
+  if (!data) return <EmptyState title="No redemption data" />;
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile label="Pending" node={<Money valueMinor={data.pendingMinor} />} />
+        <StatTile label="Approved" node={<Money valueMinor={data.approvedMinor} />} />
+        <StatTile label="Settled" node={<Money valueMinor={data.settledMinor} />} />
+      </div>
+      {data.byStatus.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className={TH}>
+                <th className="py-2 pr-4 font-medium">Status</th>
+                <th className="py-2 pr-4 text-right font-medium">Count</th>
+                <th className="py-2 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.byStatus.map((s) => (
+                <tr key={s.status} className="border-b border-hairline/60">
+                  <td className="py-2.5 pr-4 text-text-hi">{humanize(s.status)}</td>
+                  <td className="py-2.5 pr-4 text-right text-text-mid">{s.count}</td>
+                  <td className="py-2.5 text-right"><Money valueMinor={s.totalMinor} size="sm" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyState title="No redemptions in range" />
+      )}
     </div>
   );
 }
