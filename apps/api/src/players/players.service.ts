@@ -93,24 +93,36 @@ export class PlayersService {
     await this.operators.assertOperatorActionable(caller.operatorId);
     const passwordHash = await this.passwords.hash(input.tempPassword);
 
-    const player = await this.system.player.create({
-      data: {
-        operator: { connect: { id: caller.operatorId } },
-        username: input.username,
-        passwordHash,
-        displayName: input.displayName,
-        phone: input.phone,
-        email: input.email,
-        kyc: { create: { status: "NONE" } },
-        wallets: {
-          create: walletCurrencies(this.env.PLATFORM_MODE).map((currency) => ({
-            ownerType: "PLAYER" as const,
-            currency,
-            balanceMinor: 0n,
-          })),
+    const player = await this.system.$transaction(async (tx) => {
+      const created = await tx.player.create({
+        data: {
+          operator: { connect: { id: caller.operatorId } },
+          username: input.username,
+          passwordHash,
+          displayName: input.displayName,
+          phone: input.phone,
+          email: input.email,
+          kyc: { create: { status: "NONE" } },
+          wallets: {
+            create: walletCurrencies(this.env.PLATFORM_MODE).map((currency) => ({
+              ownerType: "PLAYER" as const,
+              currency,
+              balanceMinor: 0n,
+            })),
+          },
         },
-      },
-      select: PLAYER_SELECT,
+        select: PLAYER_SELECT,
+      });
+      // Live-update the creating agent's (and any subscribed ancestor's) player
+      // list + admin dashboards (R1). Same tx as the insert so it can't be lost.
+      await tx.outboxEvent.create({
+        data: {
+          type: "player.created",
+          payload: { playerId: created.id, operatorId: caller.operatorId, username: input.username },
+          rooms: [`operator:${caller.operatorId}`, "admin:global"],
+        },
+      });
+      return created;
     });
     await this.audit.record({
       ...auditActor(caller),

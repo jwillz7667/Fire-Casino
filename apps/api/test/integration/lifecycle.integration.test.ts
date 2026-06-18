@@ -114,6 +114,8 @@ async function runLifecycle(mode: PlatformMode): Promise<void> {
   const player = await players.create(storeP, { username: "pl", tempPassword: "Passw0rd!" }, ctx);
   const playerId = player.id;
   const playerP: PlayerPrincipal = { kind: "player", playerId, operatorId: storeId, operatorPath: store.operator.path, username: "pl", sessionId: "s" };
+  const createdEvents = await testPrisma.outboxEvent.findMany({ where: { type: "player.created" } });
+  expect(createdEvents.some((e) => (e.payload as { playerId?: string }).playerId === playerId)).toBe(true);
   await assertInvariants();
 
   // 2. mint to distributor

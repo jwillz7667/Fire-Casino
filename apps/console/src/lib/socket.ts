@@ -50,46 +50,50 @@ export function useRealtime(enabled: boolean, onEvent?: RealtimeHandler): void {
   useEffect(() => {
     if (!enabled) return;
     let socket: Socket | null = null;
-    let disposed = false;
+    let rooms: string[] = [];
 
-    void (async () => {
-      let auth: RealtimeTokenResponse;
-      try {
-        auth = await api.post<RealtimeTokenResponse>("/realtime/token");
-      } catch {
-        return; // no socket; app still functions
-      }
-      if (disposed) return;
+    // Mint a FRESH token for every (re)connection attempt. The server disconnects
+    // a socket when its access token expires, so reusing a stale token would loop;
+    // re-minting also reloads the principal server-side, making this the path that
+    // drops a deactivated account. A failed mint yields no token → the handshake is
+    // rejected and socket.io retries later (the app still works off refetches).
+    const authProvider = (cb: (data: { token?: string }) => void): void => {
+      api
+        .post<RealtimeTokenResponse>("/realtime/token")
+        .then((res) => {
+          rooms = res.rooms;
+          cb({ token: res.token });
+        })
+        .catch(() => { cb({}); });
+    };
 
-      socket = io(API_ORIGIN, {
-        auth: { token: auth.token },
-        transports: ["websocket", "polling"],
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1_000,
+    socket = io(API_ORIGIN, {
+      auth: authProvider,
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1_000,
+    });
+
+    const subscribe = (): void => {
+      if (rooms.length > 0) socket?.emit("subscribe", { rooms });
+    };
+
+    socket.on("connect", () => {
+      subscribe();
+      // A (re)connect may have missed events — reconcile broadly.
+      void queryClient.invalidateQueries();
+    });
+
+    const events = Object.keys(INVALIDATION) as RealtimeEvent[];
+    for (const event of events) {
+      socket.on(event, (payload: Record<string, unknown>) => {
+        invalidateForEvent(queryClient, event);
+        handlerRef.current?.(event, payload ?? {});
       });
-
-      const subscribe = (): void => {
-        if (auth.rooms.length > 0) socket?.emit("subscribe", { rooms: auth.rooms });
-      };
-
-      socket.on("connect", () => {
-        subscribe();
-        // A (re)connect may have missed events — reconcile broadly.
-        void queryClient.invalidateQueries();
-      });
-
-      const events = Object.keys(INVALIDATION) as RealtimeEvent[];
-      for (const event of events) {
-        socket.on(event, (payload: Record<string, unknown>) => {
-          invalidateForEvent(queryClient, event);
-          handlerRef.current?.(event, payload ?? {});
-        });
-      }
-    })();
+    }
 
     return () => {
-      disposed = true;
       if (socket) {
         socket.removeAllListeners();
         socket.disconnect();

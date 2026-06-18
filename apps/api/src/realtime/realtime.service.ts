@@ -52,6 +52,19 @@ export class RealtimeService {
     return this.loadPrincipal(claims);
   }
 
+  /**
+   * Like loadPrincipalFromToken but also returns the token's expiry so the
+   * gateway can drop the socket when its access token lapses (a connection must
+   * never outlive its token; the client re-mints + reconnects). The live
+   * principal reload also fails for a deactivated account, so re-handshake is
+   * the deactivation kill-switch.
+   */
+  async loadConnection(token: string): Promise<{ principal: Principal; expSeconds: number | null }> {
+    const claims = await this.tokens.verifyAccess(token);
+    const principal = await this.loadPrincipal(claims);
+    return { principal, expSeconds: typeof claims.exp === "number" ? claims.exp : null };
+  }
+
   private async loadPrincipal(claims: AccessClaims): Promise<Principal> {
     if (claims.aud === "operator") {
       const operator = await this.prisma.operator.findFirst({

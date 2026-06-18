@@ -11,6 +11,8 @@ export interface AccessClaims {
   sessionId: string; // refresh-token family id
   operatorId?: string;
   tier?: string;
+  exp?: number; // standard JWT expiry (seconds since epoch), set by signing
+  iat?: number;
 }
 
 function sha256(value: string): string {

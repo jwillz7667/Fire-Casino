@@ -3,6 +3,7 @@ import {
   ConnectedSocket,
   MessageBody,
   type OnGatewayConnection,
+  type OnGatewayDisconnect,
   type OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
@@ -42,6 +43,7 @@ interface SocketData {
   principal?: Principal;
   rateWindowStart?: number;
   msgCount?: number;
+  expiryTimer?: ReturnType<typeof setTimeout>;
 }
 
 // Per-socket message flood control (R2): a single connection can't drive unbounded
@@ -59,7 +61,7 @@ const SOCKET_MSG_MAX = 30;
  */
 @WebSocketGateway({ cors: { origin: corsOrigins(), credentials: true } })
 export class RealtimeGateway
-  implements OnGatewayConnection, OnGatewayInit, OnModuleDestroy
+  implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, OnModuleDestroy
 {
   private readonly logger = new Logger(RealtimeGateway.name);
 
@@ -99,8 +101,9 @@ export class RealtimeGateway
       return;
     }
     let principal: Principal;
+    let expSeconds: number | null;
     try {
-      principal = await this.realtime.loadPrincipalFromToken(token);
+      ({ principal, expSeconds } = await this.realtime.loadConnection(token));
     } catch {
       client.disconnect(true);
       return;
@@ -109,6 +112,26 @@ export class RealtimeGateway
     for (const room of allowedRoomsFor(principal)) {
       await client.join(room);
     }
+    // A socket must never outlive its access token (re-validation against TTL +
+    // deactivation): schedule a disconnect at expiry. The client mints a fresh
+    // token per connection attempt and reconnects; a lapsed/closed account fails
+    // that re-handshake.
+    if (expSeconds !== null) {
+      const ttlMs = expSeconds * 1000 - Date.now();
+      if (ttlMs <= 0) {
+        client.disconnect(true);
+        return;
+      }
+      (client.data as SocketData).expiryTimer = setTimeout(() => {
+        client.emit("error", { code: "TOKEN_EXPIRED" });
+        client.disconnect(true);
+      }, ttlMs);
+    }
+  }
+
+  handleDisconnect(client: Socket): void {
+    const { expiryTimer } = client.data as SocketData;
+    if (expiryTimer) clearTimeout(expiryTimer);
   }
 
   @SubscribeMessage("subscribe")
