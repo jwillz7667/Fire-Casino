@@ -57,7 +57,8 @@ export function timeAgo(value: string | null | undefined): string {
 }
 
 /** Humanize an UPPER_SNAKE enum/tier for display. */
-export function humanize(value: string): string {
+export function humanize(value: string | null | undefined): string {
+  if (!value) return "—";
   return value
     .toLowerCase()
     .replace(/_/g, " ")

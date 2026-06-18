@@ -30,12 +30,38 @@ interface NodeSettings {
   prizeBonusBps?: number;
 }
 
-interface PlatformSettings {
+/** Flat payload sent on PUT /settings/platform (UpdatePlatformSettingsInput-shaped). */
+interface PlatformSettingsUpdate {
   PLATFORM_MODE?: "OPERATOR" | "COMPLIANCE";
   REDEMPTION_KYC_THRESHOLD_MINOR?: number;
   DEFAULT_GAME_RTP_BPS?: number;
   KYC_ENFORCED?: boolean;
   GEO_ENFORCED?: boolean;
+}
+
+/** Real GET /settings/platform shape (settings.service.getPlatform). */
+interface PlatformSettingRow {
+  key: string;
+  value: unknown;
+  readOnly: boolean;
+  updatedAt: string | null;
+}
+interface PlatformSettingsResponse {
+  mode: "OPERATOR" | "COMPLIANCE";
+  settings: PlatformSettingRow[];
+}
+
+function settingNumber(rows: PlatformSettingRow[], key: string): string {
+  const v = rows.find((r) => r.key === key)?.value;
+  return typeof v === "number" || typeof v === "string" ? String(v) : "";
+}
+function settingBool(rows: PlatformSettingRow[], key: string, fallback: boolean): boolean {
+  const v = rows.find((r) => r.key === key)?.value;
+  return typeof v === "boolean" ? v : fallback;
+}
+function settingString(rows: PlatformSettingRow[], key: string): string {
+  const v = rows.find((r) => r.key === key)?.value;
+  return v === null || v === undefined ? "—" : String(v);
 }
 
 export default function SettingsPage(): ReactElement {
@@ -128,35 +154,37 @@ function PlatformSettingsPanel(): ReactElement {
   const [geoEnforced, setGeoEnforced] = useState(true);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [initialMode, setInitialMode] = useState<"OPERATOR" | "COMPLIANCE">(PLATFORM_MODE);
+  const [creditMinorUnits, setCreditMinorUnits] = useState("—");
 
   const settings = useQuery({
     queryKey: ["settings", "platform"],
-    queryFn: () => api.get<PlatformSettings>("/settings/platform"),
+    queryFn: () => api.get<PlatformSettingsResponse>("/settings/platform"),
     retry: false,
   });
 
   useEffect(() => {
     const data = settings.data;
     if (!data) return;
-    if (data.PLATFORM_MODE) {
-      setMode(data.PLATFORM_MODE);
-      setInitialMode(data.PLATFORM_MODE);
-    }
-    setRtp(data.DEFAULT_GAME_RTP_BPS?.toString() ?? "");
-    setKycThreshold(data.REDEMPTION_KYC_THRESHOLD_MINOR?.toString() ?? "");
-    if (data.KYC_ENFORCED !== undefined) setKycEnforced(data.KYC_ENFORCED);
-    if (data.GEO_ENFORCED !== undefined) setGeoEnforced(data.GEO_ENFORCED);
+    // Seed BOTH mode and initialMode from the server's authoritative mode so a
+    // save can never clobber PLATFORM_MODE or skip the hard-confirm (CA2).
+    setMode(data.mode);
+    setInitialMode(data.mode);
+    setRtp(settingNumber(data.settings, "DEFAULT_GAME_RTP_BPS"));
+    setKycThreshold(settingNumber(data.settings, "REDEMPTION_KYC_THRESHOLD_MINOR"));
+    setKycEnforced(settingBool(data.settings, "KYC_ENFORCED", true));
+    setGeoEnforced(settingBool(data.settings, "GEO_ENFORCED", true));
+    setCreditMinorUnits(settingString(data.settings, "CREDIT_MINOR_UNITS"));
   }, [settings.data]);
 
   const save = useMutation({
     mutationFn: () =>
-      api.put<PlatformSettings>("/settings/platform", {
+      api.put<PlatformSettingsResponse>("/settings/platform", {
         PLATFORM_MODE: mode,
         DEFAULT_GAME_RTP_BPS: rtp === "" ? undefined : Number(rtp),
         REDEMPTION_KYC_THRESHOLD_MINOR: kycThreshold === "" ? undefined : Number(kycThreshold),
         KYC_ENFORCED: kycEnforced,
         GEO_ENFORCED: geoEnforced,
-      }),
+      } satisfies PlatformSettingsUpdate),
     onSuccess: () => {
       toast.push({ title: "Platform settings saved", intent: "success" });
       setInitialMode(mode);
@@ -198,6 +226,9 @@ function PlatformSettingsPanel(): ReactElement {
         </Field>
         <Field label="Redemption KYC threshold (minor units)">
           <Input inputMode="numeric" value={kycThreshold} onChange={(e) => { setKycThreshold(e.target.value.replace(/\D/g, "")); }} />
+        </Field>
+        <Field label="Credit minor units" hint="Money scale — fixed for the life of the deployment">
+          <Input value={creditMinorUnits} readOnly disabled />
         </Field>
       </div>
 

@@ -67,7 +67,7 @@ export default function DashboardPage(): ReactElement {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <KpiStat
           label="Circulation below me"
-          valueMinor={data?.circulationBelowMinor}
+          valueMinor={data?.creditsInCirculationMinor}
           value={data ? undefined : "—"}
           hint="Operator + player balances"
         />
@@ -112,7 +112,7 @@ export default function DashboardPage(): ReactElement {
           {creditFlow.isLoading ? (
             <Skeleton className="h-56 w-full" />
           ) : (
-            <CreditFlowChart points={creditFlow.data?.points ?? []} />
+            <CreditFlowChart points={creditFlow.data?.buckets ?? []} />
           )}
         </Panel>
 

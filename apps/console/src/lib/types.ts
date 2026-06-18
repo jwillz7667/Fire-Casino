@@ -254,7 +254,8 @@ export interface Promotion {
 // ---- reports (controllers in flight; typed to docs/05 §9 + docs/06 §3.9) -----
 
 export interface ReportsOverview {
-  circulationBelowMinor: string;
+  currency: Currency;
+  creditsInCirculationMinor: string;
   activePlayers: number;
   netRechargesTodayMinor: string;
   pendingRedemptions: { count: number; totalMinor: string };
@@ -272,7 +273,11 @@ export interface CreditFlowPoint {
 }
 
 export interface CreditFlowReport {
-  points: CreditFlowPoint[];
+  currency?: Currency;
+  granularity?: string;
+  from?: string;
+  to?: string;
+  buckets: CreditFlowPoint[];
 }
 
 export interface AgentSalesRow {
@@ -299,41 +304,55 @@ export interface ActivityItem {
   at: string;
 }
 
+// Shapes mirror the API exactly (reconciliation.service.ts / reports.service.ledgerHealth).
 export interface ReconciliationCheck {
-  key: string;
-  label: string;
-  passed: boolean;
+  name: string;
+  ok: boolean;
   detail?: string;
 }
 
+export type ExpectedSign = "negative" | "positive" | "non_negative" | "any";
+
 export interface SystemAccountBalance {
-  account: string;
+  systemKey: string;
   currency: Currency;
   balanceMinor: string;
-  expectedSign: "POSITIVE" | "NEGATIVE" | "ZERO" | "ANY";
+  expectedSign: ExpectedSign;
+  ok: boolean;
 }
 
 export interface LedgerHealth {
-  lastRunAt: string | null;
+  ranAt: string | null;
   checks: ReconciliationCheck[];
   systemAccounts: SystemAccountBalance[];
 }
 
+export interface LedgerTxAccount {
+  ownerType: "OPERATOR" | "PLAYER" | "SYSTEM";
+  operatorId: string | null;
+  playerId: string | null;
+  systemKey: string | null;
+}
+
 export interface LedgerTxLeg {
-  accountLabel: string;
+  id: string;
+  account: LedgerTxAccount;
   direction: "DEBIT" | "CREDIT";
   currency: Currency;
   amountMinor: string;
   balanceAfterMinor: string;
 }
 
-export interface LedgerTransaction {
-  id: string;
-  type: string;
-  status: string;
-  idempotencyKey: string | null;
-  memo: string | null;
-  createdAt: string;
+export interface LedgerTransactionDetail {
+  transaction: {
+    id: string;
+    type: string;
+    status: string;
+    currency: Currency;
+    idempotencyKey: string | null;
+    memo: string | null;
+    createdAt: string;
+  };
   legs: LedgerTxLeg[];
 }
 

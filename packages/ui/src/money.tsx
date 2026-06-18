@@ -42,6 +42,21 @@ const SIZE_CLASS: Record<NonNullable<MoneyProps["size"]>, string> = {
 };
 
 /**
+ * Coerce a minor-unit value to BigInt without ever throwing at render. Money is
+ * the single rendering point for balances, so malformed/absent API data (a missing
+ * field, a contract drift) must degrade to 0 — never crash the page (docs/06 §4).
+ */
+function parseMinor(value: bigint | string | null | undefined): bigint {
+  if (typeof value === "bigint") return value;
+  if (value === null || value === undefined) return 0n;
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
+/**
  * Render a BigInt minor-unit value via fromMinor, mono + tabular figures,
  * currency-coloured. `signed` shows a delta with success/danger colour.
  */
@@ -54,7 +69,7 @@ export function Money({
   size = "md",
   className,
 }: MoneyProps): ReactElement {
-  const minor = typeof valueMinor === "bigint" ? valueMinor : BigInt(valueMinor);
+  const minor = parseMinor(valueMinor);
   const negative = minor < 0n;
   const text = fromMinor(negative ? -minor : minor);
   const resolvedTone = tone ?? toneForCurrency(currency);
