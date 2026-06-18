@@ -68,6 +68,18 @@ export default function PlayerDetailPage(): ReactElement {
     },
   });
 
+  const reactivate = useMutation({
+    mutationFn: () => api.post<PlayerDetail>(`/players/${id}/reactivate`),
+    onSuccess: () => {
+      toast.push({ title: "Player reactivated", intent: "success" });
+      void queryClient.invalidateQueries({ queryKey: ["player", id] });
+      void queryClient.invalidateQueries({ queryKey: ["players"] });
+    },
+    onError: (err) => {
+      toast.push({ title: "Failed", description: err instanceof ApiError ? err.message : "", intent: "danger" });
+    },
+  });
+
   const canRecharge = hasPermission(principal, "player.recharge");
   const canDeduct = hasPermission(principal, "player.deduct");
   const canSuspend = hasPermission(principal, "player.suspend");
@@ -121,6 +133,12 @@ export default function PlayerDetailPage(): ReactElement {
                     <Button variant="ghost" onClick={() => { setSuspendOpen(true); }}>
                       <Ban className="h-4 w-4" />
                       Suspend
+                    </Button>
+                  ) : null}
+                  {canSuspend && p.status === "SUSPENDED" ? (
+                    <Button variant="secondary" onClick={() => { reactivate.mutate(); }} loading={reactivate.isPending}>
+                      <Ban className="h-4 w-4" />
+                      Reactivate
                     </Button>
                   ) : null}
                 </div>

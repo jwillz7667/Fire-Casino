@@ -83,6 +83,14 @@ export class PlayersController {
     return this.players.suspend(caller, id, ctxOf(req));
   }
 
+  @Post(":id/reactivate")
+  @HttpCode(200)
+  @RequirePermission("player.suspend")
+  @ScopeCheck({ playerIdFrom: [{ source: "params", key: "id" }] })
+  reactivate(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string, @Req() req: Request) {
+    return this.players.reactivate(caller, id, ctxOf(req));
+  }
+
   @Post(":id/reset-password")
   @HttpCode(204)
   @RequirePermission("player.suspend")
