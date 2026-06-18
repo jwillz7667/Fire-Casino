@@ -196,7 +196,7 @@ describe("PlayersService.history — unified timeline (docs/05 §4)", () => {
     await fund(storeId, "CREDIT", 1_000_000n);
     await walletOperator.recharge(storeP, { playerId, amountMinor: 100_000n }, randomUUID(), ctx);
 
-    const history = await players.history(playerId, { limit: 50 });
+    const history = await players.history(storeP, playerId, { limit: 50 });
     expect(history.items.length).toBeGreaterThanOrEqual(1);
     const recharge = history.items.find((e) => e.kind === "ledger" && e.type === "RECHARGE");
     expect(recharge).toBeDefined();

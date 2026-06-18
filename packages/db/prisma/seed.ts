@@ -39,7 +39,31 @@ const SYSTEM_ACCOUNTS: SystemAccount[] = [
   "ROUNDING",
 ];
 
-const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "ChangeMe!Dev123";
+const DEV_SEED_PASSWORD = "ChangeMe!Dev123";
+
+/**
+ * Resolve the seed password. In production the committed dev default is refused
+ * and a strong SEED_PASSWORD is mandatory — never ship/seed admin accounts on a
+ * source-controlled credential (security audit S1). Dev/test fall back to the
+ * default for convenience.
+ */
+function resolveSeedPassword(): string {
+  const provided = process.env.SEED_PASSWORD;
+  if (process.env.NODE_ENV === "production") {
+    if (!provided || provided === DEV_SEED_PASSWORD) {
+      throw new Error(
+        "Refusing to seed production with the default password. Set a strong SEED_PASSWORD (>=12 chars).",
+      );
+    }
+    if (provided.length < 12) {
+      throw new Error("SEED_PASSWORD must be at least 12 characters in production.");
+    }
+    return provided;
+  }
+  return provided ?? DEV_SEED_PASSWORD;
+}
+
+const SEED_PASSWORD = resolveSeedPassword();
 const ARGON2_MEMORY_KIB = Number(process.env.ARGON2_MEMORY_KIB ?? "19456");
 
 function hashPassword(plain: string): Promise<string> {
@@ -370,10 +394,15 @@ async function main(): Promise<void> {
     prisma.promotion.count(),
   ]);
 
+  // Never print the actual password in production logs (security audit S1).
+  const passwordNote =
+    process.env.NODE_ENV === "production"
+      ? "Login password: set via SEED_PASSWORD (not logged)."
+      : `Default login password: "${SEED_PASSWORD}".`;
   console.warn(
     `Seed complete: ${String(settings)} settings, ${String(sysAccounts)} system accounts, ` +
       `${String(operators)} operators, ${String(players)} players, ${String(games)} games, ` +
-      `${String(geo)} geo rules, ${String(promos)} promotions. Default login password: "${SEED_PASSWORD}".`,
+      `${String(geo)} geo rules, ${String(promos)} promotions. ${passwordNote}`,
   );
 }
 

@@ -8,6 +8,7 @@ export type ErrorCode =
   | "UNAUTHORIZED"
   | "INVALID_CREDENTIALS"
   | "MFA_REQUIRED"
+  | "MFA_ENROLLMENT_REQUIRED"
   | "FORBIDDEN"
   | "OUT_OF_SCOPE"
   | "NOT_FOUND"
@@ -60,6 +61,17 @@ export class MfaRequiredError extends AppError {
 export class ForbiddenError extends AppError {
   constructor(message = "Forbidden") {
     super("FORBIDDEN", 403, message);
+  }
+}
+
+/**
+ * An MFA-required tier (SUPER_ADMIN/ADMIN) authenticated but has not yet enrolled
+ * a second factor. The session is valid only for the enrollment endpoints until
+ * MFA is confirmed (docs/01 §4). Enforced server-side by MfaEnrollmentGuard.
+ */
+export class MfaEnrollmentRequiredError extends AppError {
+  constructor(message = "Two-factor enrollment is required before this action") {
+    super("MFA_ENROLLMENT_REQUIRED", 403, message);
   }
 }
 

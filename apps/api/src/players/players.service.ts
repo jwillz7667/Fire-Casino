@@ -142,7 +142,8 @@ export class PlayersService {
     };
   }
 
-  async get(id: string) {
+  async get(caller: OperatorPrincipal, id: string) {
+    await this.assertInSubtree(caller, id);
     const player = await this.system.player.findUnique({
       where: { id },
       select: {
@@ -165,8 +166,8 @@ export class PlayersService {
    * source is filtered to `< cursor` and over-fetched so the merge is complete
    * for the page.
    */
-  async history(id: string, query: PlayerHistoryQuery): Promise<PlayerHistoryResult> {
-    await this.ensureExists(id);
+  async history(caller: OperatorPrincipal, id: string, query: PlayerHistoryQuery): Promise<PlayerHistoryResult> {
+    await this.assertInSubtree(caller, id);
     const before = query.cursor ? new Date(query.cursor) : undefined;
     const take = query.limit + 1;
     const when = before ? { createdAt: { lt: before } } : {};
@@ -248,7 +249,7 @@ export class PlayersService {
   }
 
   async update(caller: OperatorPrincipal, id: string, input: UpdatePlayerInput, ctx: ActionContext) {
-    await this.ensureExists(id);
+    await this.assertInSubtree(caller, id);
     const updated = await this.system.player.update({ where: { id }, data: input, select: PLAYER_SELECT });
     await this.audit.record({
       ...auditActor(caller),
@@ -262,7 +263,7 @@ export class PlayersService {
   }
 
   async suspend(caller: OperatorPrincipal, id: string, ctx: ActionContext) {
-    await this.ensureExists(id);
+    await this.assertInSubtree(caller, id);
     const updated = await this.system.player.update({
       where: { id },
       data: { status: "SUSPENDED" },
@@ -285,7 +286,7 @@ export class PlayersService {
     input: ResetPlayerPasswordInput,
     ctx: ActionContext,
   ) {
-    await this.ensureExists(id);
+    await this.assertInSubtree(caller, id);
     const passwordHash = await this.passwords.hash(input.tempPassword);
     await this.system.player.update({ where: { id }, data: { passwordHash } });
     // Force re-login everywhere by revoking the player's refresh sessions.
@@ -307,7 +308,7 @@ export class PlayersService {
     if (caller.tier !== "SUPER_ADMIN" && caller.tier !== "ADMIN") {
       throw new ForbiddenError("Only admins can transfer players");
     }
-    await this.ensureExists(id);
+    await this.assertInSubtree(caller, id);
     const target = await this.system.operator.findUnique({
       where: { id: toOperatorId },
       select: { tier: true, path: true },
@@ -332,8 +333,18 @@ export class PlayersService {
     return updated;
   }
 
-  private async ensureExists(id: string): Promise<void> {
-    const player = await this.system.player.findUnique({ where: { id }, select: { id: true } });
+  /**
+   * Defense-in-depth subtree backstop (docs/04 §2, layer 2). Every by-id player
+   * read/mutation asserts the player's owning operator is within the caller's
+   * subtree, so an agent can only manage its OWN players — never another agent's —
+   * even if a route's @ScopeCheck were ever removed. Mirrors wallet.recharge.
+   */
+  private async assertInSubtree(caller: OperatorPrincipal, id: string): Promise<void> {
+    const player = await this.system.player.findUnique({
+      where: { id },
+      select: { operator: { select: { path: true } } },
+    });
     if (!player) throw new NotFoundError("Player not found");
+    if (!isInSubtree(caller.path, player.operator.path)) throw new OutOfScopeError();
   }
 }
