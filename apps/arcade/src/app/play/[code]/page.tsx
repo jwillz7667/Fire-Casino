@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
-import { Badge, Card, CoinSpinner, EmptyState, Money, useToast } from "@aureus/ui";
+import { Badge, Card, EmptyState, Money, useToast } from "@aureus/ui";
 import {
   DRAGON_GAME_CODE,
   PHOENIX_GAME_CODE,
@@ -14,6 +14,7 @@ import {
   startSessionSchema,
 } from "@aureus/shared";
 import { AppShell } from "@/components/shell/AppShell";
+import { BrandSpinner } from "@/components/shell/BrandSpinner";
 import { BetControls } from "@/components/game/BetControls";
 import { OutcomeDisplay } from "@/components/game/OutcomeDisplay";
 import { PhoenixSlot } from "@/components/game/PhoenixSlot";
@@ -161,7 +162,7 @@ function GameScreen(): React.ReactElement {
   }
 
   if (gameQuery.isLoading) {
-    return <CoinSpinner label="Loading game…" />;
+    return <BrandSpinner label="Loading game…" />;
   }
 
   if (gameQuery.isError || !game) {

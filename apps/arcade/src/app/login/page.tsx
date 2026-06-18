@@ -2,12 +2,13 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, CoinSpinner, Field, Input, RegionBlockedState } from "@aureus/ui";
+import { Button, Card, Field, Input, RegionBlockedState } from "@aureus/ui";
 import { playerLoginSchema } from "@aureus/shared";
 import { useAuth } from "@/lib/auth-context";
 import { ERROR_CODES, isErrorCode, messageForError } from "@/lib/errors";
 import { ChangePasswordForm } from "@/components/account/ChangePasswordForm";
 import { BrandLogo } from "@/components/shell/BrandLogo";
+import { BrandSpinner } from "@/components/shell/BrandSpinner";
 
 const AGE_KEY = "aureus.age_confirmed";
 const pwAckKey = (playerId: string): string => `aureus.pw_ack.${playerId}`;
@@ -76,7 +77,7 @@ export default function LoginPage(): React.ReactElement {
   if (ageConfirmed === null || (ready && isAuthenticated && phase === "login")) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center">
-        <CoinSpinner />
+        <BrandSpinner />
       </div>
     );
   }

@@ -3,9 +3,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { CoinSpinner, EmptyState, SectionTitle } from "@aureus/ui";
+import { EmptyState, SectionTitle } from "@aureus/ui";
 import type { GameType } from "@aureus/shared";
 import { AppShell } from "@/components/shell/AppShell";
+import { BrandSpinner } from "@/components/shell/BrandSpinner";
 import { AnnouncementBanner } from "@/components/lobby/AnnouncementBanner";
 import { CategoryChips, type CategoryFilter } from "@/components/lobby/CategoryChips";
 import { GameTile } from "@/components/lobby/GameTile";
@@ -74,7 +75,7 @@ function Lobby(): React.ReactElement {
         ) : null}
 
         {gamesQuery.isLoading ? (
-          <CoinSpinner label="Loading games…" />
+          <BrandSpinner label="Loading games…" />
         ) : gamesQuery.isError ? (
           <EmptyState
             title="Couldn't load games"

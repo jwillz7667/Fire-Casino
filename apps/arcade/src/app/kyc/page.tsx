@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Card, CoinSpinner, SectionTitle, StatusPill } from "@aureus/ui";
+import { Card, SectionTitle, StatusPill } from "@aureus/ui";
 import { AppShell } from "@/components/shell/AppShell";
+import { BrandSpinner } from "@/components/shell/BrandSpinner";
 import { KycForm } from "@/components/kyc/KycForm";
 import { useCompliance } from "@/lib/hooks";
 
@@ -34,7 +35,7 @@ function Kyc(): React.ReactElement {
       </div>
 
       {compliance.isLoading ? (
-        <CoinSpinner label="Loading…" />
+        <BrandSpinner label="Loading…" />
       ) : alreadySubmitted ? (
         <Card className="flex flex-col items-center gap-3 p-6 text-center">
           <SectionTitle>Status</SectionTitle>

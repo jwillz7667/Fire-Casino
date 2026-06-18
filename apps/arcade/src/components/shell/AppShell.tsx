@@ -2,9 +2,9 @@
 
 import { type ReactNode, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { CoinSpinner } from "@aureus/ui";
 import { useAuth } from "@/lib/auth-context";
 import { useRealtime } from "@/lib/socket";
+import { BrandSpinner } from "./BrandSpinner";
 import { MobileTopbar } from "./MobileTopbar";
 import { TabBar, type TabKey } from "./TabBar";
 
@@ -32,7 +32,7 @@ export function AppShell({
   if (!ready) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center">
-        <CoinSpinner label="Loading…" />
+        <BrandSpinner label="Loading…" />
       </div>
     );
   }
