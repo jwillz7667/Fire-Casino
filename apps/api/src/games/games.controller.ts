@@ -53,6 +53,14 @@ export class GamesController {
     return this.games.clearRtpOverride(caller, code, null);
   }
 
+  @Get("rtp/players/:playerId")
+  @Auth("operator")
+  @RequirePermission("game.rtp_agent")
+  @ScopeCheck({ playerIdFrom: [{ source: "params", key: "playerId" }] })
+  listPlayerRtp(@CurrentUser() caller: OperatorPrincipal, @Param("playerId") playerId: string) {
+    return this.games.listPlayerRtp(caller, playerId);
+  }
+
   @Put("rtp/:code/players/:playerId")
   @Auth("operator")
   @RequirePermission("game.rtp_agent")

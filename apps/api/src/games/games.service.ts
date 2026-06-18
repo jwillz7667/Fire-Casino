@@ -252,6 +252,47 @@ export class GamesService {
     };
   }
 
+  /** Per-player win-rate slider data: every active game with default / agent / player / effective RTP. */
+  async listPlayerRtp(caller: OperatorPrincipal, playerId: string) {
+    if (!can(caller.tier, caller.settings, "game.rtp_agent")) {
+      throw new ForbiddenError("Your tier cannot set win rates");
+    }
+    const pl = await this.prisma.player.findUnique({
+      where: { id: playerId },
+      select: { operatorId: true, operator: { select: { path: true } } },
+    });
+    if (!pl) throw new NotFoundError("Player not found");
+    if (!isInSubtree(caller.path, pl.operator.path)) throw new OutOfScopeError();
+
+    const [games, overrides] = await Promise.all([
+      this.prisma.game.findMany({
+        where: { status: "ACTIVE" },
+        select: { id: true, code: true, name: true, rtpBps: true },
+        orderBy: { sortOrder: "asc" },
+      }),
+      this.prisma.gameRtpOverride.findMany({
+        where: { operatorId: pl.operatorId, OR: [{ playerId }, { playerId: null }] },
+        select: { gameId: true, playerId: true, rtpBps: true },
+      }),
+    ]);
+    return {
+      minBps: RTP_MIN_BPS,
+      maxBps: RTP_MAX_BPS,
+      items: games.map((g) => {
+        const player = overrides.find((o) => o.gameId === g.id && o.playerId === playerId)?.rtpBps ?? null;
+        const agent = overrides.find((o) => o.gameId === g.id && o.playerId === null)?.rtpBps ?? null;
+        return {
+          code: g.code,
+          name: g.name,
+          defaultRtpBps: g.rtpBps,
+          agentRtpBps: agent,
+          playerRtpBps: player,
+          effectiveRtpBps: player ?? agent ?? g.rtpBps,
+        };
+      }),
+    };
+  }
+
   // ---- sessions & play -------------------------------------------------------
 
   async startSession(player: PlayerPrincipal, input: StartSessionInput, region?: string) {

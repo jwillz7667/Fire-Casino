@@ -27,6 +27,7 @@ import { useCursorList } from "@/lib/use-cursor-list";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary } from "@/components/query-boundary";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PlayerRtpPanel } from "@/components/players/player-rtp-panel";
 import { RechargeDialog } from "@/components/players/recharge-dialog";
 import { RemoveCreditsDialog } from "@/components/players/remove-credits-dialog";
 import { ResetPasswordDialog } from "@/components/players/reset-password-dialog";
@@ -171,6 +172,8 @@ export default function PlayerDetailPage(): ReactElement {
                     <HistoryTimeline playerId={id} />
                   </Panel>
                 )}
+
+                {hasPermission(principal, "game.rtp_agent") ? <PlayerRtpPanel playerId={id} /> : null}
               </div>
 
               <div className="flex flex-col gap-6">

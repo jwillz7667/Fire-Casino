@@ -377,6 +377,15 @@ export interface AgentRtpResponse {
   items: AgentRtpItem[];
 }
 
+export interface PlayerRtpItem extends AgentRtpItem {
+  playerRtpBps: number | null;
+}
+export interface PlayerRtpResponse {
+  minBps: number;
+  maxBps: number;
+  items: PlayerRtpItem[];
+}
+
 export interface RedemptionsReport {
   byStatus: { status: string; count: number; totalMinor: string }[];
   pendingMinor: string;
