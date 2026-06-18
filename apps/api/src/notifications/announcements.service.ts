@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { type Prisma, type PrismaClient } from "@aureus/db";
 import { type CreateAnnouncementInput, type ListAnnouncementsQuery } from "@aureus/shared";
 import { type OperatorPrincipal, type Principal } from "../common/auth/principal";
+import { NotFoundError, OutOfScopeError } from "../common/errors/domain-error";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
 
@@ -92,6 +93,17 @@ export class AnnouncementsService {
   }
 
   async deactivate(caller: OperatorPrincipal, id: string, ctx: ActionContext) {
+    const existing = await this.prisma.announcement.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundError("Announcement not found");
+    // Only the broadcaster or an ancestor may pull it (hard rule #4): the scope
+    // path must be the caller's own node or a descendant. A global (null) scope
+    // is reserved for the super admin at the tree root.
+    const scope = existing.operatorScopePath;
+    const inScope =
+      scope === null
+        ? caller.tier === "SUPER_ADMIN"
+        : scope === caller.path || scope.startsWith(`${caller.path}.`);
+    if (!inScope) throw new OutOfScopeError();
     const updated = await this.prisma.announcement.update({ where: { id }, data: { active: false } });
     await this.audit.record({
       ...auditActor(caller),

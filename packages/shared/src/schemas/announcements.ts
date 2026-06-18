@@ -5,14 +5,19 @@ import { announcementAudienceSchema } from "../enums";
  * Announcements (docs/06 §3.13). Broadcast to the caller's subtree (players
  * and/or operators); targeting by operatorScopePath restricts to a branch.
  */
-export const createAnnouncementSchema = z.object({
-  title: z.string().min(2).max(160),
-  body: z.string().min(1).max(2000),
-  audience: announcementAudienceSchema.default("PLAYERS"),
-  operatorScopePath: z.string().max(200).optional(),
-  startsAt: z.string().datetime().optional(),
-  endsAt: z.string().datetime().optional(),
-});
+export const createAnnouncementSchema = z
+  .object({
+    title: z.string().min(2).max(160),
+    body: z.string().min(1).max(2000),
+    audience: announcementAudienceSchema.default("PLAYERS"),
+    operatorScopePath: z.string().max(200).optional(),
+    startsAt: z.string().datetime().optional(),
+    endsAt: z.string().datetime().optional(),
+  })
+  .refine((v) => !v.startsAt || !v.endsAt || new Date(v.endsAt) > new Date(v.startsAt), {
+    message: "End time must be after the start time",
+    path: ["endsAt"],
+  });
 export type CreateAnnouncementInput = z.infer<typeof createAnnouncementSchema>;
 
 export const listAnnouncementsQuerySchema = z.object({
