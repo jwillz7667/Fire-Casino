@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UseGuards } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import {
   type MfaConfirmInput,
@@ -41,7 +41,6 @@ export class AuthController {
   ) {}
 
   @Public()
-  @UseGuards(ThrottlerGuard)
   @Throttle(AUTH_RATE_LIMIT)
   @Post("operator/login")
   @HttpCode(200)
@@ -56,7 +55,6 @@ export class AuthController {
   }
 
   @Public()
-  @UseGuards(ThrottlerGuard)
   @Throttle(AUTH_RATE_LIMIT)
   @Post("player/login")
   @HttpCode(200)
@@ -71,7 +69,6 @@ export class AuthController {
   }
 
   @Public()
-  @UseGuards(ThrottlerGuard)
   @Throttle(AUTH_RATE_LIMIT)
   @Post("refresh")
   @HttpCode(200)

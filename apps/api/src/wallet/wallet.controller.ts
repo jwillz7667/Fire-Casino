@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Post, Query, Req, UseGuards } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Body, Controller, Get, HttpCode, Post, Query, Req } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type RechargeInput,
@@ -35,7 +35,6 @@ export class WalletController {
   @Post("recharge")
   @HttpCode(200)
   @Auth("operator")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("player.recharge")
   @ScopeCheck({ playerIdFrom: [{ source: "body", key: "playerId" }] })
@@ -51,7 +50,6 @@ export class WalletController {
   @Post("remove")
   @HttpCode(200)
   @Auth("operator")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("player.deduct")
   @ScopeCheck({ playerIdFrom: [{ source: "body", key: "playerId" }] })
@@ -82,7 +80,6 @@ export class WalletController {
   @Post("recharge-request")
   @HttpCode(200)
   @Auth("player")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   rechargeRequest(
     @CurrentPlayer() player: PlayerPrincipal,

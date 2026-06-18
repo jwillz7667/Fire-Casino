@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type CreateOrderInput,
@@ -29,7 +29,6 @@ export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
   @Post()
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("order.request_up")
   request(
@@ -86,7 +85,6 @@ export class OrdersController {
 
   @Post(":id/issue")
   @HttpCode(200)
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("order.fulfill")
   issue(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string, @Req() req: Request) {

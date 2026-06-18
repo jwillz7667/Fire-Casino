@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import {
   type CancelRedemptionInput,
@@ -37,7 +37,6 @@ export class RedemptionsController {
   @Post()
   @HttpCode(201)
   @Auth("player")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   request(
     @CurrentPlayer() player: PlayerPrincipal,
@@ -98,7 +97,6 @@ export class RedemptionsController {
   @Post(":id/approve")
   @HttpCode(200)
   @Auth("operator")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("redemption.approve")
   approve(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string, @Req() req: Request) {
@@ -121,7 +119,6 @@ export class RedemptionsController {
   @Post(":id/settle")
   @HttpCode(200)
   @Auth("operator")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("redemption.settle")
   settle(
@@ -136,7 +133,6 @@ export class RedemptionsController {
   @Post(":id/cancel")
   @HttpCode(200)
   @Auth("operator")
-  @UseGuards(ThrottlerGuard)
   @Throttle(MONEY_RATE_LIMIT)
   @RequirePermission("redemption.approve")
   cancel(

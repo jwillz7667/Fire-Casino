@@ -28,7 +28,21 @@ export type UpsertGeoRuleInput = z.infer<typeof upsertGeoRuleSchema>;
 
 export const kycSubmitSchema = z.object({
   idType: z.string().min(2).max(60),
-  documentUrl: z.string().url().max(500),
+  // z.url() accepts javascript:/data: schemes, which become a stored-XSS sink when
+  // rendered into an <a href> for a privileged reviewer (audit S2). Allow only
+  // http(s).
+  documentUrl: z
+    .string()
+    .url()
+    .max(500)
+    .refine((v) => {
+      try {
+        const proto = new URL(v).protocol;
+        return proto === "http:" || proto === "https:";
+      } catch {
+        return false;
+      }
+    }, "Document URL must use http(s)"),
   level: z.number().int().min(1).max(3).default(1),
 });
 export type KycSubmitInput = z.infer<typeof kycSubmitSchema>;

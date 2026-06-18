@@ -7,6 +7,7 @@ import { loadEnv } from "@aureus/shared";
 import { loadDotenv } from "@aureus/shared/dotenv";
 import { AppModule } from "./app.module";
 import { RedisIoAdapter } from "./realtime/redis-io.adapter";
+import { securityHeaders } from "./common/http/security-headers";
 
 async function bootstrap(): Promise<void> {
   loadDotenv();
@@ -18,6 +19,7 @@ async function bootstrap(): Promise<void> {
   // Versioned REST surface; health probes stay at the root for load balancers.
   app.setGlobalPrefix("api/v1", { exclude: ["healthz", "readyz"] });
 
+  app.use(securityHeaders);
   app.use(cookieParser());
 
   app.enableCors({
