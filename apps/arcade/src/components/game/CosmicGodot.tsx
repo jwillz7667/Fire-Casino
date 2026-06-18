@@ -21,7 +21,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * (bump the version prefix per rebuild).
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/cosmic-slots/v3/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/cosmic-slots/v5/index.html";
 export const COSMIC_GAME_URL = process.env.NEXT_PUBLIC_COSMIC_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = COSMIC_GAME_URL;

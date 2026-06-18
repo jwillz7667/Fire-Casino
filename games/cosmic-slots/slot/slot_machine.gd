@@ -126,6 +126,7 @@ var autospin_btn: Button             # no art provided → subtle code neon pill
 var _audio := {}
 var _spin_loop: AudioStreamPlayer
 var _music: AudioStreamPlayer
+var _audio_unlocked := false   # set on the first user gesture (browser autoplay policy)
 
 # session (from bridge)
 var balance_minor := 0
@@ -162,11 +163,29 @@ func _ready() -> void:
 	_apply_layout()
 	_idle_fill()
 	_connect_bridge()
-	_start_music()
+	# Music/SFX are NOT started here: browsers (esp. iOS standalone PWAs) suspend the audio
+	# context until the first user gesture, so a pre-gesture start is silently dropped.
+	# _input() starts everything on the first tap (which also resumes the context).
 	set_process(true)
+	set_process_input(true)
 	get_viewport().size_changed.connect(_on_resize)
 	if OS.get_environment("CSL_SHOT") != "":
 		_run_shots()
+
+## First user gesture unlocks audio (resumes the suspended Web audio context) and starts
+## the background music. Fires before GUI handling, so the same tap that hits SPIN works.
+func _input(event: InputEvent) -> void:
+	if _audio_unlocked:
+		return
+	if event is InputEventScreenTouch or event is InputEventMouseButton or event is InputEventKey:
+		if event.is_pressed():
+			_unlock_audio()
+
+func _unlock_audio() -> void:
+	if _audio_unlocked:
+		return
+	_audio_unlocked = true
+	_start_music()
 
 # Desktop/editor: honour CSL_SIZE=WxH (for layout QA) else the portrait design.
 func _apply_window_size() -> void:
@@ -494,6 +513,7 @@ func _position_reel(reel: Dictionary, _blurred: bool) -> void:
 # ----------------------------------------------------------------- spin / round
 func request_spin() -> void:
 	if busy: return
+	_unlock_audio()   # backstop: a spin is always a user gesture
 	busy = true
 	spin_btn.disabled = true
 	lbl_win.text = ""
