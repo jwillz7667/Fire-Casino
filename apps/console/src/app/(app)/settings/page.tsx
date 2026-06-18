@@ -72,7 +72,10 @@ function settingBool(rows: PlatformSettingRow[], key: string, fallback: boolean)
 }
 function settingString(rows: PlatformSettingRow[], key: string): string {
   const v = rows.find((r) => r.key === key)?.value;
-  return v === null || v === undefined ? "—" : String(v);
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
 }
 
 export default function SettingsPage(): ReactElement {

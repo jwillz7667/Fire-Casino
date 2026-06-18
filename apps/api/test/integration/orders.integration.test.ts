@@ -149,7 +149,7 @@ describe("Credit orders — no movement on reject/cancel", () => {
       .map((p) => p.status);
     expect(statuses).toContain("REQUESTED");
     expect(statuses).toContain("CANCELLED");
-    expect(events.some((e) => (e.rooms as string[]).includes(`operator:${distId}`))).toBe(true);
+    expect(events.some((e) => e.rooms.includes(`operator:${distId}`))).toBe(true);
   });
 });
 
