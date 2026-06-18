@@ -16,19 +16,20 @@ const SERIES: { key: Series; label: string; color: string }[] = [
 ];
 
 /** Grouped-bar credit flow over time, pure SVG (docs/06 §3.1). */
-export function CreditFlowChart({ points }: { points: CreditFlowPoint[] }): ReactElement {
+export function CreditFlowChart({ points }: { points?: CreditFlowPoint[] }): ReactElement {
+  const data = points ?? [];
   const max = useMemo(() => {
     let m = 1n;
-    for (const p of points) {
+    for (const p of data) {
       for (const s of SERIES) {
         const v = BigInt(p[s.key] || "0");
         if (v > m) m = v;
       }
     }
     return m;
-  }, [points]);
+  }, [data]);
 
-  if (points.length === 0) {
+  if (data.length === 0) {
     return <EmptyState title="No credit flow yet" description="Issues, recharges and redemptions will chart here." />;
   }
 
@@ -46,7 +47,7 @@ export function CreditFlowChart({ points }: { points: CreditFlowPoint[] }): Reac
       </div>
 
       <div className="flex items-end gap-2 overflow-x-auto pb-1" style={{ height: height + 28 }}>
-        {points.map((p) => (
+        {data.map((p) => (
           <div key={p.bucket} className="flex min-w-12 flex-1 flex-col items-center gap-1">
             <div className="flex h-[200px] w-full items-end justify-center gap-0.5">
               {SERIES.map((s) => {

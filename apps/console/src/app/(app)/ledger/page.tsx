@@ -20,16 +20,24 @@ import {
 import { api, ApiError } from "@/lib/api";
 import { usePrincipal } from "@/lib/auth-context";
 import { hasPermission } from "@/lib/permissions";
-import type { LedgerHealth, LedgerTransaction } from "@/lib/types";
+import type { LedgerHealth, LedgerTransactionDetail, LedgerTxAccount } from "@/lib/types";
 import { errorMessage } from "@/lib/errors";
 import { PageHeader } from "@/components/page-header";
 import { formatDateTime, humanize } from "@/lib/format";
+
+/** Human label for a ledger leg's account (the API returns an account object, not a label). */
+function accountLabel(a: LedgerTxAccount): string {
+  if (a.systemKey) return humanize(a.systemKey);
+  if (a.ownerType === "OPERATOR" && a.operatorId) return `Operator ${a.operatorId.slice(0, 8)}`;
+  if (a.ownerType === "PLAYER" && a.playerId) return `Player ${a.playerId.slice(0, 8)}`;
+  return humanize(a.ownerType);
+}
 
 export default function LedgerHealthPage(): ReactElement {
   const principal = usePrincipal();
   const toast = useToast();
   const [lookup, setLookup] = useState("");
-  const [tx, setTx] = useState<LedgerTransaction | null>(null);
+  const [tx, setTx] = useState<LedgerTransactionDetail | null>(null);
   const [txError, setTxError] = useState<string | undefined>();
 
   const canView = hasPermission(principal, "report.ledger_health");
@@ -61,7 +69,7 @@ export default function LedgerHealthPage(): ReactElement {
       const params = new URLSearchParams();
       if (parsed.data.id) params.set("id", parsed.data.id);
       if (parsed.data.idempotencyKey) params.set("idempotencyKey", parsed.data.idempotencyKey);
-      return api.get<LedgerTransaction>(`/reports/ledger-health/transaction?${params.toString()}`);
+      return api.get<LedgerTransactionDetail>(`/reports/ledger-health/transaction?${params.toString()}`);
     },
     onSuccess: (data) => {
       setTx(data);
@@ -93,8 +101,8 @@ export default function LedgerHealthPage(): ReactElement {
       <Panel className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <SectionTitle>Reconciliation checks</SectionTitle>
-          {health.data?.lastRunAt ? (
-            <span className="text-xs text-text-lo">Last run {formatDateTime(health.data.lastRunAt)}</span>
+          {health.data?.ranAt ? (
+            <span className="text-xs text-text-lo">Last run {formatDateTime(health.data.ranAt)}</span>
           ) : null}
         </div>
         {health.isLoading ? (
@@ -105,18 +113,19 @@ export default function LedgerHealthPage(): ReactElement {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {(health.data?.checks ?? []).map((c) => (
               <div
-                key={c.key}
+                key={c.name}
                 className="flex items-center justify-between gap-3 rounded-md border border-hairline bg-surface-2 px-3 py-2.5"
+                title={c.detail}
               >
                 <div className="flex items-center gap-2">
-                  {c.passed ? (
+                  {c.ok ? (
                     <CheckCircle2 className="h-4 w-4 text-success" />
                   ) : (
                     <XCircle className="h-4 w-4 text-danger" />
                   )}
-                  <span className="text-sm text-text-hi">{c.label}</span>
+                  <span className="text-sm text-text-hi">{humanize(c.name)}</span>
                 </div>
-                <Badge intent={c.passed ? "success" : "danger"}>{c.passed ? "Pass" : "Fail"}</Badge>
+                <Badge intent={c.ok ? "success" : "danger"}>{c.ok ? "Pass" : "Fail"}</Badge>
               </div>
             ))}
           </div>
@@ -132,13 +141,21 @@ export default function LedgerHealthPage(): ReactElement {
         ) : (
           <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
             {(health.data?.systemAccounts ?? []).map((a) => (
-              <div key={`${a.account}-${a.currency}`} className="rounded-md border border-hairline bg-surface-2 p-3">
+              <div key={`${a.systemKey}-${a.currency}`} className="rounded-md border border-hairline bg-surface-2 p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[0.6875rem] uppercase tracking-wide text-text-lo">{humanize(a.account)}</span>
+                  <span className="text-[0.6875rem] uppercase tracking-wide text-text-lo">{humanize(a.systemKey)}</span>
                   <span className="text-[0.625rem] text-text-lo">{a.currency}</span>
                 </div>
                 <div className="mt-1.5">
                   <Money valueMinor={a.balanceMinor} currency={a.currency} size="md" />
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  {a.ok ? (
+                    <CheckCircle2 className="h-3 w-3 text-success" />
+                  ) : (
+                    <XCircle className="h-3 w-3 text-danger" />
+                  )}
+                  <span className="text-[0.625rem] text-text-lo">expect {a.expectedSign.replace(/_/g, " ")}</span>
                 </div>
               </div>
             ))}
@@ -171,18 +188,18 @@ export default function LedgerHealthPage(): ReactElement {
         {tx ? (
           <div className="flex flex-col gap-3 rounded-md border border-hairline bg-surface-2 p-4">
             <div className="flex flex-wrap items-center gap-2">
-              <StatusPill status={tx.type} />
-              <StatusPill status={tx.status} />
-              <span className="font-mono text-xs text-text-lo">{tx.id}</span>
-              <span className="ml-auto text-xs text-text-lo">{formatDateTime(tx.createdAt)}</span>
+              <StatusPill status={tx.transaction.type} />
+              <StatusPill status={tx.transaction.status} />
+              <span className="font-mono text-xs text-text-lo">{tx.transaction.id}</span>
+              <span className="ml-auto text-xs text-text-lo">{formatDateTime(tx.transaction.createdAt)}</span>
             </div>
-            {tx.memo ? <p className="text-sm text-text-mid">{tx.memo}</p> : null}
+            {tx.transaction.memo ? <p className="text-sm text-text-mid">{tx.transaction.memo}</p> : null}
             <ul className="flex flex-col divide-y divide-hairline rounded-md border border-hairline">
-              {tx.legs.map((leg, i) => (
-                <li key={i} className="flex items-center justify-between gap-3 px-3 py-2">
+              {tx.legs.map((leg) => (
+                <li key={leg.id} className="flex items-center justify-between gap-3 px-3 py-2">
                   <div className="flex items-center gap-2">
                     <Badge intent={leg.direction === "DEBIT" ? "warning" : "info"}>{leg.direction}</Badge>
-                    <span className="text-sm text-text-hi">{leg.accountLabel}</span>
+                    <span className="text-sm text-text-hi">{accountLabel(leg.account)}</span>
                   </div>
                   <Money valueMinor={leg.amountMinor} currency={leg.currency} size="sm" />
                 </li>

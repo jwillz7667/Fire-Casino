@@ -39,6 +39,19 @@ function toIso(date: string): string | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
+/** Turn the synchronous CSV body into a client-side file download. */
+function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function ReportsPage(): ReactElement {
   const principal = usePrincipal();
   const toast = useToast();
@@ -81,10 +94,12 @@ export default function ReportsPage(): ReactElement {
     mutationFn: () => {
       const parsed = exportReportSchema.safeParse({ type: tab, format: "csv", from: toIso(from), to: toIso(to) });
       if (!parsed.success) throw new Error("Invalid export parameters");
-      return api.post<{ jobId?: string }>("/reports/export", parsed.data);
+      // The API returns the CSV body synchronously ({ filename, csv }) — not a job.
+      return api.post<{ filename: string; csv: string }>("/reports/export", parsed.data);
     },
-    onSuccess: () => {
-      toast.push({ title: "Export queued", description: "Your CSV will be available shortly.", intent: "success" });
+    onSuccess: ({ filename, csv }) => {
+      downloadCsv(filename, csv);
+      toast.push({ title: "Export ready", description: `Downloaded ${filename}.`, intent: "success" });
     },
     onError: (err) => {
       toast.push({ title: "Export failed", description: errorMessage(err), intent: "danger" });
@@ -131,7 +146,7 @@ export default function ReportsPage(): ReactElement {
           creditFlow.isLoading ? (
             <Skeleton className="h-56 w-full" />
           ) : creditFlow.data ? (
-            <CreditFlowChart points={creditFlow.data.points} />
+            <CreditFlowChart points={creditFlow.data.buckets} />
           ) : (
             <EmptyState title="No data" description="Adjust the date range or export to CSV." />
           )
