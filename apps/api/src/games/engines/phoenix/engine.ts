@@ -126,7 +126,7 @@ function pickOrbValue(rng: Rng): number {
 }
 
 /** Evaluate one spin's raw wins (pre sticky multiplier) and collect orbs. */
-function evaluateSpin(grid: Grid, multiplier: number): SpinResult {
+export function evaluateSpin(grid: Grid, multiplier: number): SpinResult {
   const wins = waysWins(grid);
   const waysBps = wins.reduce((sum, w) => sum + w.payBps, 0);
   const scatterCount = countSymbol(grid, "SCATTER");

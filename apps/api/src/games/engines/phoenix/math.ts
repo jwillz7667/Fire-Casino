@@ -29,18 +29,27 @@ export const BASE_WEIGHTS: Record<SymbolId, number> = {
   ORB: 0,
 };
 
-/** Free-spins draw weights: richer in high symbols, ORB present, rarer scatter. */
+/**
+ * Free-spins draw weights. Invariant (asserted in engine.test.ts): a free spin must
+ * WIN MORE OFTEN and pay more per spin than a base spin — the bonus is unconditionally
+ * better than regular play. In a 243-ways game the non-paying ORB collectible eats
+ * ways-forming cells, so naively "richer in premiums" weights actually *lower* the hit
+ * rate below base. Instead the distribution is deliberately filler-dominant (heavy
+ * TEAL/VIOLET) so 3+-of-a-kind lands constantly; the ORB-driven sticky multiplier then
+ * carries the win SIZE. Measured: free hit ≈ 38% vs base ≈ 34.6%, free mean (pre
+ * multiplier) ≈ +50% vs base. Re-measure with _winrate-probe.ts after any change.
+ */
 export const FREE_SPIN_WEIGHTS: Record<SymbolId, number> = {
-  CREST: 6,
-  TALON: 8,
-  EGG: 10,
-  FEATHER: 12,
-  GOLD: 13,
-  EMBER: 14,
-  TEAL: 15,
-  VIOLET: 16,
+  CREST: 4,
+  TALON: 6,
+  EGG: 8,
+  FEATHER: 10,
+  GOLD: 14,
+  EMBER: 18,
+  TEAL: 26,
+  VIOLET: 32,
   SCATTER: 4,
-  ORB: 10,
+  ORB: 7,
 };
 
 /** Pay per single way for k-of-a-kind from reel 1, in bps of total bet. */
@@ -92,7 +101,7 @@ export const MAX_ORB_MULTIPLIER = 100;
  * RTP; this scales every payout to land on the certified target. CALIBRATED by
  * engine.simulation.test.ts — see that test for the measured RTP this yields.
  */
-export const PAYOUT_SCALAR_BPS = 8143;
+export const PAYOUT_SCALAR_BPS = 5648;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;
