@@ -1,0 +1,36 @@
+; Plinko — portrait web "originals" client (server-authoritative; renders only the outcome
+; delivered by the host page over the JS bridge). GL Compatibility so it runs on WebGL2
+; everywhere. Self-contained: all art ships in this repo. The ball drops through a 12-row
+; peg field into one of 13 buckets along the path the server decided; the bucket multipliers
+; are drawn in code over the bucket art (the faces ship blank).
+
+config_version=5
+
+[application]
+
+config/name="Plinko"
+config/version="1.0.0"
+run/main_scene="res://slot/main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://art/ui/ball.png"
+boot_splash/show_image=false
+
+[display]
+
+window/size/viewport_width=1080
+window/size/viewport_height=1920
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=1
+
+[debug]
+
+gdscript/warnings/enable=false
+gdscript/warnings/treat_warnings_as_errors=false
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/canvas_textures/default_texture_filter=1
+environment/defaults/default_clear_color=Color(0.02, 0.02, 0.05, 1)
