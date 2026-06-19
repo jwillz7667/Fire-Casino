@@ -30,6 +30,7 @@ var bucket_y := 940.0
 var _pegs: Array[Vector2] = []
 var _buckets: Array = []     # [{spr:Sprite2D, lbl:Label}]
 var ball: Sprite2D
+var _ball_base := Vector2.ONE  # ball's resting scale (squash/stretch animates around it)
 var _sparks: Array = []      # [{pos:Vector2, t:float}]
 var _seg_a := Vector2.ZERO
 var _seg_b := Vector2.ZERO
@@ -74,6 +75,7 @@ func _relayout() -> void:
 	peg_draw = clamp(dx * 0.32, 8.0, 24.0)
 	if ball_tex and ball_tex.get_width() > 0:
 		ball.scale = Vector2.ONE * (dx * 0.52 / ball_tex.get_width())
+	_ball_base = ball.scale
 	_pegs.clear()
 	for i in range(1, ROWS + 1):
 		for j in range(i + 1):
@@ -159,19 +161,32 @@ func drop_ball(path: Array, bucket: int) -> void:
 	pts.append(Vector2(_bucket_x(bucket), bucket_y - bucket_h * 0.12)); hit.append(null)
 
 	ball.position = pts[0]
+	ball.scale = _ball_base
 	ball.visible = true
 	ball.modulate = Color(1, 1, 1, 1)
 	for idx in range(1, pts.size()):
 		var last := idx == pts.size() - 1
-		await _hop(pts[idx - 1], pts[idx], 0.32 if last else 0.19)
+		await _hop(pts[idx - 1], pts[idx], 0.34 if last else 0.2)
 		if hit[idx] != null:
 			_sparks.append({"pos": hit[idx], "t": 1.0})
+	ball.scale = _ball_base
 
+## Drives BOTH position (a tall hop) and squash/stretch from one parameter so there's a
+## single source of truth for ball.scale: it STRETCHES tall as it falls and SQUASHES wide
+## the instant it slaps a peg (impact at p→1, recovering through p→0 of the next hop).
 func _set_ball_arc(p: float) -> void:
 	var x := lerpf(_seg_a.x, _seg_b.x, p)
 	var y := lerpf(_seg_a.y, _seg_b.y, p)
-	y += -sin(p * PI) * dy * 0.45   # clear hop so each step reads as a bounce off the peg
+	var s := sin(p * PI)               # 0 at the two peg contacts, 1 at the apex
+	y += -s * dy * 0.62                 # a tall hop so each step clearly springs off the peg
 	ball.position = Vector2(x, y)
+	var impact := pow(maxf(0.0, 1.0 - absf(p - 1.0) / 0.25), 2.0)  # ramps up into the peg
+	var recover := pow(maxf(0.0, 1.0 - p / 0.25), 2.0)            # eases out after the last hit
+	var sq := maxf(impact, recover)
+	ball.scale = Vector2(
+		_ball_base.x * (1.0 - 0.14 * s + 0.55 * sq),
+		_ball_base.y * (1.0 + 0.18 * s - 0.5 * sq),
+	)
 
 func _hop(a: Vector2, b: Vector2, dur: float) -> void:
 	_seg_a = a
