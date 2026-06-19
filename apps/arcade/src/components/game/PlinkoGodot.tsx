@@ -20,7 +20,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * version prefix per rebuild).
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/plinko/v3/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/plinko/v4/index.html";
 export const PLINKO_GAME_URL = process.env.NEXT_PUBLIC_PLINKO_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = PLINKO_GAME_URL;

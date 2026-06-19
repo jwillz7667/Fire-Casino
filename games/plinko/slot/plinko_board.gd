@@ -32,8 +32,15 @@ var _buckets: Array = []     # [{spr:Sprite2D, lbl:Label}]
 var ball: Sprite2D
 var _ball_base := Vector2.ONE  # ball's resting scale (squash/stretch animates around it)
 var _sparks: Array = []      # [{pos:Vector2, t:float}]
-var _seg_a := Vector2.ZERO
-var _seg_b := Vector2.ZERO
+# Per-hop ballistic state: y(p) = _seg_ay + _seg_c1·p + _seg_c2·p² (a gravity parabola),
+# x linear from _seg_ax→_seg_bx. _seg_spin0/_seg_spin1 roll the ball across the hop.
+var _seg_ax := 0.0
+var _seg_bx := 0.0
+var _seg_ay := 0.0
+var _seg_c1 := 0.0
+var _seg_c2 := 0.0
+var _seg_spin0 := 0.0
+var _seg_spin1 := 0.0
 
 func _ready() -> void:
 	ball = Sprite2D.new()
@@ -162,38 +169,70 @@ func drop_ball(path: Array, bucket: int) -> void:
 
 	ball.position = pts[0]
 	ball.scale = _ball_base
+	ball.rotation = 0.0
 	ball.visible = true
 	ball.modulate = Color(1, 1, 1, 1)
+	var spin := 0.0
 	for idx in range(1, pts.size()):
+		var first := idx == 1
 		var last := idx == pts.size() - 1
-		await _hop(pts[idx - 1], pts[idx], 0.34 if last else 0.2)
+		var a: Vector2 = pts[idx - 1]
+		var b: Vector2 = pts[idx]
+		# Rebound height the ball pops UP off this peg before gravity pulls it to the next.
+		# First hop is the entry fall (no pop); middle hops bounce hard; last drops into the cup.
+		var pop := 0.0 if first else (dy * 0.16 if last else dy * 0.5)
+		var dur := 0.30 if last else (0.24 if first else 0.26)
+		# Roll the ball the way it's travelling — a little extra english sells the bounce.
+		var spin_next: float = spin + signf(b.x - a.x) * 0.9 + 0.25
+		await _bounce(a, b, pop, dur, spin, spin_next)
+		spin = spin_next
 		if hit[idx] != null:
 			_sparks.append({"pos": hit[idx], "t": 1.0})
+	# settle bounce inside the cup
+	var rest_pos := pts[pts.size() - 1]
+	await _bounce(rest_pos, rest_pos + Vector2(0, bucket_h * 0.16), dy * 0.18, 0.22, spin, spin + 0.4)
+	await _bounce(rest_pos + Vector2(0, bucket_h * 0.16), rest_pos, dy * 0.06, 0.16, spin + 0.4, spin + 0.5)
 	ball.scale = _ball_base
 
-## Drives BOTH position (a tall hop) and squash/stretch from one parameter so there's a
-## single source of truth for ball.scale: it STRETCHES tall as it falls and SQUASHES wide
-## the instant it slaps a peg (impact at p→1, recovering through p→0 of the next hop).
-func _set_ball_arc(p: float) -> void:
-	var x := lerpf(_seg_a.x, _seg_b.x, p)
-	var y := lerpf(_seg_a.y, _seg_b.y, p)
-	var s := sin(p * PI)               # 0 at the two peg contacts, 1 at the apex
-	y += -s * dy * 0.62                 # a tall hop so each step clearly springs off the peg
-	ball.position = Vector2(x, y)
-	var impact := pow(maxf(0.0, 1.0 - absf(p - 1.0) / 0.25), 2.0)  # ramps up into the peg
-	var recover := pow(maxf(0.0, 1.0 - p / 0.25), 2.0)            # eases out after the last hit
-	var sq := maxf(impact, recover)
-	ball.scale = Vector2(
-		_ball_base.x * (1.0 - 0.14 * s + 0.55 * sq),
-		_ball_base.y * (1.0 + 0.18 * s - 0.5 * sq),
-	)
-
-func _hop(a: Vector2, b: Vector2, dur: float) -> void:
-	_seg_a = a
-	_seg_b = b
-	var t := create_tween().set_trans(Tween.TRANS_SINE)
-	t.tween_method(_set_ball_arc, 0.0, 1.0, dur)
+## One ballistic hop: y is a GRAVITY parabola (pops `pop` above `a`, then accelerates down
+## to `b`), x is linear, the ball rolls from spin0→spin1. Driving position + spin + squash
+## from the single parameter `p` keeps one source of truth for the transform (no tween war).
+func _bounce(a: Vector2, b: Vector2, pop: float, dur: float, spin0: float, spin1: float) -> void:
+	var d := b.y - a.y
+	# Solve y(p)=ay+c1·p+c2·p² s.t. y(0)=ay, y(1)=b.y, and the vertex sits `pop` above a
+	# (c1<0 = launched upward, c2>0 = gravity). u = √pop + √(pop+max(d,0)).
+	var u := sqrt(pop) + sqrt(pop + maxf(d, 0.0))
+	_seg_c2 = u * u
+	_seg_c1 = -2.0 * sqrt(pop) * u if pop > 0.0 else d   # pop==0 → straight accelerating fall
+	if pop <= 0.0:
+		_seg_c2 = 0.0
+		_seg_c1 = d
+	_seg_ay = a.y
+	_seg_ax = a.x
+	_seg_bx = b.x
+	_seg_spin0 = spin0
+	_seg_spin1 = spin1
+	var t := create_tween().set_trans(Tween.TRANS_LINEAR)
+	t.tween_method(_set_ballistic, 0.0, 1.0, dur)
 	await t.finished
+
+func _set_ballistic(p: float) -> void:
+	var x := lerpf(_seg_ax, _seg_bx, p)
+	var y := _seg_ay + _seg_c1 * p + _seg_c2 * p * p
+	ball.position = Vector2(x, y)
+	ball.rotation = lerpf(_seg_spin0, _seg_spin1, p)
+	# Stretch along the fall from vertical SPEED (fast = elongated), squash hard right at the
+	# two peg contacts (p→0 leaving, p→1 landing) — that contact-squash IS the bounce pop.
+	var vy: float = _seg_c1 + 2.0 * _seg_c2 * p
+	var stretch: float = clampf(absf(vy) / (dy * 2.2), 0.0, 1.0)
+	var contact: float = maxf(
+		pow(maxf(0.0, 1.0 - p / 0.16), 2.0),
+		pow(maxf(0.0, 1.0 - absf(p - 1.0) / 0.16), 2.0),
+	)
+	ball.scale = Vector2(
+		_ball_base.x * (1.0 - 0.12 * stretch + 0.5 * contact),
+		_ball_base.y * (1.0 + 0.16 * stretch - 0.45 * contact),
+	)
 
 func hide_ball() -> void:
 	ball.visible = false
