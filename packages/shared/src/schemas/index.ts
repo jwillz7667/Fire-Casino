@@ -7,6 +7,7 @@ export * from "./games";
 export * from "./operators";
 export * from "./orders";
 export * from "./phoenix";
+export * from "./plinko";
 export * from "./players";
 export * from "./realtime";
 export * from "./redemptions";

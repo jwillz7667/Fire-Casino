@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { COSMIC_ENGINE, CosmicSpinsProvider } from "../engines/cosmic/cosmic.provider";
 import { DRAGON_ENGINE, DragonHoardProvider } from "../engines/dragon/dragon.provider";
 import { PHOENIX_ENGINE, PhoenixAscendantProvider } from "../engines/phoenix/phoenix.provider";
+import { PLINKO_ENGINE, PlinkoProvider } from "../engines/plinko/plinko.provider";
 import { ROYAL_ENGINE, RoyalAscendantProvider } from "../engines/royal/royal.provider";
 import { WHEEL_ENGINE, FortuneWheelProvider } from "../engines/wheel/wheel.provider";
 import { PlaceholderRgsProvider } from "./placeholder.provider";
@@ -24,6 +25,7 @@ export class CompositeGameProvider implements GameProvider {
     dragon: DragonHoardProvider,
     wheel: FortuneWheelProvider,
     cosmic: CosmicSpinsProvider,
+    plinko: PlinkoProvider,
   ) {
     this.engines = {
       [PHOENIX_ENGINE]: phoenix,
@@ -31,6 +33,7 @@ export class CompositeGameProvider implements GameProvider {
       [DRAGON_ENGINE]: dragon,
       [WHEEL_ENGINE]: wheel,
       [COSMIC_ENGINE]: cosmic,
+      [PLINKO_ENGINE]: plinko,
     };
   }
 

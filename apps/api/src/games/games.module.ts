@@ -5,6 +5,7 @@ import { GamesService } from "./games.service";
 import { CosmicSpinsProvider } from "./engines/cosmic/cosmic.provider";
 import { DragonHoardProvider } from "./engines/dragon/dragon.provider";
 import { PhoenixAscendantProvider } from "./engines/phoenix/phoenix.provider";
+import { PlinkoProvider } from "./engines/plinko/plinko.provider";
 import { RoyalAscendantProvider } from "./engines/royal/royal.provider";
 import { FortuneWheelProvider } from "./engines/wheel/wheel.provider";
 import { CompositeGameProvider } from "./rgs/composite.provider";
@@ -26,6 +27,7 @@ import { GAME_PROVIDER } from "./rgs/provider";
     DragonHoardProvider,
     FortuneWheelProvider,
     CosmicSpinsProvider,
+    PlinkoProvider,
     { provide: GAME_PROVIDER, useClass: CompositeGameProvider },
   ],
   exports: [GamesService],

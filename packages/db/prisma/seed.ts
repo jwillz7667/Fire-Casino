@@ -308,6 +308,23 @@ async function seedGames(): Promise<void> {
       config: { engine: "cosmic-slots", renderer: "cosmic-slots" },
       status: GameStatus.ACTIVE,
     },
+    {
+      // Second "originals" game: a provably-fair 12-row Plinko drop into 13 buckets with
+      // selectable risk (LOW/MEDIUM/HIGH). config.engine routes rounds to
+      // apps/api .../engines/plinko; each risk curve's binomial-weighted mean is 0.96
+      // (96% RTP, measured in engines/plinko/simulate.ts). Godot client on R2 via PlinkoGodot.
+      code: "plinko",
+      name: "Plinko",
+      type: "OTHER",
+      rtpBps: 9600,
+      minBetMinor: 1000n,
+      maxBetMinor: 2_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
+      sortOrder: 3,
+      thumbnailUrl: "/games/plinko/thumb.png",
+      config: { engine: "plinko", renderer: "plinko" },
+      status: GameStatus.ACTIVE,
+    },
     // The placeholder catalog games (reef-rumble / golden-depths / lumen-keno) were
     // removed — only real, server-authoritative games ship. Any existing rows are set
     // to HIDDEN by migration 20260617150000_hide_placeholder_games.
