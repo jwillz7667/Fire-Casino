@@ -141,36 +141,44 @@ func _fmt_mult(m: float) -> String:
 ## Animate the ball through the path (Array of 0/1, top row first) into `bucket`.
 ## Awaitable — the caller awaits the full drop before presenting the win.
 func drop_ball(path: Array, bucket: int) -> void:
-	var pts: Array[Vector2] = []
-	pts.append(Vector2(cx, top_y - dy * 0.8))
+	# Rest the ball tangent ON TOP of each peg it bounces off (never overlapping the peg
+	# centre) and hop between peg-tops, so it reads as a real Plinko bounce.
+	var ball_r := dx * 0.26
+	if ball_tex and ball_tex.get_width() > 0:
+		ball_r = ball_tex.get_width() * ball.scale.x * 0.5
+	var rest := peg_draw + ball_r
+	var pts: Array[Vector2] = []   # ball rest points (above the pegs)
+	var hit: Array = []            # peg centre bounced on at each point (null = start/bucket)
+	pts.append(Vector2(cx, top_y - dy * 0.9)); hit.append(null)
 	var c := 0
 	for i in range(1, ROWS + 1):
 		if i - 1 < path.size():
 			c += int(path[i - 1])
-		pts.append(Vector2(cx + (float(c) - i * 0.5) * dx, top_y + i * dy))
-	pts.append(Vector2(_bucket_x(bucket), bucket_y - bucket_h * 0.12))
+		var pc := Vector2(cx + (float(c) - i * 0.5) * dx, top_y + i * dy)
+		pts.append(pc - Vector2(0.0, rest)); hit.append(pc)
+	pts.append(Vector2(_bucket_x(bucket), bucket_y - bucket_h * 0.12)); hit.append(null)
 
 	ball.position = pts[0]
 	ball.visible = true
 	ball.modulate = Color(1, 1, 1, 1)
 	for idx in range(1, pts.size()):
 		var last := idx == pts.size() - 1
-		await _hop(pts[idx - 1], pts[idx], 0.18 if last else 0.12, not last)
+		await _hop(pts[idx - 1], pts[idx], 0.32 if last else 0.19)
+		if hit[idx] != null:
+			_sparks.append({"pos": hit[idx], "t": 1.0})
 
 func _set_ball_arc(p: float) -> void:
 	var x := lerpf(_seg_a.x, _seg_b.x, p)
 	var y := lerpf(_seg_a.y, _seg_b.y, p)
-	y += -sin(p * PI) * dy * 0.34
+	y += -sin(p * PI) * dy * 0.45   # clear hop so each step reads as a bounce off the peg
 	ball.position = Vector2(x, y)
 
-func _hop(a: Vector2, b: Vector2, dur: float, peg: bool) -> void:
+func _hop(a: Vector2, b: Vector2, dur: float) -> void:
 	_seg_a = a
 	_seg_b = b
 	var t := create_tween().set_trans(Tween.TRANS_SINE)
 	t.tween_method(_set_ball_arc, 0.0, 1.0, dur)
 	await t.finished
-	if peg:
-		_sparks.append({"pos": b, "t": 1.0})
 
 func hide_ball() -> void:
 	ball.visible = false

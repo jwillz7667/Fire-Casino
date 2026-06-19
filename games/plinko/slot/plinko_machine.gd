@@ -557,8 +557,12 @@ func _run_shots() -> void:
 	await get_tree().create_timer(0.8).timeout
 	await _save_shot(dir + "/01_idle.png")
 	request_drop()
-	await get_tree().create_timer(3.2).timeout
-	await _save_shot(dir + "/02_drop.png")
+	await get_tree().create_timer(1.2).timeout
+	await _save_shot(dir + "/02_mid.png")
+	await get_tree().create_timer(1.4).timeout
+	await _save_shot(dir + "/03_mid2.png")
+	await get_tree().create_timer(2.0).timeout
+	await _save_shot(dir + "/04_landed.png")
 	get_tree().quit()
 
 func _save_shot(path: String) -> void:
