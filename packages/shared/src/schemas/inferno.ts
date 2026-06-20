@@ -18,6 +18,15 @@ export const INFERNO_REELS = 5;
 export const INFERNO_ROWS = 4;
 export const INFERNO_CELLS = INFERNO_REELS * INFERNO_ROWS; // 20
 
+/**
+ * When the hold-and-spin triggers, the board TRANSFORMS taller — it grows from the 4-row
+ * base grid to a 6-row bonus board (30 spots), revealing two extra rows of empty spaces for
+ * the flaming balls to drop into. The trigger fireballs keep their base (reel,row) in the
+ * top 4 rows; the GRAND is awarded only by filling all 30 spots.
+ */
+export const INFERNO_BONUS_ROWS = 6;
+export const INFERNO_BONUS_CELLS = INFERNO_REELS * INFERNO_BONUS_ROWS; // 30
+
 /** Fireballs required on the base grid to trigger the hold-and-spin. */
 export const INFERNO_TRIGGER = 6;
 /** Respins granted, and re-granted whenever a new fireball locks. */
@@ -43,7 +52,7 @@ export type InfernoFireTier = "CREDIT" | InfernoJackpotTier;
 
 export interface InfernoFire {
   reel: number; // 0..4
-  row: number; // 0..3
+  row: number; // 0..5 on the bonus board (0..3 are the base-grid rows)
   valueBps: number; // value in bps of total bet (exact, paid verbatim)
   tier: InfernoFireTier;
 }
@@ -63,7 +72,7 @@ export interface InfernoHoldSpin {
   rounds: { newLocks: InfernoFire[] }[];
   /** Every locked fireball at the end (initial + all rounds). */
   locked: InfernoFire[];
-  filledAll: boolean; // all 20 cells locked → GRAND
+  filledAll: boolean; // all 30 bonus spots locked → GRAND
   bonusBps: number; // sum of all fireball values + GRAND (verbatim, unscaled)
 }
 

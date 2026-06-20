@@ -15,6 +15,17 @@ extends Node2D
 const DESIGN := Vector2(1080, 1920)
 const REELS := 5
 const ROWS := 4
+# Cut-window opening as fractions of the frame art (printed by tools/prep-assets.py).
+const WIN_L := 0.0966
+const WIN_T := 0.1378
+const WIN_R := 0.9030
+const WIN_B := 0.8635
+# Same, for the tall bonus frame (5×6 hold-and-spin board).
+const BWIN_L := 0.1715
+const BWIN_T := 0.1215
+const BWIN_R := 0.8271
+const BWIN_B := 0.8756
+const BONUS_ROWS := 6
 const GOLD := Color(0.97, 0.8, 0.36)
 const EMBER := Color(1.0, 0.5, 0.12)
 
@@ -39,6 +50,11 @@ const JACKPOTS := [
 var view := DESIGN
 var portrait := true
 var frame_rect := Rect2()
+# base (5×4) + bonus (5×6) layout rects, computed in _apply_layout
+var base_win := Rect2()
+var base_frame := Rect2()
+var bonus_win := Rect2()
+var bonus_frame := Rect2()
 
 var bg_layer: CanvasLayer
 var cur_bg: TextureRect
@@ -95,7 +111,7 @@ func _ready() -> void:
 	_build_bg()
 	board = load("res://slot/inferno_board.gd").new()
 	add_child(board)
-	board.configure(textures.get("reel_frame", null), sym_tex, title_font)
+	board.configure(textures.get("reel_frame", null), textures.get("bonus_frame", null), sym_tex, title_font)
 	fx_layer = Node2D.new(); fx_layer.z_index = 60; add_child(fx_layer)
 	_build_hud()
 	_apply_layout()
@@ -122,7 +138,7 @@ func _on_resize() -> void:
 
 # ----------------------------------------------------------------- assets
 func _load_textures() -> void:
-	for name in ["reel_frame", "title_logo", "btn_action", "btn_minus", "btn_plus",
+	for name in ["reel_frame", "bonus_frame", "title_logo", "btn_action", "btn_minus", "btn_plus",
 			"btn_sound", "btn_info", "btn_menu", "readout_pill"]:
 		var p := "res://art/ui/%s.png" % name
 		if ResourceLoader.exists(p): textures[name] = load(p)
@@ -336,12 +352,27 @@ func _apply_layout() -> void:
 	var fx := (W - fw) * 0.5
 	var fy := H * 0.27
 	frame_rect = Rect2(fx, fy, fw, fh)
-	# the dark window inside the ornate border (measured fractions of the frame).
-	var inset_x := fw * 0.085
-	var inset_y := fh * 0.105
-	var win_pos := Vector2(fx + inset_x, fy + inset_y)
-	var win_size := Vector2(fw - inset_x * 2.0, fh - inset_y * 2.0)
-	board.layout(win_pos, win_size, Vector2(fx, fy), Vector2(fw, fh))
+	# The cut window opening, measured from the frame art by prep-assets.py (l,t,r,b fractions),
+	# so the reel grid lines up exactly inside the ornate border.
+	base_frame = Rect2(fx, fy, fw, fh)
+	base_win = Rect2(fx + WIN_L * fw, fy + WIN_T * fh, (WIN_R - WIN_L) * fw, (WIN_B - WIN_T) * fh)
+
+	# Bonus board: the TALL portrait frame — sits below the jackpot pills, above the control
+	# deck, and is clearly taller than the base frame ("transform into a taller board").
+	var btex = textures.get("bonus_frame", null)
+	var basp := (float(btex.get_height()) / float(btex.get_width())) if btex else 1.45
+	var bfh: float = min(H * 0.585, (W * 0.94) * basp)
+	var bfw := bfh / basp
+	var bfx := (W - bfw) * 0.5
+	var bfy := H * 0.235
+	bonus_frame = Rect2(bfx, bfy, bfw, bfh)
+	bonus_win = Rect2(bfx + BWIN_L * bfw, bfy + BWIN_T * bfh, (BWIN_R - BWIN_L) * bfw, (BWIN_B - BWIN_T) * bfh)
+
+	# (re)apply whichever board mode is active so a resize mid-feature stays correct
+	if board.active_rows == ROWS:
+		board.layout(ROWS, base_win.position, base_win.size, base_frame.position, base_frame.size, textures.get("reel_frame", null))
+	else:
+		board.layout(board.active_rows, bonus_win.position, bonus_win.size, bonus_frame.position, bonus_frame.size, textures.get("bonus_frame", null))
 
 	if title_logo and title_logo.texture:
 		var lw: float = min(W * 0.7, 620.0)
@@ -486,10 +517,15 @@ func _resolve(outcome: Dictionary) -> void:
 		await get_tree().create_timer(0.35).timeout
 
 	var hs = outcome.get("holdSpin", null)
-	if typeof(hs) == TYPE_DICTIONARY:
+	var in_bonus := typeof(hs) == TYPE_DICTIONARY
+	if in_bonus:
 		await _run_hold_spin(hs)
 
 	await _present_total(int(outcome.get("totalWinBps", 0)))
+	if in_bonus:
+		await get_tree().create_timer(0.4).timeout
+		_duck_music(false)
+		await _exit_bonus()   # transform back to the base reels after the total is shown
 	_update_hud()
 	busy = false
 	spin_btn.disabled = false
@@ -503,41 +539,75 @@ func _line_cells(line: int, count: int) -> Array:
 	return out
 
 func _fire_label(f: Dictionary) -> String:
+	# Show the actual CREDIT value (multiplier × bet), so the balls grow with the bet size.
 	var tier := str(f.get("tier", "CREDIT"))
+	var credits := float(f.get("valueBps", 0)) / 10000.0 * float(bet_minor) / 1000.0
 	if tier == "CREDIT":
-		return "%d" % int(round(float(f.get("valueBps", 0)) / 10000.0))
-	return tier
+		return _fmt_compact(credits)
+	return tier  # MINI / MINOR / MAJOR — the tier's credit value is shown in the HUD pills
 
 func _run_hold_spin(hs: Dictionary) -> void:
 	_flash("FIRE LINK!")
 	play("holdspin_enter"); _duck_music(true)
-	board.dim_unlocked(true)
+	_show_banner("HOLD & SPIN")
+	# TRANSFORM: the reels grow into the taller 5×6 bonus board (more spots to fill).
+	await _enter_bonus()
 	lbl_respin.visible = true
-	lbl_respin.text = "HOLD & SPIN"
-	await get_tree().create_timer(0.4).timeout
-	# the trigger fireballs RAIN DOWN and lock (the Fire Link feel)
+	var spins := 3
+	_set_spins(spins)
+	# the trigger fireballs RAIN DOWN and lock into the bonus board
 	for f in hs.get("initial", []):
 		play("fireball_land")
 		await board.drop_fireball(int(f.reel), int(f.row), _fire_label(f), str(f.get("tier")) != "CREDIT")
-	# respin rounds — each new flaming ball drops in
+	await get_tree().create_timer(0.25).timeout
+	# respin rounds — 3 chances; every ball that drops into a space RECHARGES to 3,
+	# the feature ends after 3 consecutive spins with no new ball.
 	for round_data in hs.get("rounds", []):
-		board.blank_unlocked()
+		var locks = round_data.get("newLocks", [])
+		if locks.is_empty():
+			spins -= 1
+			_set_spins(spins)
 		play("holdspin_respin")
 		await get_tree().create_timer(0.3).timeout
-		var locks = round_data.get("newLocks", [])
 		for f in locks:
 			play("fireball_land")
 			await board.drop_fireball(int(f.reel), int(f.row), _fire_label(f), str(f.get("tier")) != "CREDIT")
 		if not locks.is_empty():
-			lbl_respin.text = "RESPINS RESET"
-			await get_tree().create_timer(0.15).timeout
+			spins = 3
+			_set_spins(spins, true)
+			await get_tree().create_timer(0.2).timeout
 	lbl_respin.visible = false
 	if bool(hs.get("filledAll", false)):
 		play("grand_jackpot")
 		_show_banner("GRAND JACKPOT")
-		await get_tree().create_timer(1.0).timeout
-	_duck_music(false)
-	board.dim_unlocked(false)
+		await get_tree().create_timer(1.2).timeout
+
+func _set_spins(n: int, recharged := false) -> void:
+	lbl_respin.text = ("RECHARGED!  SPINS  %d" % n) if recharged else ("SPINS LEFT  %d" % max(n, 0))
+
+func _enter_bonus() -> void:
+	# spins counter sits just below the taller bonus board, clear of the control deck
+	lbl_respin.position = Vector2(0, bonus_frame.position.y + bonus_frame.size.y - view.y * 0.005)
+	lbl_respin.size = Vector2(view.x, 40)
+	lbl_respin.add_theme_font_size_override("font_size", int(view.x * 0.04))
+	var t1 := create_tween()
+	t1.tween_property(board, "modulate:a", 0.0, 0.14)
+	await t1.finished
+	board.layout(BONUS_ROWS, bonus_win.position, bonus_win.size, bonus_frame.position, bonus_frame.size, textures.get("bonus_frame", null))
+	board.clear_all()
+	var t2 := create_tween()
+	t2.tween_property(board, "modulate:a", 1.0, 0.22)
+	await t2.finished
+
+func _exit_bonus() -> void:
+	var t1 := create_tween()
+	t1.tween_property(board, "modulate:a", 0.0, 0.14)
+	await t1.finished
+	board.layout(ROWS, base_win.position, base_win.size, base_frame.position, base_frame.size, textures.get("reel_frame", null))
+	board.show_idle()
+	var t2 := create_tween()
+	t2.tween_property(board, "modulate:a", 1.0, 0.22)
+	await t2.finished
 
 func _present_total(total_bps: int) -> void:
 	if total_bps <= 0:
@@ -647,21 +717,36 @@ func _count_fb(grid: Array) -> int:
 
 func _mock_hold_spin(grid: Array) -> Dictionary:
 	var vals := [10000, 20000, 30000, 50000, 100000, 200000]
+	var occupied := {}
 	var initial := []
 	for reel in range(REELS):
 		for row in range(ROWS):
 			if grid[reel][row] == "FIREBALL":
 				initial.append({"reel": reel, "row": row, "valueBps": vals[randi() % vals.size()], "tier": "CREDIT"})
+				occupied[reel * BONUS_ROWS + row] = true
 	var rounds := []
 	var bonus := 0
 	for f in initial: bonus += int(f.valueBps)
-	for i in range(2):
+	# respin rounds drop balls anywhere on the taller 5×6 board (rows 0..5)
+	var dry := 0
+	while dry < 3:
 		var nl := []
-		if randi() % 2 == 0:
-			nl.append({"reel": randi() % REELS, "row": randi() % ROWS, "valueBps": 50000, "tier": "MINI" if randi() % 4 == 0 else "CREDIT"})
-			bonus += 50000
+		var drops := randi() % 3  # 0..2 new balls this spin
+		for d in range(drops):
+			var reel := randi() % REELS
+			var row := randi() % BONUS_ROWS
+			var idx := reel * BONUS_ROWS + row
+			if occupied.has(idx): continue
+			occupied[idx] = true
+			var jp: bool = randi() % 5 == 0
+			nl.append({"reel": reel, "row": row, "valueBps": (200000 if jp else vals[randi() % vals.size()]), "tier": ("MINI" if jp else "CREDIT")})
+			bonus += int(nl[nl.size() - 1].valueBps)
 		rounds.append({"newLocks": nl})
-	return {"triggered": true, "initial": initial, "rounds": rounds, "locked": initial, "filledAll": false, "bonusBps": bonus}
+		if nl.is_empty(): dry += 1
+		else: dry = 0
+	var locked := initial.duplicate()
+	for r in rounds: locked.append_array(r.newLocks)
+	return {"triggered": true, "initial": initial, "rounds": rounds, "locked": locked, "filledAll": false, "bonusBps": bonus}
 
 # ----------------------------------------------------- offline screenshot hook
 func _run_shots() -> void:
@@ -671,8 +756,11 @@ func _run_shots() -> void:
 	request_spin()
 	await get_tree().create_timer(0.45).timeout
 	await _save_shot(dir + "/02_drop.png")
-	await get_tree().create_timer(2.6).timeout
-	await _save_shot(dir + "/03_done.png")
+	# capture the transformed taller bonus board mid-feature
+	await get_tree().create_timer(2.0).timeout
+	await _save_shot(dir + "/03_bonus.png")
+	await get_tree().create_timer(2.5).timeout
+	await _save_shot(dir + "/04_bonus2.png")
 	get_tree().quit()
 
 func _save_shot(path: String) -> void:

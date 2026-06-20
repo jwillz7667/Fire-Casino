@@ -3,6 +3,8 @@ import {
   type InfernoHoldSpin,
   type InfernoLineWin,
   type InfernoOutcome,
+  INFERNO_BONUS_ROWS,
+  INFERNO_REELS,
   INFERNO_RESPINS,
   INFERNO_TRIGGER,
 } from "@aureus/shared";
@@ -91,21 +93,25 @@ function drawFireValue(rng: Rng): { valueBps: number; tier: InfernoFire["tier"] 
 }
 
 /**
- * Run the lock-and-respin feature. The trigger fireballs lock first (each drawing a value),
- * then empty cells respin: each empty cell lands a fireball with RESPIN_FIREBALL_PROB and,
- * if it does, locks with a drawn value and re-grants the respins. Ends at 0 respins or a
- * full 20-cell board (GRAND). Deterministic in `rng`: draws happen in a fixed order
- * (initial values reel-major, then per round reel-major) so the same seed replays exactly.
+ * Run the lock-and-respin feature on the TALLER bonus board (5×6 = 30 spots). The trigger
+ * fireballs lock first at their base (reel,row) in the top 4 rows; the board reveals two
+ * extra rows below. Then empty spots respin: each lands a fireball with RESPIN_FIREBALL_PROB
+ * and, if it does, locks with a drawn value and RE-GRANTS the 3 respins. Ends at 0 respins
+ * (i.e. 3 consecutive spins with no new ball) or a full 30-spot board (GRAND). Deterministic
+ * in `rng`: draws happen in a fixed order (initial values reel-major, then per round
+ * reel-major over the 30 cells) so the same seed replays exactly.
  */
 function runHoldSpin(rng: Rng, grid: Grid): InfernoHoldSpin {
-  const locked = new Set<number>(); // cell index = reel * ROWS + row
+  const cols = INFERNO_REELS;
+  const rows = INFERNO_BONUS_ROWS;
+  const locked = new Set<number>(); // cell index = reel * BONUS_ROWS + row
   const fires = new Map<number, InfernoFire>();
   const initial: InfernoFire[] = [];
 
-  for (let reel = 0; reel < REELS; reel++) {
+  for (let reel = 0; reel < cols; reel++) {
     for (let row = 0; row < ROWS; row++) {
       if (grid[reel]![row] !== FIREBALL) continue;
-      const idx = reel * ROWS + row;
+      const idx = reel * rows + row;
       const v = drawFireValue(rng);
       const fire: InfernoFire = { reel, row, valueBps: v.valueBps, tier: v.tier };
       locked.add(idx);
@@ -116,14 +122,14 @@ function runHoldSpin(rng: Rng, grid: Grid): InfernoHoldSpin {
 
   const rounds: { newLocks: InfernoFire[] }[] = [];
   let respins = INFERNO_RESPINS;
-  const totalCells = REELS * ROWS;
+  const totalCells = cols * rows;
 
   while (respins > 0 && locked.size < totalCells) {
     respins -= 1;
     const newLocks: InfernoFire[] = [];
-    for (let reel = 0; reel < REELS; reel++) {
-      for (let row = 0; row < ROWS; row++) {
-        const idx = reel * ROWS + row;
+    for (let reel = 0; reel < cols; reel++) {
+      for (let row = 0; row < rows; row++) {
+        const idx = reel * rows + row;
         if (locked.has(idx)) continue;
         if (rng() < RESPIN_FIREBALL_PROB) {
           const v = drawFireValue(rng);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  INFERNO_CELLS,
+  INFERNO_BONUS_CELLS,
+  INFERNO_BONUS_ROWS,
   INFERNO_REELS,
   INFERNO_ROWS,
   INFERNO_TRIGGER,
@@ -72,18 +73,23 @@ describe("Inferno Link — engine", () => {
         // initial locks == base fireballs; every locked cell is unique and in-bounds.
         expect(outcome.holdSpin.initial.length).toBe(outcome.baseFireballCount);
         const cells = new Set<number>();
+        // initial trigger fireballs sit in the base rows (0..3); respin balls fill the
+        // taller 6-row bonus board.
+        for (const f of outcome.holdSpin.initial) {
+          expect(f.row).toBeLessThan(INFERNO_ROWS);
+        }
         for (const f of outcome.holdSpin.locked) {
           expect(f.reel).toBeGreaterThanOrEqual(0);
           expect(f.reel).toBeLessThan(INFERNO_REELS);
           expect(f.row).toBeGreaterThanOrEqual(0);
-          expect(f.row).toBeLessThan(INFERNO_ROWS);
-          cells.add(f.reel * INFERNO_ROWS + f.row);
+          expect(f.row).toBeLessThan(INFERNO_BONUS_ROWS);
+          cells.add(f.reel * INFERNO_BONUS_ROWS + f.row);
         }
         expect(cells.size).toBe(outcome.holdSpin.locked.length);
-        expect(outcome.holdSpin.locked.length).toBeLessThanOrEqual(INFERNO_CELLS);
+        expect(outcome.holdSpin.locked.length).toBeLessThanOrEqual(INFERNO_BONUS_CELLS);
         if (outcome.holdSpin.filledAll) {
           sawFill = true;
-          expect(outcome.holdSpin.locked.length).toBe(INFERNO_CELLS);
+          expect(outcome.holdSpin.locked.length).toBe(INFERNO_BONUS_CELLS);
         }
       } else {
         expect(outcome.baseFireballCount).toBeLessThan(INFERNO_TRIGGER);

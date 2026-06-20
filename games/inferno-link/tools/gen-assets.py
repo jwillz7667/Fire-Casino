@@ -53,6 +53,13 @@ ASSETS = [
      "is clearly WIDER THAN TALL (about 5:4) — no symbols, no grid lines, no text, just the "
      "gold frame around a plain dark panel. Drawn straight-on, centered, on a solid white "
      "background."),
+    ("bonus_frame", "3:4", "scene",
+     "an ornate TALL PORTRAIT GOLD slot-machine frame for a 5-column by 6-row hold-and-spin "
+     "bonus grid: thick molten-gold filigree border blazing with orange-and-crimson flames "
+     "and ember gems at the corners, surrounding a single EMPTY dark near-black glossy "
+     "rectangular window that is clearly TALLER THAN WIDE (about 5:6) — no symbols, no grid "
+     "lines, no text, just the gold frame around a plain dark panel. Drawn straight-on, "
+     "centered, on a solid white background."),
     # paying symbols (single, blank-faced where text would go)
     ("gem_green", "1:1", "white", "a single brilliant emerald-green faceted gemstone, glossy, sparkling, premium slot low symbol."),
     ("gem_blue", "1:1", "white", "a single brilliant sapphire-blue faceted gemstone, glossy, sparkling, premium slot low symbol."),

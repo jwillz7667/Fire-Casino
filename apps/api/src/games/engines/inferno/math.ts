@@ -94,7 +94,7 @@ export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
  * During a respin, each EMPTY cell independently lands a FIREBALL with this probability
  * (else blank). Tuned so the feature adds a few fireballs and full-screen fills stay rare.
  */
-export const RESPIN_FIREBALL_PROB = 0.092;
+export const RESPIN_FIREBALL_PROB = 0.066;
 
 /**
  * The value a landed FIREBALL carries, in bps of total bet, by weight. Most are small
@@ -131,7 +131,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * `lineRtp(scalar) + featureRtp`. CALIBRATED by simulate.ts — run it after any table
  * change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 24_082;
+export const PAYOUT_SCALAR_BPS = 23_500;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

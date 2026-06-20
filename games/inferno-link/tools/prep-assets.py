@@ -87,6 +87,59 @@ def _save(img: Image.Image, rel: str, **kw) -> None:
 
 SYMBOLS = ["gem_green", "gem_blue", "gem_purple", "gem_red", "bell", "coin", "seven", "wild", "fireball"]
 
+SENT_OUT = (255, 0, 255)   # outer (white bg) sentinel
+SENT_IN = (0, 255, 255)    # inner (dark window) sentinel
+
+
+def _cut_frame(rgb: Image.Image):
+    """Return (frame_with_transparent_center, window_fractions). The white background AND the
+    dark inner window are both keyed to transparency, leaving only the ornate gold border —
+    so a reel layer placed BEHIND the frame shows through the hole and symbols read as
+    emerging from behind the border. window_fractions = (l, t, r, b) of the cut hole as
+    fractions of the trimmed frame, for pixel-accurate grid alignment in Godot."""
+    work = rgb.convert("RGB").copy()
+    w, h = work.size
+    step = max(8, min(w, h) // 28)
+    for x in range(0, w, step):
+        for y in (0, h - 1):
+            px = work.getpixel((x, y))
+            if px[0] > 205 and px[1] > 205 and px[2] > 205:
+                ImageDraw.floodfill(work, (x, y), SENT_OUT, thresh=45)
+    for y in range(0, h, step):
+        for x in (0, w - 1):
+            px = work.getpixel((x, y))
+            if px[0] > 205 and px[1] > 205 and px[2] > 205:
+                ImageDraw.floodfill(work, (x, y), SENT_OUT, thresh=45)
+    # cut the dark inner window — flood-fill from several interior points so disconnected
+    # dark sub-regions (e.g. the glossy top reflection band) all clear, stopping at the
+    # bright gold border. Only seed on genuinely dark pixels so the gold is never eaten.
+    for fx in (0.5, 0.3, 0.7):
+        for fy in (0.5, 0.25, 0.4, 0.6, 0.75):
+            sx, sy = int(w * fx), int(h * fy)
+            px = work.getpixel((sx, sy))
+            if px in (SENT_OUT, SENT_IN):
+                continue
+            if px[0] < 95 and px[1] < 95 and px[2] < 95:
+                ImageDraw.floodfill(work, (sx, sy), SENT_IN, thresh=78)
+
+    arr = np.asarray(work)
+    outer = np.all(arr == np.array(SENT_OUT), axis=-1)
+    inner = np.all(arr == np.array(SENT_IN), axis=-1)
+    alpha = np.where(outer | inner, 0, 255).astype(np.uint8)
+
+    rgba = rgb.convert("RGBA")
+    a = Image.fromarray(alpha, "L").filter(ImageFilter.GaussianBlur(0.8))
+    rgba.putalpha(a)
+
+    # trim to the gold border's outer bbox, then express the hole as fractions of that.
+    bbox = rgba.split()[-1].getbbox()
+    rgba = rgba.crop(bbox)
+    ys, xs = np.where(inner)
+    hole = (xs.min() - bbox[0], ys.min() - bbox[1], xs.max() - bbox[0], ys.max() - bbox[1])
+    fw, fh = rgba.size
+    fracs = (hole[0] / fw, hole[1] / fh, hole[2] / fw, hole[3] / fh)
+    return rgba, fracs
+
 
 def main() -> None:
     for sub in ("bg", "ui", "symbols"):
@@ -96,9 +149,17 @@ def main() -> None:
     bg = Image.open(os.path.join(RAW, "bg_inferno.png")).convert("RGB")
     _save(_fit_w(bg, 1080).convert("RGB"), "bg/bg_inferno.jpg", quality=88)
 
-    # reel frame: keyed on white, kept large (drawn behind the grid)
-    frame = _trim(_key_white_edges(Image.open(os.path.join(RAW, "reel_frame.png")), thresh=45))
+    # reel frame: cut the center to transparency so a reel layer shows through behind it.
+    frame, fracs = _cut_frame(Image.open(os.path.join(RAW, "reel_frame.png")))
     _save(_fit_w(frame, 980), "ui/reel_frame.png")
+    print(f"  >>> reel_frame window fractions (l,t,r,b): "
+          f"{fracs[0]:.4f}, {fracs[1]:.4f}, {fracs[2]:.4f}, {fracs[3]:.4f}")
+
+    # tall bonus frame (5×6 hold-and-spin board): same cutout treatment
+    bframe, bfracs = _cut_frame(Image.open(os.path.join(RAW, "bonus_frame.png")))
+    _save(_fit_w(bframe, 820), "ui/bonus_frame.png")
+    print(f"  >>> bonus_frame window fractions (l,t,r,b): "
+          f"{bfracs[0]:.4f}, {bfracs[1]:.4f}, {bfracs[2]:.4f}, {bfracs[3]:.4f}")
 
     # symbols: keyed + boxed to a common 256 cell (flames need a softer key, no erode)
     for name in SYMBOLS:
