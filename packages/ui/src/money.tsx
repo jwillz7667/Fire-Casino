@@ -1,5 +1,5 @@
 import { type ReactElement } from "react";
-import { type Currency, fromMinor } from "@aureus/shared";
+import { type Currency, usdFromMinor } from "@aureus/shared";
 import { cn } from "./cn";
 
 /**
@@ -71,7 +71,7 @@ export function Money({
 }: MoneyProps): ReactElement {
   const minor = parseMinor(valueMinor);
   const negative = minor < 0n;
-  const text = fromMinor(negative ? -minor : minor);
+  const text = usdFromMinor(negative ? -minor : minor); // "$1,234.56" (abs; sign added below)
   const resolvedTone = tone ?? toneForCurrency(currency);
 
   const colour = signed

@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactElement, useMemo } from "react";
-import { fromMinor } from "@aureus/shared";
+import { usdFromMinor } from "@aureus/shared";
 import { EmptyState } from "@aureus/ui";
 import type { CreditFlowPoint } from "@/lib/types";
 import { formatDate } from "@/lib/format";
@@ -59,7 +59,7 @@ export function CreditFlowChart({ points }: { points?: CreditFlowPoint[] }): Rea
                     key={s.key}
                     className="w-1.5 rounded-t-sm"
                     style={{ height: `${barHeight}px`, background: s.color }}
-                    title={`${s.label}: ${fromMinor(value)}`}
+                    title={`${s.label}: ${usdFromMinor(value)}`}
                   />
                 );
               })}

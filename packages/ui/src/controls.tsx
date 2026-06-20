@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 import { Search } from "lucide-react";
-import { type Currency, fromMinor, MoneyError, toMinor } from "@aureus/shared";
+import { type Currency, fromMinor, MoneyError, toMinor, usdFromMinor } from "@aureus/shared";
 import { CoinMark } from "./money";
 import { cn } from "./cn";
 
@@ -287,9 +287,9 @@ export function MoneyInput({
         return;
       }
       if (minMinor !== undefined && minor < minMinor) {
-        setError(`Minimum ${fromMinor(minMinor)}`);
+        setError(`Minimum ${usdFromMinor(minMinor)}`);
       } else if (maxMinor !== undefined && minor > maxMinor) {
-        setError(`Maximum ${fromMinor(maxMinor)}`);
+        setError(`Maximum ${usdFromMinor(maxMinor)}`);
       } else {
         setError(undefined);
       }

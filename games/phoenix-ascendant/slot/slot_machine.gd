@@ -43,9 +43,9 @@ var banner: TextureRect
 
 # session state (from bridge)
 var balance_minor := 0
-var bet_minor := 100000        # 100 credits default
-var min_bet := 1000
-var max_bet := 2000000
+var bet_minor := 1000        # 100 credits default
+var min_bet := 50
+var max_bet := 10000
 var currency := "CREDIT"
 var busy := false
 var bridge = null              # window.PhoenixGodot (web) or null
@@ -459,7 +459,7 @@ func _texture_button(path: String, pos: Vector2, scale: float) -> TextureButton:
 	b.position = pos
 	return b
 
-var BET_STEPS := [1000, 5000, 10000, 50000, 100000, 250000, 500000, 1000000]
+var BET_STEPS := [50, 100, 250, 500, 1000, 2000, 5000, 10000]  # $0.05 .. $10.00
 
 func _change_bet(dir: int) -> void:
 	audio.play("button_tap")

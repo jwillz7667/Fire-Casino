@@ -95,6 +95,24 @@ export function fromMinor(minorUnits: bigint): string {
   return negative ? `-${out}` : out;
 }
 
+/**
+ * Format BigInt minor units as a US-dollar string, "$1,234.56" (1 credit = $1.00). Minor
+ * units carry 3 dp; this rounds half-up to 2 dp (cents) and groups thousands. This is the
+ * player- and operator-facing money format across the platform (rendered by the shared
+ * Money component). `fromMinor`/`toMinor` stay full-precision for input round-trips.
+ */
+export function usdFromMinor(minorUnits: bigint): string {
+  const negative = minorUnits < 0n;
+  const abs = negative ? -minorUnits : minorUnits;
+  // minor is 3 dp (10 minor = 1 cent); round half-up to whole cents.
+  const cents = (abs + 5n) / 10n;
+  const whole = (cents / 100n).toString();
+  const frac = (cents % 100n).toString().padStart(2, "0");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const body = `$${grouped}.${frac}`;
+  return negative ? `-${body}` : body;
+}
+
 /** Apply a basis-point rate (e.g. RTP, fees). 9400 bps = 94.00%. Floor division. */
 export function bps(amountMinor: bigint, basisPoints: number): bigint {
   if (!Number.isInteger(basisPoints)) {

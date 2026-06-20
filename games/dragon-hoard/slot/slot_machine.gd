@@ -120,9 +120,9 @@ var _ambience: AudioStreamPlayer
 
 # session (from bridge)
 var balance_minor := 0
-var bet_minor := 100000
-var min_bet := 1000
-var max_bet := 2000000
+var bet_minor := 1000
+var min_bet := 50
+var max_bet := 10000
 var currency := "CREDIT"
 var busy := false
 var bridge = null
@@ -134,7 +134,7 @@ var _bal_timer: Timer          # re-polls the bridge so a late wallet load / mid
 var _autospin := false
 var _autospin_left := 0
 
-var BET_STEPS := [1000, 5000, 10000, 50000, 100000, 250000, 500000, 1000000]
+var BET_STEPS := [50, 100, 250, 500, 1000, 2000, 5000, 10000]  # $0.05 .. $10.00
 
 func _ready() -> void:
 	randomize()
@@ -991,8 +991,7 @@ func _change_bet(dir: int) -> void:
 	_update_hud()
 
 func _fmt(c: float) -> String:
-	if c == floor(c): return "%d" % int(c)
-	return "%.2f" % c
+	return "$%.2f" % c
 
 func _update_hud() -> void:
 	lbl_balance.text = "Balance  %s" % _fmt(float(balance_minor) / 1000.0)
