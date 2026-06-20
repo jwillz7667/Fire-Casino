@@ -5,3 +5,6 @@
 build/
 
 # art/*.import IS committed so CI/headless builds need no re-import.
+
+# Raw generated audio (mp3) — large + regenerable; only audio/cues/ ships.
+audio/raw/

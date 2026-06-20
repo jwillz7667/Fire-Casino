@@ -50,6 +50,9 @@ var hud: CanvasLayer
 var title_font: Font
 var textures := {}
 var sym_tex := {}
+var _audio := {}
+var _music: AudioStreamPlayer
+var _spin_loop: AudioStreamPlayer
 
 # HUD
 var title_logo: TextureRect
@@ -87,6 +90,7 @@ func _ready() -> void:
 	view = get_viewport().get_visible_rect().size
 	_load_textures()
 	_load_fonts()
+	_load_audio()
 	bg_layer = CanvasLayer.new(); bg_layer.layer = -10; add_child(bg_layer)
 	_build_bg()
 	board = load("res://slot/inferno_board.gd").new()
@@ -97,6 +101,7 @@ func _ready() -> void:
 	_apply_layout()
 	board.show_idle()
 	_connect_bridge()
+	_start_music()
 	get_viewport().size_changed.connect(_on_resize)
 	if OS.get_environment("IL_SHOT") != "":
 		_run_shots()
@@ -142,6 +147,56 @@ func _load_fonts() -> void:
 	for p in ["res://fonts/CinzelDecorative-Bold.ttf", "res://fonts/CinzelDecorative-Black.ttf"]:
 		if ResourceLoader.exists(p):
 			title_font = load(p); return
+
+# ----------------------------------------------------------------- audio
+func _cue_stream(name: String) -> AudioStream:
+	for ext in [".ogg", ".wav"]:
+		var p := "res://audio/cues/%s%s" % [name, ext]
+		if ResourceLoader.exists(p):
+			return load(p)
+	return null
+
+func _load_audio() -> void:
+	for name in [
+		"spin_press", "spin_start", "reel_land", "reel_land_b", "reel_land_c",
+		"win_small", "win_medium", "win_big", "bigwin_fanfare", "megawin_fanfare",
+		"fireball_land", "holdspin_enter", "holdspin_respin", "grand_jackpot",
+		"coin_tick", "coin_shower", "button_tap", "bet_change", "error_blip",
+	]:
+		var st := _cue_stream(name)
+		if st == null: continue
+		var pl := AudioStreamPlayer.new(); pl.stream = st; add_child(pl); _audio[name] = pl
+	_spin_loop = _make_loop("spin_loop", -12.0)
+	_music = _make_loop("music_base_loop", -11.0)
+
+func _make_loop(name: String, db: float) -> AudioStreamPlayer:
+	var st := _cue_stream(name)
+	if st == null: return null
+	if st is AudioStreamOggVorbis: st.loop = true
+	elif st is AudioStreamWAV: st.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	var pl := AudioStreamPlayer.new(); pl.stream = st; pl.volume_db = db; add_child(pl)
+	return pl
+
+func play(name: String) -> void:
+	var pl = _audio.get(name, null)
+	if pl: pl.play()
+
+func _start_music() -> void:
+	if _music: _music.play()
+
+func _duck_music(on: bool) -> void:
+	if _music: _music.volume_db = -18.0 if on else -11.0
+
+func _spin_whir(on: bool) -> void:
+	if _spin_loop == null: return
+	var t := create_tween()
+	if on:
+		_spin_loop.volume_db = -28.0
+		if not _spin_loop.playing: _spin_loop.play()
+		t.tween_property(_spin_loop, "volume_db", -12.0, 0.18)
+	else:
+		t.tween_property(_spin_loop, "volume_db", -34.0, 0.3)
+		t.tween_callback(_spin_loop.stop)
 
 # ----------------------------------------------------------------- background
 func _build_bg() -> void:
@@ -250,8 +305,8 @@ func _build_hud() -> void:
 	bet_plus_btn = _tex_btn("btn_plus"); bet_plus_btn.pressed.connect(func(): _change_bet(1)); hud.add_child(bet_plus_btn)
 	spin_btn = _tex_btn("btn_action"); spin_btn.pressed.connect(func(): request_spin()); hud.add_child(spin_btn)
 	sound_btn = _tex_btn("btn_sound"); sound_btn.pressed.connect(_toggle_sound); hud.add_child(sound_btn)
-	info_btn = _tex_btn("btn_info"); hud.add_child(info_btn)
-	menu_btn = _tex_btn("btn_menu"); hud.add_child(menu_btn)
+	info_btn = _tex_btn("btn_info"); info_btn.pressed.connect(func(): play("button_tap")); hud.add_child(info_btn)
+	menu_btn = _tex_btn("btn_menu"); menu_btn.pressed.connect(func(): play("button_tap")); hud.add_child(menu_btn)
 
 	_update_hud()
 	_update_jackpots()
@@ -340,6 +395,7 @@ func _apply_layout() -> void:
 
 func _change_bet(dir: int) -> void:
 	if busy: return
+	play("bet_change")
 	var idx := BET_STEPS.find(bet_minor)
 	if idx == -1: idx = 4
 	idx = clamp(idx + dir, 0, BET_STEPS.size() - 1)
@@ -386,6 +442,7 @@ func request_spin() -> void:
 	lbl_win.text = ""
 	_flash("")
 	board.dim_unlocked(false)
+	play("spin_press"); play("spin_start"); _spin_whir(true)
 	if bridge != null:
 		_bet_cb = JavaScriptBridge.create_callback(_on_bridge_result)
 		bridge.placeBet(bet_minor, JSON.stringify({}), _bet_cb)
@@ -405,6 +462,8 @@ func _on_bridge_result(args: Array) -> void:
 	_resolve(data.get("outcome", {}))
 
 func _finish_idle() -> void:
+	_spin_whir(false)
+	play("error_blip")
 	busy = false
 	spin_btn.disabled = false
 
@@ -413,13 +472,17 @@ func _resolve(outcome: Dictionary) -> void:
 	if typeof(grid) != TYPE_ARRAY or grid.size() != REELS:
 		_flash("Bad outcome"); _finish_idle(); return
 	await board.spin_to(grid)
+	_spin_whir(false)
+	play("reel_land")
 
 	# line wins
-	for w in outcome.get("lineWins", []):
+	var line_list = outcome.get("lineWins", [])
+	for w in line_list:
 		var line := int(w.get("line", 0))
 		var count := int(w.get("count", 0))
 		board.flash_line(_line_cells(line, count), GOLD)
-	if not outcome.get("lineWins", []).is_empty():
+	if not line_list.is_empty():
+		play("win_small")
 		await get_tree().create_timer(0.35).timeout
 
 	var hs = outcome.get("holdSpin", null)
@@ -447,28 +510,33 @@ func _fire_label(f: Dictionary) -> String:
 
 func _run_hold_spin(hs: Dictionary) -> void:
 	_flash("FIRE LINK!")
+	play("holdspin_enter"); _duck_music(true)
 	board.dim_unlocked(true)
 	lbl_respin.visible = true
 	lbl_respin.text = "HOLD & SPIN"
-	# lock the initial trigger fireballs
+	await get_tree().create_timer(0.4).timeout
+	# the trigger fireballs RAIN DOWN and lock (the Fire Link feel)
 	for f in hs.get("initial", []):
-		board.set_fireball(int(f.reel), int(f.row), _fire_label(f), str(f.get("tier")) != "CREDIT")
-		await get_tree().create_timer(0.08).timeout
-	# respin rounds
+		play("fireball_land")
+		await board.drop_fireball(int(f.reel), int(f.row), _fire_label(f), str(f.get("tier")) != "CREDIT")
+	# respin rounds — each new flaming ball drops in
 	for round_data in hs.get("rounds", []):
 		board.blank_unlocked()
-		await get_tree().create_timer(0.28).timeout
+		play("holdspin_respin")
+		await get_tree().create_timer(0.3).timeout
 		var locks = round_data.get("newLocks", [])
 		for f in locks:
-			board.set_fireball(int(f.reel), int(f.row), _fire_label(f), str(f.get("tier")) != "CREDIT")
-			await get_tree().create_timer(0.1).timeout
+			play("fireball_land")
+			await board.drop_fireball(int(f.reel), int(f.row), _fire_label(f), str(f.get("tier")) != "CREDIT")
 		if not locks.is_empty():
 			lbl_respin.text = "RESPINS RESET"
 			await get_tree().create_timer(0.15).timeout
 	lbl_respin.visible = false
 	if bool(hs.get("filledAll", false)):
+		play("grand_jackpot")
 		_show_banner("GRAND JACKPOT")
-		await get_tree().create_timer(0.8).timeout
+		await get_tree().create_timer(1.0).timeout
+	_duck_music(false)
 	board.dim_unlocked(false)
 
 func _present_total(total_bps: int) -> void:
@@ -477,8 +545,14 @@ func _present_total(total_bps: int) -> void:
 		return
 	var credits := float(total_bps) / 10000.0 * float(bet_minor) / 1000.0
 	var mult := float(total_bps) / 10000.0
-	if mult >= 20.0:
-		_show_banner("MEGA WIN" if mult >= 100.0 else "BIG WIN")
+	if mult >= 100.0:
+		play("megawin_fanfare"); play("coin_shower"); _show_banner("MEGA WIN")
+	elif mult >= 20.0:
+		play("bigwin_fanfare"); play("coin_shower"); _show_banner("BIG WIN")
+	elif mult >= 5.0:
+		play("win_big")
+	else:
+		play("win_medium")
 	var t := create_tween()
 	for i in range(1, 19):
 		var v := credits * float(i) / 18.0

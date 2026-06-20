@@ -21,8 +21,8 @@ var gap := 8.0
 
 var frame_spr: Sprite2D
 var clip: Control            # clip_contents window so symbols are masked while they drop in
-var cells := []              # cells[reel][row] = {root:Node2D, spr:Sprite2D, lbl:Label, locked:bool}
-var _glow := []              # transient win/lock glows [{rect, t, color}]
+var fx                       # inferno_fx.gd — clipped ember/flame glows
+var cells := []              # cells[reel][row] = {root:Node2D, spr:Sprite2D, lbl:Label, slot, locked}
 
 func _ready() -> void:
 	set_process(true)
@@ -41,6 +41,10 @@ func configure(frame: Texture2D, symbols: Dictionary, f: Font) -> void:
 		clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		clip.z_index = 4            # above the frame's dark window (frame z=2)
 		add_child(clip)
+	if fx == null:
+		fx = load("res://slot/inferno_fx.gd").new()
+		fx.z_index = 1              # above the slot panels (z=0), below the symbols (z=2)
+		clip.add_child(fx)
 	_ensure_cells()
 
 func _ensure_cells() -> void:
@@ -49,7 +53,18 @@ func _ensure_cells() -> void:
 	for reel in range(REELS):
 		var col := []
 		for row in range(ROWS):
-			var root := Node2D.new(); clip.add_child(root)
+			# static dark slot the symbol sits in (a visible reel cell), behind the symbol
+			var slot := Panel.new()
+			slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			slot.z_index = 0
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Color(0.05, 0.03, 0.04, 0.55)
+			sb.set_corner_radius_all(14)
+			sb.set_border_width_all(2)
+			sb.border_color = Color(0.55, 0.32, 0.12, 0.45)
+			slot.add_theme_stylebox_override("panel", sb)
+			clip.add_child(slot)
+			var root := Node2D.new(); root.z_index = 2; clip.add_child(root)
 			var spr := Sprite2D.new(); spr.centered = true; root.add_child(spr)
 			var lbl := Label.new()
 			lbl.z_index = 6
@@ -60,7 +75,7 @@ func _ensure_cells() -> void:
 			lbl.add_theme_color_override("font_outline_color", Color(0.2, 0.02, 0.0, 0.95))
 			lbl.add_theme_constant_override("outline_size", 6)
 			root.add_child(lbl)
-			col.append({"root": root, "spr": spr, "lbl": lbl, "locked": false})
+			col.append({"root": root, "spr": spr, "lbl": lbl, "slot": slot, "locked": false})
 		cells.append(col)
 
 ## Place the frame + grid for the given window rect (top-left origin + size). Uses a single
@@ -82,7 +97,10 @@ func layout(window_pos: Vector2, window_size: Vector2, frame_pos: Vector2, frame
 	for reel in range(REELS):
 		for row in range(ROWS):
 			var c = cells[reel][row]
-			c.root.position = _cell_local(reel, row)
+			var center := _cell_local(reel, row)
+			c.root.position = center
+			c.slot.size = cell * 0.98
+			c.slot.position = center - cell * 0.49
 			var fs := int(clamp(cell.x * 0.26, 16.0, 40.0))
 			c.lbl.add_theme_font_size_override("font_size", fs)
 			c.lbl.size = cell
@@ -135,9 +153,8 @@ func spin_to(grid: Array) -> void:
 	for reel in range(REELS):
 		for row in range(ROWS):
 			var c = cells[reel][row]
-			_set_cell(reel, row, grid[reel][row], "")
-			c.spr.scale = Vector2.ONE
-			c.root.scale = Vector2.ONE
+			_set_cell(reel, row, grid[reel][row], "")  # _set_cell fits the sprite to the cell
+			c.root.scale = Vector2.ONE                  # root scale is the pop only — never the sprite
 			var final_local := _cell_local(reel, row)
 			c.root.position = Vector2(final_local.x, final_local.y - drop)
 			var delay := reel * 0.09 + row * 0.06
@@ -154,21 +171,47 @@ func _pop(reel: int, row: int) -> void:
 func flash_line(line_cells: Array, color: Color) -> void:
 	for rc in line_cells:
 		var c = cells[rc.x][rc.y]
-		_glow.append({"pos": _cell_center(rc.x, rc.y), "t": 1.0, "color": color})
+		if fx: fx.add(_cell_local(rc.x, rc.y), color, cell.x * 0.55)
 		var t := create_tween()
 		t.tween_property(c.root, "scale", Vector2(1.12, 1.12), 0.12)
 		t.tween_property(c.root, "scale", Vector2.ONE, 0.18)
 
-## Light up a fireball cell with its value/jackpot label (used as locks land).
+## A flaming ball DROPS in from the top of the frame and locks into its cell (the Fire Link
+## feel). The clip masks the travel above the grid; it lands with a bounce + ember bloom.
+## Awaitable so the machine can rain the balls down in sequence.
+func drop_fireball(reel: int, row: int, text: String, jackpot: bool) -> void:
+	var c = cells[reel][row]
+	c.locked = true
+	c.spr.texture = sym_tex.get("FIREBALL", null)
+	c.spr.modulate = Color(1, 1, 1, 1)
+	c.root.scale = Vector2.ONE
+	_fit_sprite(c.spr)
+	c.lbl.text = text
+	c.lbl.add_theme_color_override("font_color", GOLD if jackpot else Color(1, 0.97, 0.86))
+	var final_local := _cell_local(reel, row)
+	c.root.position = Vector2(final_local.x, final_local.y - cell.y * (ROWS + 1))  # above the window
+	# ember trail as it falls, brighter bloom on impact
+	if fx: fx.add(final_local, EMBER, cell.x * 0.45)
+	var t := create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)  # accelerate down
+	t.tween_property(c.root, "position", final_local, 0.34)
+	t.tween_callback(_impact_flash.bind(final_local))
+	t.tween_property(c.root, "scale", Vector2(1.22, 0.82), 0.06)  # squash
+	t.tween_property(c.root, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await t.finished
+
+func _impact_flash(pos: Vector2) -> void:
+	if fx: fx.add(pos, Color(1.0, 0.6, 0.2), cell.x * 0.8)
+
+## Light up a fireball cell instantly (the initial trigger locks, no drop animation).
 func set_fireball(reel: int, row: int, text: String, jackpot: bool) -> void:
 	var c = cells[reel][row]
 	c.locked = true
 	c.spr.texture = sym_tex.get("FIREBALL", null)
+	c.spr.modulate = Color(1, 1, 1, 1)
 	_fit_sprite(c.spr)
 	c.lbl.text = text
 	c.lbl.add_theme_color_override("font_color", GOLD if jackpot else Color(1, 0.97, 0.86))
-	# lock pop + ember glow
-	_glow.append({"pos": _cell_center(reel, row), "t": 1.0, "color": EMBER})
+	if fx: fx.add(_cell_local(reel, row), EMBER, cell.x * 0.6)
 	c.root.scale = Vector2(1.3, 1.3)
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	t.tween_property(c.root, "scale", Vector2.ONE, 0.25)
@@ -188,15 +231,3 @@ func blank_unlocked() -> void:
 			if not cells[reel][row].locked:
 				_set_cell(reel, row, "")
 				cells[reel][row].spr.modulate = Color(0.4, 0.4, 0.45, 1)
-
-func _process(delta: float) -> void:
-	if _glow.is_empty(): return
-	for g in _glow: g.t -= delta * 1.8
-	_glow = _glow.filter(func(g): return g.t > 0.0)
-	queue_redraw()
-
-func _draw() -> void:
-	for g in _glow:
-		var a: float = clampf(g.t, 0.0, 1.0)
-		var r: float = min(cell.x, cell.y) * (0.55 + (1.0 - a) * 0.25)
-		draw_circle(g.pos, r, Color(g.color.r, g.color.g, g.color.b, a * 0.33))
