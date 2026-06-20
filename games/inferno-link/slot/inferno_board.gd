@@ -7,8 +7,8 @@ extends Node2D
 
 const REELS := 5
 const ROWS_BASE := 4
-const ROWS_BONUS := 6
-const MAX_ROWS := 6
+const ROWS_BONUS := 8
+const MAX_ROWS := 8
 const GOLD := Color(0.97, 0.8, 0.36)
 const EMBER := Color(1.0, 0.55, 0.15)
 

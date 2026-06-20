@@ -25,7 +25,7 @@ const BWIN_L := 0.1715
 const BWIN_T := 0.1215
 const BWIN_R := 0.8271
 const BWIN_B := 0.8756
-const BONUS_ROWS := 6
+const BONUS_ROWS := 8
 const GOLD := Color(0.97, 0.8, 0.36)
 const EMBER := Color(1.0, 0.5, 0.12)
 
