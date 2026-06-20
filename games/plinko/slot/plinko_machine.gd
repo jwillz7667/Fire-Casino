@@ -328,13 +328,13 @@ func _layout_hud() -> void:
 	_place_lbl(banner, Vector2(0, H * 0.4), Vector2(W, 150)); banner.pivot_offset = Vector2(W * 0.5, 75)
 
 	# bottom control deck
-	var rdy := H * 0.86
+	var rdy := H * 0.835
 	_place_rect(bal_pill, Vector2(W * 0.29, rdy), Vector2(W * 0.42, 60))
 	_place_lbl(lbl_balance, Vector2(W * 0.08, rdy - 18), Vector2(W * 0.42, 40)); lbl_balance.add_theme_font_size_override("font_size", 28)
 	_place_rect(bet_pill, Vector2(W * 0.71, rdy), Vector2(W * 0.42, 60))
 	_place_lbl(lbl_bet, Vector2(W * 0.5, rdy - 18), Vector2(W * 0.42, 40)); lbl_bet.add_theme_font_size_override("font_size", 28)
 
-	var by := H * 0.93
+	var by := H * 0.905
 	_place_btn(drop_btn, Vector2(W * 0.5, by), Vector2(W * 0.24, W * 0.24))
 	_place_btn(bet_minus_btn, Vector2(W * 0.18, by), Vector2(W * 0.16, W * 0.16))
 	_place_btn(bet_plus_btn, Vector2(W * 0.82, by), Vector2(W * 0.16, W * 0.16))

@@ -410,13 +410,13 @@ func _apply_layout() -> void:
 	_place_lbl(lbl_win, Vector2(0, below + H * 0.034), Vector2(W, 54)); lbl_win.add_theme_font_size_override("font_size", 44)
 	_place_lbl(banner, Vector2(0, H * 0.42), Vector2(W, 150)); banner.pivot_offset = Vector2(W * 0.5, 75)
 
-	var rdy := H * 0.865
+	var rdy := H * 0.84
 	_place_rect(bal_pill, Vector2(W * 0.29, rdy), Vector2(W * 0.42, 58))
 	_place_lbl(lbl_balance, Vector2(W * 0.08, rdy - 17), Vector2(W * 0.42, 38)); lbl_balance.add_theme_font_size_override("font_size", 26)
 	_place_rect(bet_pill, Vector2(W * 0.71, rdy), Vector2(W * 0.42, 58))
 	_place_lbl(lbl_bet, Vector2(W * 0.5, rdy - 17), Vector2(W * 0.42, 38)); lbl_bet.add_theme_font_size_override("font_size", 26)
 
-	var by := H * 0.935
+	var by := H * 0.91
 	_place_btn(spin_btn, Vector2(W * 0.5, by), Vector2(W * 0.23, W * 0.23))
 	_place_btn(bet_minus_btn, Vector2(W * 0.18, by), Vector2(W * 0.155, W * 0.155))
 	_place_btn(bet_plus_btn, Vector2(W * 0.82, by), Vector2(W * 0.155, W * 0.155))

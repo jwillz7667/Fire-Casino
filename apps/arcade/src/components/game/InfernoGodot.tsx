@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { GameViewport } from "./GameViewport";
 import { useQueryClient } from "@tanstack/react-query";
 import { startSessionSchema, type Currency } from "@aureus/shared";
 import { api } from "@/lib/api";
@@ -20,7 +19,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * web/build.sh (bump the version prefix per rebuild).
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/inferno-link/v5/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/inferno-link/v6/index.html";
 export const INFERNO_GAME_URL = process.env.NEXT_PUBLIC_INFERNO_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = INFERNO_GAME_URL;
@@ -175,24 +174,5 @@ export function InfernoGodot({
     );
   }
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-black">
-      <iframe
-        ref={iframeRef}
-        src={GAME_URL}
-        onLoad={sendInit}
-        title="Inferno Link"
-        allow="autoplay; fullscreen"
-        className="h-full w-full border-0"
-      />
-      <Link
-        href="/"
-        aria-label="Back to lobby"
-        style={{ top: "calc(env(safe-area-inset-top) + 0.75rem)", left: "calc(env(safe-area-inset-left) + 0.75rem)" }}
-        className="absolute left-3 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm active:scale-95"
-      >
-        <ArrowLeft className="h-5 w-5" />
-      </Link>
-    </div>
-  );
+  return <GameViewport ref={iframeRef} src={GAME_URL} title="Inferno Link" onLoad={sendInit} />;
 }
