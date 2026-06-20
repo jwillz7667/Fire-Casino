@@ -112,11 +112,38 @@ COSMIC = [
     ("music_base_loop", "Seamless looping background music for a cosmic neon slot, soft mellow downtempo synthwave with warm analog pads and a gentle slow arp, deep space ambience, soothing and chill, warm and smooth, no harsh highs, no vocals, loopable", 12.0, True, 0.4),
 ]
 
+# Inferno Link: a fiery hold-and-spin slot. Molten/ember/lava timbres, a "fire link" feature
+# where flaming balls drop and lock. Triumphant brass + crackling fire. No vocals.
+INFERNO = [
+    ("spin_press", "Pressing a big glossy fiery casino spin button, a satisfying click with a warm ember whoosh, no music", 0.5, False, 0.6),
+    ("spin_start", "Start of a fiery slot spin, a rushing whoosh of flame with rapid ember crackle as reels drop, energetic and hot, no music, no vocals", 0.8, False, 0.55),
+    ("spin_loop", "Continuous loop of spinning fiery slot reels, a steady warm roar of flame with a low molten rumble and ember sizzle, seamless loop, no music, no vocals", 2.5, True, 0.5),
+    ("reel_land", "A slot reel of symbols dropping and slamming into place, a heavy molten thud with a short fiery whoosh and ember sizzle tail, weighty, no music", 0.5, False, 0.6),
+    ("reel_land_b", "A slot reel of symbols dropping and slamming into place, a heavy molten thud with a short fiery whoosh and ember sizzle tail, weighty, no music", 0.5, False, 0.6),
+    ("reel_land_c", "A slot reel of symbols dropping and slamming into place, a heavy molten thud with a short fiery whoosh and ember sizzle tail, weighty, no music", 0.5, False, 0.6),
+    ("win_small", "Pleasant short fiery win chime, bright warm bells with a soft ember sparkle, cheerful, no vocals", 1.2, False, 0.6),
+    ("win_medium", "Rewarding medium fire-slot win, an ascending warm bell arpeggio with a triumphant brass hit and ember crackle, festive and hot, no vocals", 1.8, False, 0.6),
+    ("win_big", "Big fire-slot win celebration, soaring triumphant brass fanfare with roaring flames, ringing bells and cascading gold coins, exciting blazing jackpot, no vocals", 3.0, False, 0.6),
+    ("bigwin_fanfare", "Triumphant fiery jackpot fanfare, huge bright brass and pounding drums with a roaring flame burst and cascading gold, grand blazing celebration, cinematic, no vocals", 4.0, False, 0.6),
+    ("megawin_fanfare", "Epic fire mega-jackpot, massive orchestral brass and thunderous drums with a colossal flame roar, a torrent of gold coins and cymbal crashes, overwhelming blazing triumph, no vocals", 5.0, False, 0.6),
+    ("fireball_land", "A glowing flaming ball dropping and locking onto a slot grid, a fiery whoosh into a warm molten thud with a bright ember pop, satisfying and hot, no music, no vocals", 0.7, False, 0.6),
+    ("holdspin_enter", "Triggering a fire-link hold-and-spin bonus, a rising whoosh of flames into a triumphant brass blast and a roaring fire burst, exciting fiery reveal, no vocals", 2.0, False, 0.6),
+    ("holdspin_respin", "Quick fiery respin tick for a hold-and-spin bonus, a short warm flame whoosh with an ember crackle, anticipatory, no music, no vocals", 0.6, False, 0.55),
+    ("grand_jackpot", "Massive grand jackpot win on a fire slot, an enormous roaring flame explosion with triumphant orchestral brass, ringing bells, sirens and a torrent of gold coins, overwhelming blazing celebration, no vocals", 5.0, False, 0.6),
+    ("coin_tick", "Single short gold coin counter tick, a tiny bright warm metallic clink, crisp, one-shot, no music", 0.5, False, 0.6),
+    ("coin_shower", "Cascade of gold coins pouring out of a fiery win, rich warm metallic jingling, abundant blazing payout, no music", 2.5, False, 0.6),
+    ("button_tap", "Soft fiery UI button click, a clean warm tap with a subtle ember crackle, crisp and short, no music", 0.5, False, 0.6),
+    ("bet_change", "Quick UI blip for changing a bet, a short warm coin tick with a soft ember ping, clean, no music", 0.5, False, 0.6),
+    ("error_blip", "Gentle error notification, a soft low descending two-note warm buzz, polite negative feedback, no music, no vocals", 0.5, False, 0.6),
+    ("music_base_loop", "Seamless looping background music for a blazing fire-themed casino slot, an energetic mid-tempo theme with bold brass stabs, driving tribal drums, warm low strings and crackling fiery intensity, exciting and hot, instrumental, no vocals, loopable", 22.0, True, 0.3),
+]
+
 GROUPS = {
     "dragon": (REPO / "games/dragon-hoard/audio", DRAGON),
     "wheel": (REPO / "games/fortune-wheel/audio", WHEEL),
     "lobby": (REPO / "apps/arcade/public/audio", LOBBY),
     "cosmic": (REPO / "games/cosmic-slots/audio", COSMIC),
+    "inferno": (REPO / "games/inferno-link/audio", INFERNO),
 }
 
 
