@@ -325,6 +325,24 @@ async function seedGames(): Promise<void> {
       config: { engine: "plinko", renderer: "plinko" },
       status: GameStatus.ACTIVE,
     },
+    {
+      // Fifth real engine + hold-and-spin SLOT: a 5×4, 25-line fire-themed "fire link"
+      // game. 6+ FIREBALL money symbols lock and trigger a lock-&-respin feature with four
+      // jackpot tiers (MINI/MINOR/MAJOR/GRAND); fireball values + jackpots pay verbatim,
+      // base lines are scalar-tuned. config.engine routes rounds to apps/api .../engines/
+      // inferno; measured RTP is 96.06% (engines/inferno/simulate.ts).
+      code: "inferno-link",
+      name: "Inferno Link",
+      type: "SLOT",
+      rtpBps: 9600,
+      minBetMinor: 1000n,
+      maxBetMinor: 2_000_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
+      sortOrder: 1,
+      thumbnailUrl: "/games/inferno-link/thumb.png",
+      config: { engine: "inferno-link", renderer: "inferno-link" },
+      status: GameStatus.ACTIVE,
+    },
     // The placeholder catalog games (reef-rumble / golden-depths / lumen-keno) were
     // removed — only real, server-authoritative games ship. Any existing rows are set
     // to HIDDEN by migration 20260617150000_hide_placeholder_games.
