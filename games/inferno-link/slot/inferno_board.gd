@@ -20,6 +20,7 @@ var cell := Vector2(180, 180)
 var gap := 8.0
 
 var frame_spr: Sprite2D
+var clip: Control            # clip_contents window so symbols are masked while they drop in
 var cells := []              # cells[reel][row] = {root:Node2D, spr:Sprite2D, lbl:Label, locked:bool}
 var _glow := []              # transient win/lock glows [{rect, t, color}]
 
@@ -34,6 +35,12 @@ func configure(frame: Texture2D, symbols: Dictionary, f: Font) -> void:
 		frame_spr = Sprite2D.new(); frame_spr.centered = false; frame_spr.z_index = 2
 		add_child(frame_spr)
 	frame_spr.texture = frame_tex
+	if clip == null:
+		clip = Control.new()
+		clip.clip_contents = true   # mask symbols to the window so they fall in from above
+		clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		clip.z_index = 4            # above the frame's dark window (frame z=2)
+		add_child(clip)
 	_ensure_cells()
 
 func _ensure_cells() -> void:
@@ -42,7 +49,7 @@ func _ensure_cells() -> void:
 	for reel in range(REELS):
 		var col := []
 		for row in range(ROWS):
-			var root := Node2D.new(); root.z_index = 4; add_child(root)
+			var root := Node2D.new(); clip.add_child(root)
 			var spr := Sprite2D.new(); spr.centered = true; root.add_child(spr)
 			var lbl := Label.new()
 			lbl.z_index = 6
@@ -65,6 +72,9 @@ func layout(window_pos: Vector2, window_size: Vector2, frame_pos: Vector2, frame
 	var grid_w := pitch * REELS + gap * (REELS - 1)
 	var grid_h := pitch * ROWS + gap * (ROWS - 1)
 	origin = window_pos + (window_size - Vector2(grid_w, grid_h)) * 0.5
+	if clip:
+		clip.position = window_pos
+		clip.size = window_size
 	if frame_spr and frame_spr.texture:
 		frame_spr.position = frame_pos
 		frame_spr.scale = Vector2(frame_size.x / frame_spr.texture.get_width(),
@@ -72,7 +82,7 @@ func layout(window_pos: Vector2, window_size: Vector2, frame_pos: Vector2, frame
 	for reel in range(REELS):
 		for row in range(ROWS):
 			var c = cells[reel][row]
-			c.root.position = _cell_center(reel, row)
+			c.root.position = _cell_local(reel, row)
 			var fs := int(clamp(cell.x * 0.26, 16.0, 40.0))
 			c.lbl.add_theme_font_size_override("font_size", fs)
 			c.lbl.size = cell
@@ -81,6 +91,10 @@ func layout(window_pos: Vector2, window_size: Vector2, frame_pos: Vector2, frame
 
 func _cell_center(reel: int, row: int) -> Vector2:
 	return origin + Vector2(reel * (cell.x + gap) + cell.x * 0.5, row * (cell.y + gap) + cell.y * 0.5)
+
+## Cell centre in clip-local space (cell roots are children of the clip window).
+func _cell_local(reel: int, row: int) -> Vector2:
+	return _cell_center(reel, row) - (clip.position if clip else Vector2.ZERO)
 
 func _fit_sprite(spr: Sprite2D) -> void:
 	if spr.texture == null: return
@@ -109,30 +123,27 @@ func show_idle() -> void:
 			cells[reel][row].locked = false
 			_set_cell(reel, row, pool[(reel * 7 + row * 3) % pool.size()])
 
-## Spin the reels in: each reel blurs through random symbols then snaps to the final column.
+## Spin the reels in: each symbol DROPS in from above the frame and falls into its slot,
+## staggered left→right and top→bottom, landing with a small bounce. The clip window masks
+## the travel above the grid, so they read as reels falling from the top of the frame.
 func spin_to(grid: Array) -> void:
 	for reel in range(REELS):
 		for row in range(ROWS):
 			cells[reel][row].locked = false
-	var pool := ["SEVEN", "BELL", "COIN", "RED", "PURPLE", "BLUE", "GREEN", "FIREBALL"]
+	var t := create_tween().set_parallel(true).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	var drop := cell.y * (ROWS + 1)   # start well above the clip top so it enters from the top
 	for reel in range(REELS):
-		var t := create_tween()
-		var spins := 6 + reel * 2
-		for s in range(spins):
-			var rr := reel
-			for row in range(ROWS):
-				var sym: String = pool[(s + row * 3 + reel) % pool.size()]
-				t.parallel().tween_callback(_set_cell.bind(rr, row, sym, "")).set_delay(s * 0.035)
-		# snap to final
 		for row in range(ROWS):
-			var fr := reel; var frow := row
-			var fsym: String = grid[reel][row]
-			t.tween_callback(func(): _set_cell(fr, frow, fsym, ""); _pop(fr, frow)).set_delay(0.02)
-		if reel == REELS - 1:
-			await t.finished
-		else:
-			t.play()
-	await get_tree().create_timer(0.15).timeout
+			var c = cells[reel][row]
+			_set_cell(reel, row, grid[reel][row], "")
+			c.spr.scale = Vector2.ONE
+			c.root.scale = Vector2.ONE
+			var final_local := _cell_local(reel, row)
+			c.root.position = Vector2(final_local.x, final_local.y - drop)
+			var delay := reel * 0.09 + row * 0.06
+			t.tween_property(c.root, "position", final_local, 0.4).set_delay(delay)
+	await t.finished
+	await get_tree().create_timer(0.05).timeout
 
 func _pop(reel: int, row: int) -> void:
 	var c = cells[reel][row]

@@ -20,7 +20,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * web/build.sh (bump the version prefix per rebuild).
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/inferno-link/v1/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/inferno-link/v2/index.html";
 export const INFERNO_GAME_URL = process.env.NEXT_PUBLIC_INFERNO_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = INFERNO_GAME_URL;
