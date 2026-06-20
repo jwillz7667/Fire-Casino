@@ -9,6 +9,7 @@ import { Badge, Card, EmptyState, Money, useToast } from "@aureus/ui";
 import {
   COSMIC_GAME_CODE,
   DRAGON_GAME_CODE,
+  INFERNO_GAME_CODE,
   PHOENIX_GAME_CODE,
   PLINKO_GAME_CODE,
   ROYAL_GAME_CODE,
@@ -26,6 +27,7 @@ import { DragonGodot, DRAGON_GAME_URL } from "@/components/game/DragonGodot";
 import { CosmicGodot, COSMIC_GAME_URL } from "@/components/game/CosmicGodot";
 import { WheelGodot, WHEEL_GAME_URL } from "@/components/game/WheelGodot";
 import { PlinkoGodot, PLINKO_GAME_URL } from "@/components/game/PlinkoGodot";
+import { InfernoGodot, INFERNO_GAME_URL } from "@/components/game/InfernoGodot";
 import { FairnessDrawer } from "@/components/game/FairnessDrawer";
 import { gameTypeLabel } from "@/components/game/game-meta";
 import { useAuth } from "@/lib/auth-context";
@@ -192,7 +194,9 @@ function GameScreen(): React.ReactElement {
   const useCosmic = game.code === COSMIC_GAME_CODE && COSMIC_GAME_URL !== "" && playable;
   const useWheel = game.code === WHEEL_GAME_CODE && WHEEL_GAME_URL !== "" && playable;
   const usePlinko = game.code === PLINKO_GAME_CODE && PLINKO_GAME_URL !== "" && playable;
-  const useAnyGodot = useGodot || useRoyal || useDragon || useCosmic || useWheel || usePlinko;
+  const useInferno = game.code === INFERNO_GAME_CODE && INFERNO_GAME_URL !== "" && playable;
+  const useAnyGodot =
+    useGodot || useRoyal || useDragon || useCosmic || useWheel || usePlinko || useInferno;
 
   return (
     <div className="flex flex-col gap-4">
@@ -217,6 +221,8 @@ function GameScreen(): React.ReactElement {
         <WheelGodot game={game} currency={currency} />
       ) : usePlinko ? (
         <PlinkoGodot game={game} currency={currency} />
+      ) : useInferno ? (
+        <InfernoGodot game={game} currency={currency} />
       ) : game.code === PHOENIX_GAME_CODE ? (
         <PhoenixSlot result={lastResult} currency={currency} spinning={playing} />
       ) : (
