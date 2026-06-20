@@ -27,8 +27,8 @@ export const INFERNO_CELLS = INFERNO_REELS * INFERNO_ROWS; // 20
 export const INFERNO_BONUS_ROWS = 8;
 export const INFERNO_BONUS_CELLS = INFERNO_REELS * INFERNO_BONUS_ROWS; // 40
 
-/** Fireballs required on the base grid to trigger the hold-and-spin. */
-export const INFERNO_TRIGGER = 6;
+/** Fireballs (credit balls) required on the base grid to trigger the hold-and-spin. */
+export const INFERNO_TRIGGER = 4;
 /** Respins granted, and re-granted whenever a new fireball locks. */
 export const INFERNO_RESPINS = 3;
 
@@ -82,6 +82,9 @@ export interface InfernoOutcome {
   /** Base 5×4 grid, column-major: grid[reel][row] is a symbol id. */
   grid: string[][];
   lineWins: InfernoLineWin[];
+  /** The FIREBALL "credit balls" on the base grid, each with its drawn credit value — shown
+   *  on the reels every spin (various sizes); they become the initial locks if 4+ trigger. */
+  baseFires: InfernoFire[];
   baseFireballCount: number;
   holdSpin: InfernoHoldSpin | null;
   totalWinBps: number; // final win in bps of total bet

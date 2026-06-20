@@ -54,8 +54,9 @@ export const PAYLINES: readonly (readonly [number, number, number, number, numbe
   [0, 3, 0, 3, 0],
 ] as const;
 
-/** Base fireball weight — tuned so 6+ on the 20-cell grid triggers ~1 in 230 spins. */
-const FIREBALL_WEIGHT = 7;
+/** Base "credit ball" weight — rare enough that 4+ on the 20-cell grid (the trigger) stays a
+ *  ~1-in-180 event while singles/pairs still show on most spins. Re-measure with simulate.ts. */
+const FIREBALL_WEIGHT = 3.4;
 
 /** Base-game per-cell weights (WILD filled per-reel by perReel). */
 const BASE_COMMON: Record<SymbolId, number> = {
@@ -94,7 +95,7 @@ export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
  * During a respin, each EMPTY cell independently lands a FIREBALL with this probability
  * (else blank). Tuned so the feature adds a few fireballs and full-screen fills stay rare.
  */
-export const RESPIN_FIREBALL_PROB = 0.043;
+export const RESPIN_FIREBALL_PROB = 0.019;
 
 /**
  * The value a landed FIREBALL carries, in bps of total bet, by weight. Most are small
@@ -131,7 +132,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * `lineRtp(scalar) + featureRtp`. CALIBRATED by simulate.ts — run it after any table
  * change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 21_750;
+export const PAYOUT_SCALAR_BPS = 21_723;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

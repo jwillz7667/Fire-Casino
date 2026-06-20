@@ -101,23 +101,19 @@ function drawFireValue(rng: Rng): { valueBps: number; tier: InfernoFire["tier"] 
  * in `rng`: draws happen in a fixed order (initial values reel-major, then per round
  * reel-major over the 30 cells) so the same seed replays exactly.
  */
-function runHoldSpin(rng: Rng, grid: Grid): InfernoHoldSpin {
+function runHoldSpin(rng: Rng, baseFires: InfernoFire[]): InfernoHoldSpin {
   const cols = INFERNO_REELS;
   const rows = INFERNO_BONUS_ROWS;
   const locked = new Set<number>(); // cell index = reel * BONUS_ROWS + row
   const fires = new Map<number, InfernoFire>();
   const initial: InfernoFire[] = [];
 
-  for (let reel = 0; reel < cols; reel++) {
-    for (let row = 0; row < ROWS; row++) {
-      if (grid[reel]![row] !== FIREBALL) continue;
-      const idx = reel * rows + row;
-      const v = drawFireValue(rng);
-      const fire: InfernoFire = { reel, row, valueBps: v.valueBps, tier: v.tier };
-      locked.add(idx);
-      fires.set(idx, fire);
-      initial.push(fire);
-    }
+  // The base-grid credit balls (already drawn, with values) become the initial locks.
+  for (const fire of baseFires) {
+    const idx = fire.reel * rows + fire.row;
+    locked.add(idx);
+    fires.set(idx, fire);
+    initial.push(fire);
   }
 
   const rounds: { newLocks: InfernoFire[] }[] = [];
@@ -152,11 +148,6 @@ function runHoldSpin(rng: Rng, grid: Grid): InfernoHoldSpin {
   return { triggered: true, initial, rounds, locked: lockedList, filledAll, bonusBps };
 }
 
-function countFireballs(grid: Grid): number {
-  let n = 0;
-  for (const column of grid) for (const cell of column) if (cell === FIREBALL) n++;
-  return n;
-}
 
 /**
  * Run one full Inferno Link round on a provable-fairness RNG. Pure: identical RNG ⇒
@@ -167,11 +158,23 @@ export function spin(rng: Rng): EngineResult {
   const grid = drawGrid(rng, BASE_REEL_WEIGHTS);
   const lineWinsList = lineWins(grid);
   const linesBps = lineWinsList.reduce((sum, w) => sum + w.payBps, 0);
-  const baseFireballCount = countFireballs(grid);
+
+  // Every FIREBALL on the base grid is a "credit ball" with a drawn value (reel-major order),
+  // shown on the reels every spin. They pay nothing on their own — only if 4+ trigger the
+  // hold-and-spin, where they become the initial locks.
+  const baseFires: InfernoFire[] = [];
+  for (let reel = 0; reel < REELS; reel++) {
+    for (let row = 0; row < ROWS; row++) {
+      if (grid[reel]![row] !== FIREBALL) continue;
+      const v = drawFireValue(rng);
+      baseFires.push({ reel, row, valueBps: v.valueBps, tier: v.tier });
+    }
+  }
+  const baseFireballCount = baseFires.length;
 
   let holdSpin: InfernoHoldSpin | null = null;
   if (baseFireballCount >= INFERNO_TRIGGER) {
-    holdSpin = runHoldSpin(rng, grid);
+    holdSpin = runHoldSpin(rng, baseFires);
   }
 
   const scaledLines = Math.floor((linesBps * PAYOUT_SCALAR_BPS) / 10_000);
@@ -184,6 +187,7 @@ export function spin(rng: Rng): EngineResult {
       win: totalWinBps > 0,
       grid,
       lineWins: lineWinsList,
+      baseFires,
       baseFireballCount,
       holdSpin,
       totalWinBps,

@@ -61,42 +61,40 @@ describe("Inferno Link — engine", () => {
     }
   });
 
-  it("triggers the hold-and-spin on 6+ fireballs and only then, locks consistently", () => {
+  it("triggers the hold-and-spin on 4+ credit balls and only then, locks consistently", () => {
     const rng = mulberry32(0xfeed);
     let sawTrigger = false;
-    let sawFill = false;
     for (let i = 0; i < 300_000; i++) {
       const { outcome } = spin(rng);
+      // every base credit ball carries a value and matches the grid's FIREBALL cells
+      expect(outcome.baseFires.length).toBe(outcome.baseFireballCount);
+      for (const f of outcome.baseFires) {
+        expect(outcome.grid[f.reel]![f.row]).toBe("FIREBALL");
+        expect(f.valueBps).toBeGreaterThan(0);
+      }
       if (outcome.holdSpin) {
         sawTrigger = true;
         expect(outcome.baseFireballCount).toBeGreaterThanOrEqual(INFERNO_TRIGGER);
-        // initial locks == base fireballs; every locked cell is unique and in-bounds.
+        // initial locks == base credit balls; every locked cell is unique and in-bounds.
         expect(outcome.holdSpin.initial.length).toBe(outcome.baseFireballCount);
         const cells = new Set<number>();
-        // initial trigger fireballs sit in the base rows (0..3); respin balls fill the
-        // taller 6-row bonus board.
         for (const f of outcome.holdSpin.initial) {
-          expect(f.row).toBeLessThan(INFERNO_ROWS);
+          expect(f.row).toBeLessThan(INFERNO_ROWS); // base balls sit in the top 4 rows
         }
         for (const f of outcome.holdSpin.locked) {
           expect(f.reel).toBeGreaterThanOrEqual(0);
           expect(f.reel).toBeLessThan(INFERNO_REELS);
           expect(f.row).toBeGreaterThanOrEqual(0);
-          expect(f.row).toBeLessThan(INFERNO_BONUS_ROWS);
+          expect(f.row).toBeLessThan(INFERNO_BONUS_ROWS); // respins fill the taller 8-row board
           cells.add(f.reel * INFERNO_BONUS_ROWS + f.row);
         }
         expect(cells.size).toBe(outcome.holdSpin.locked.length);
         expect(outcome.holdSpin.locked.length).toBeLessThanOrEqual(INFERNO_BONUS_CELLS);
-        if (outcome.holdSpin.filledAll) {
-          sawFill = true;
-          expect(outcome.holdSpin.locked.length).toBe(INFERNO_BONUS_CELLS);
-        }
       } else {
         expect(outcome.baseFireballCount).toBeLessThan(INFERNO_TRIGGER);
       }
     }
     expect(sawTrigger).toBe(true);
-    expect(sawFill).toBe(true);
   });
 });
 

@@ -501,9 +501,16 @@ func _resolve(outcome: Dictionary) -> void:
 	var grid = outcome.get("grid", [])
 	if typeof(grid) != TYPE_ARRAY or grid.size() != REELS:
 		_flash("Bad outcome"); _finish_idle(); return
-	await board.spin_to(grid)
+	# label each base credit ball with its $ value so it shows on the reels; anticipate when
+	# one short of the 4-ball trigger.
+	var fire_labels := {}
+	for f in outcome.get("baseFires", []):
+		fire_labels["%d,%d" % [int(f.reel), int(f.row)]] = _fire_label(f)
+	await board.spin_to(grid, fire_labels, 3)
 	_spin_whir(false)
 	play("reel_land")
+	if not fire_labels.is_empty():
+		play("fireball_land")
 
 	# line wins
 	var line_list = outcome.get("lineWins", [])
@@ -685,12 +692,20 @@ func _mock_outcome() -> Dictionary:
 		grid.append(col)
 	# force a hold-spin demo ~1 in 3 so offline QA sees the feature
 	var force := randi() % 3 == 0
-	var hs = null
-	if force or fb >= 6:
+	if force or fb >= 4:
 		grid = _mock_fire_grid()
-		hs = _mock_hold_spin(grid)
+	# every FIREBALL on the base grid is a credit ball with a value (the new mechanic)
+	var base_fires := []
+	var vals := [10000, 20000, 30000, 50000, 100000, 200000]
+	for reel in range(REELS):
+		for row in range(ROWS):
+			if grid[reel][row] == "FIREBALL":
+				base_fires.append({"reel": reel, "row": row, "valueBps": vals[randi() % vals.size()], "tier": "CREDIT"})
+	var hs = null
+	if base_fires.size() >= 4:
+		hs = _mock_hold_spin(base_fires)
 	return {"kind": "inferno-link", "win": true, "grid": grid, "lineWins": [],
-		"baseFireballCount": _count_fb(grid), "holdSpin": hs,
+		"baseFires": base_fires, "baseFireballCount": base_fires.size(), "holdSpin": hs,
 		"totalWinBps": (hs.bonusBps if hs != null else 0)}
 
 func _mock_fire_grid() -> Array:
@@ -701,28 +716,17 @@ func _mock_fire_grid() -> Array:
 		for row in range(ROWS): col.append(pool[randi() % pool.size()])
 		grid.append(col)
 	var placed := 0
-	while placed < 6:
+	while placed < 4:
 		var r := randi() % REELS; var rw := randi() % ROWS
 		if grid[r][rw] != "FIREBALL": grid[r][rw] = "FIREBALL"; placed += 1
 	return grid
 
-func _count_fb(grid: Array) -> int:
-	var n := 0
-	for col in grid:
-		for c in col:
-			if c == "FIREBALL":
-				n += 1
-	return n
-
-func _mock_hold_spin(grid: Array) -> Dictionary:
+func _mock_hold_spin(base_fires: Array) -> Dictionary:
 	var vals := [10000, 20000, 30000, 50000, 100000, 200000]
 	var occupied := {}
-	var initial := []
-	for reel in range(REELS):
-		for row in range(ROWS):
-			if grid[reel][row] == "FIREBALL":
-				initial.append({"reel": reel, "row": row, "valueBps": vals[randi() % vals.size()], "tier": "CREDIT"})
-				occupied[reel * BONUS_ROWS + row] = true
+	var initial := base_fires.duplicate(true)
+	for f in initial:
+		occupied[int(f.reel) * BONUS_ROWS + int(f.row)] = true
 	var rounds := []
 	var bonus := 0
 	for f in initial: bonus += int(f.valueBps)

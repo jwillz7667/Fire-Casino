@@ -177,23 +177,55 @@ func show_idle() -> void:
 ## Spin the reels in: each symbol DROPS in from above the frame and falls into its slot,
 ## staggered left→right and top→bottom, landing with a small bounce. The clip window masks
 ## the travel above the grid, so they read as reels falling from the top of the frame.
-func spin_to(grid: Array) -> void:
+## Reveal the reels one column at a time, left→right (the credit balls drop in showing their
+## values). `fire_labels` maps "reel,row" → the credit string to print on a FIREBALL cell.
+## ANTICIPATION: the moment `anticipate_at` credit balls have landed (one short of the
+## trigger), the reels still to come ENLARGE and pulse for dramatic suspense before they drop.
+func spin_to(grid: Array, fire_labels: Dictionary = {}, anticipate_at: int = 3) -> void:
 	for reel in range(REELS):
 		for row in range(active_rows):
 			cells[reel][row].locked = false
-	var t := create_tween().set_parallel(true).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	var drop := cell.y * (MAX_ROWS + 1)   # start well above the clip top so it enters from the top
+	var drop := cell.y * (MAX_ROWS + 1)
+	var balls := 0
+	var anticipating := false
 	for reel in range(REELS):
+		# drop this reel's column in together
+		var t := create_tween().set_parallel(true).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		for row in range(active_rows):
 			var c = cells[reel][row]
-			_set_cell(reel, row, grid[reel][row], "")  # _set_cell fits the sprite to the cell
-			c.root.scale = Vector2.ONE                  # root scale is the pop only — never the sprite
+			var sym: String = grid[reel][row]
+			var label: String = fire_labels.get("%d,%d" % [reel, row], "")
+			_set_cell(reel, row, sym, label)
+			c.root.scale = Vector2.ONE
 			var final_local := _cell_local(reel, row)
 			c.root.position = Vector2(final_local.x, final_local.y - drop)
-			var delay := reel * 0.09 + row * 0.06
-			t.tween_property(c.root, "position", final_local, 0.4).set_delay(delay)
-	await t.finished
+			t.tween_property(c.root, "position", final_local, 0.34).set_delay(row * 0.05)
+			if sym == "FIREBALL" and label != "":
+				if fx: fx.add(final_local, EMBER, cell.x * 0.5)
+		await t.finished
+		# count the credit balls that landed on this reel
+		for row in range(active_rows):
+			if grid[reel][row] == "FIREBALL":
+				balls += 1
+		# once we're one short of the trigger, enlarge the reels still to come
+		if not anticipating and balls >= anticipate_at and reel < REELS - 1:
+			anticipating = true
+			_set_anticipation(reel + 1, true)
+			await get_tree().create_timer(0.45).timeout
+	if anticipating:
+		_set_anticipation(0, false)  # restore all
 	await get_tree().create_timer(0.05).timeout
+
+## Enlarge + pulse every cell on reels >= from_reel (anticipation), or restore all when off.
+func _set_anticipation(from_reel: int, on: bool) -> void:
+	for reel in range(REELS):
+		var target: float = 1.18 if (on and reel >= from_reel) else 1.0
+		for row in range(active_rows):
+			var c = cells[reel][row]
+			var tw := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tw.tween_property(c.root, "scale", Vector2(target, target), 0.2)
+		if on and reel >= from_reel and fx:
+			fx.add(_cell_local(reel, active_rows / 2), Color(1.0, 0.55, 0.15), cell.x * 0.9)
 
 func _pop(reel: int, row: int) -> void:
 	var c = cells[reel][row]
