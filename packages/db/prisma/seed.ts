@@ -343,6 +343,27 @@ async function seedGames(): Promise<void> {
       config: { engine: "inferno-link", renderer: "inferno-link" },
       status: GameStatus.ACTIVE,
     },
+    {
+      // Sixth real engine: Legend of the Flaming Kirin — a fire-meets-deep-ocean 5×4, 25-line
+      // payline slot. Picture premiums (kirin/sea-dragon queen/phoenix/golden shark) + mids +
+      // royals pay on lines; a WILD substitutes with a rising "Kirin Fire" free-spins
+      // multiplier (SCATTER pearl → free spins), a BONUS (compass) pays an instant 20×/100×/500×
+      // prize, and a four-tier GRAND/MAJOR/MINOR/MINI jackpot can strike any spin. Bonus +
+      // jackpots pay verbatim; base lines are scalar-tuned. config.engine routes rounds to
+      // apps/api .../engines/kirin; measured RTP ≈ 96% (engines/kirin/simulate.ts). The Godot
+      // build + thumbnail are hosted on Cloudflare R2.
+      code: "flaming-kirin",
+      name: "Legend of the Flaming Kirin",
+      type: "SLOT",
+      rtpBps: 9600,
+      minBetMinor: 50n,
+      maxBetMinor: 10_000n,
+      supportedCurrencies: ["CREDIT", "PLAY", "PRIZE"],
+      sortOrder: 1,
+      thumbnailUrl: "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/flaming-kirin/thumb.png",
+      config: { engine: "flaming-kirin", renderer: "flaming-kirin" },
+      status: GameStatus.ACTIVE,
+    },
     // The placeholder catalog games (reef-rumble / golden-depths / lumen-keno) were
     // removed — only real, server-authoritative games ship. Any existing rows are set
     // to HIDDEN by migration 20260617150000_hide_placeholder_games.

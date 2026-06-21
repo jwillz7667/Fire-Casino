@@ -3,6 +3,8 @@ import { evaluateSpin as cosmicEval } from "./cosmic/engine";
 import * as cosmicMath from "./cosmic/math";
 import { evaluateSpin as dragonEval } from "./dragon/engine";
 import * as dragonMath from "./dragon/math";
+import { evaluateSpin as kirinEval } from "./kirin/engine";
+import * as kirinMath from "./kirin/math";
 import { evaluateSpin as phoenixEval } from "./phoenix/engine";
 import * as phoenixMath from "./phoenix/math";
 import { evaluateSpin as royalEval } from "./royal/engine";
@@ -84,6 +86,14 @@ const ENGINES: EngineCfg[] = [
     base: cosmicMath.BASE_REEL_WEIGHTS,
     free: cosmicMath.FREE_REEL_WEIGHTS,
     evaluate: (g, m) => cosmicEval(g as never, m),
+  },
+  {
+    name: "flaming-kirin",
+    reels: kirinMath.REELS,
+    rows: kirinMath.ROWS,
+    base: kirinMath.BASE_REEL_WEIGHTS,
+    free: kirinMath.FREE_REEL_WEIGHTS,
+    evaluate: (g, m) => kirinEval(g as never, m),
   },
 ];
 

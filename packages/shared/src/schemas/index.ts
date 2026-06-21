@@ -5,6 +5,7 @@ export * from "./cosmic";
 export * from "./dragon";
 export * from "./games";
 export * from "./inferno";
+export * from "./kirin";
 export * from "./operators";
 export * from "./orders";
 export * from "./phoenix";

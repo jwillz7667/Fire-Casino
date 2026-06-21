@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { COSMIC_ENGINE, CosmicSpinsProvider } from "../engines/cosmic/cosmic.provider";
 import { DRAGON_ENGINE, DragonHoardProvider } from "../engines/dragon/dragon.provider";
 import { INFERNO_ENGINE, InfernoLinkProvider } from "../engines/inferno/inferno.provider";
+import { KIRIN_ENGINE, FlamingKirinProvider } from "../engines/kirin/kirin.provider";
 import { PHOENIX_ENGINE, PhoenixAscendantProvider } from "../engines/phoenix/phoenix.provider";
 import { PLINKO_ENGINE, PlinkoProvider } from "../engines/plinko/plinko.provider";
 import { ROYAL_ENGINE, RoyalAscendantProvider } from "../engines/royal/royal.provider";
@@ -28,6 +29,7 @@ export class CompositeGameProvider implements GameProvider {
     cosmic: CosmicSpinsProvider,
     plinko: PlinkoProvider,
     inferno: InfernoLinkProvider,
+    kirin: FlamingKirinProvider,
   ) {
     this.engines = {
       [PHOENIX_ENGINE]: phoenix,
@@ -37,6 +39,7 @@ export class CompositeGameProvider implements GameProvider {
       [COSMIC_ENGINE]: cosmic,
       [PLINKO_ENGINE]: plinko,
       [INFERNO_ENGINE]: inferno,
+      [KIRIN_ENGINE]: kirin,
     };
   }
 

@@ -47,3 +47,7 @@ apps/arcade/public/royal-ascendant/
 
 # Raw ElevenLabs mp3 intermediate for the lobby loop (regenerable; the .mp3 is committed).
 apps/arcade/public/audio/raw/
+
+# Legend of the Flaming Kirin 4K raw Nano Banana art (~345MB) — too large for git and
+# regenerable from games/flaming-kirin/tools/gen-assets.py; only the processed art/ ships.
+assets/flaming-kirin-assets/
