@@ -65,10 +65,10 @@ const MOCK_BONUS := {3: 200000, 4: 1000000, 5: 5000000}
 
 ## Cut-window opening as fractions of the frame art (printed by tools/prep-assets.py:
 ## ">>> reel_frame window fractions (l,t,r,b)").
-const WIN_L := 0.0368
-const WIN_T := 0.1347
-const WIN_R := 0.9621
-const WIN_B := 0.9628
+const WIN_L := 0.1307
+const WIN_T := 0.2266
+const WIN_R := 0.8683
+const WIN_B := 0.8673
 
 const SPIN_SPEED := 2900.0
 const REEL_STOP_STAGGER := 0.14
@@ -295,7 +295,7 @@ func _load_textures() -> void:
 			frame_aspect = float(f.get_width()) / float(f.get_height())
 
 func _sym_scale(tex: Texture2D) -> Vector2:
-	var target: float = min(cell_w, cell_h) * 0.86
+	var target: float = min(cell_w, cell_h) * 0.90
 	var s: float = target / float(tex.get_width())
 	return Vector2(s, s)
 

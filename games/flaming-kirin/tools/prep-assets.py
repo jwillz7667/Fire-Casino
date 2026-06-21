@@ -109,6 +109,50 @@ def _open(name: str) -> Image.Image:
     return Image.open(os.path.join(RAW, f"{name}.png"))
 
 
+def _largest_inner_rect(mask: np.ndarray, margin_frac: float = 0.0):
+    """Largest axis-aligned rectangle fully INSIDE the True region of `mask` (full-res coords).
+    Used for the reel window: the transparent opening is irregular (gold filigree + inward dragon
+    crests at the corners), so its bbox is too generous and symbols placed near it land under the
+    gold. The maximal inscribed rectangle is guaranteed clear of every gold pixel. Computed on a
+    downscaled mask (largest-rectangle-in-histogram), optionally eroded by margin_frac for a small
+    breathing gap."""
+    H, W = mask.shape
+    scale = 360.0 / W if W > 360 else 1.0
+    sw, sh = max(1, int(W * scale)), max(1, int(H * scale))
+    m = np.asarray(
+        Image.fromarray((mask * 255).astype(np.uint8)).resize((sw, sh), Image.NEAREST)
+    ) > 127
+    er = int(round(margin_frac * sw))
+    if er > 0:
+        m = np.asarray(
+            Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(2 * er + 1))
+        ) > 127
+    height = [0] * sw
+    best = (0, 0, 0, 0, 0)  # area, x0, y0, x1, y1
+    for y in range(sh):
+        row = m[y]
+        for x in range(sw):
+            height[x] = height[x] + 1 if row[x] else 0
+        stack: list[int] = []
+        x = 0
+        while x <= sw:
+            cur = height[x] if x < sw else 0
+            if not stack or cur >= height[stack[-1]]:
+                stack.append(x)
+                x += 1
+            else:
+                top = stack.pop()
+                hgt = height[top]
+                left = stack[-1] + 1 if stack else 0
+                right = x - 1
+                area = hgt * (right - left + 1)
+                if area > best[0]:
+                    best = (area, left, y - hgt + 1, right, y)
+    _, lx0, ly0, lx1, ly1 = best
+    inv = 1.0 / scale
+    return int(lx0 * inv), int(ly0 * inv), int((lx1 + 1) * inv), int((ly1 + 1) * inv)
+
+
 def _cut_frame(rgb: Image.Image):
     """Keep ONLY the ornate gold/flame border and cut everything else — the white surround, the
     dark glossy window AND every grey reflection patch inside it — to transparency. The previous
@@ -160,11 +204,25 @@ def _cut_frame(rgb: Image.Image):
     ImageDraw.floodfill(hole_img, (w // 2, h // 2), SENT_IN, thresh=10)
     hole_mask = np.all(np.asarray(hole_img) == np.array(SENT_IN), axis=-1)
     bbox = rgba.split()[-1].getbbox()
-    rgba = rgba.crop(bbox)
+    # window = the largest rectangle INSCRIBED in the opening (clear of the gold filigree + the
+    # inward-protruding dragon crests), NOT the hole's bbox — so the reel grid fits cleanly. The
+    # strict inscribed rect avoids every thin gold wisp and ends up small; expand it part-way back
+    # toward the opening bbox (EXPAND) so symbols are a comfortable size while the corner crests
+    # only gently overlap the outer symbols (reads as "emerging from behind the ornate gold").
+    rx0, ry0, rx1, ry1 = _largest_inner_rect(hole_mask, margin_frac=0.010)
     ys, xs = np.where(hole_mask)
-    hole = (xs.min() - bbox[0], ys.min() - bbox[1], xs.max() - bbox[0], ys.max() - bbox[1])
+    bx0, by0, bx1, by1 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+    EXPAND = 0.42
+    wx0 = rx0 + (bx0 - rx0) * EXPAND
+    wy0 = ry0 + (by0 - ry0) * EXPAND
+    wx1 = rx1 + (bx1 - rx1) * EXPAND
+    wy1 = ry1 + (by1 - ry1) * EXPAND
+    rgba = rgba.crop(bbox)
     fw, fh = rgba.size
-    fracs = (hole[0] / fw, hole[1] / fh, hole[2] / fw, hole[3] / fh)
+    fracs = (
+        (wx0 - bbox[0]) / fw, (wy0 - bbox[1]) / fh,
+        (wx1 - bbox[0]) / fw, (wy1 - bbox[1]) / fh,
+    )
     return rgba, fracs
 
 

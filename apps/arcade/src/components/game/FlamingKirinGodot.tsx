@@ -19,7 +19,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * Re-upload with games/flaming-kirin/web/build.sh (bump the version prefix per rebuild).
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/flaming-kirin/v1/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/flaming-kirin/v2/index.html";
 export const KIRIN_GAME_URL = process.env.NEXT_PUBLIC_KIRIN_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = KIRIN_GAME_URL;
