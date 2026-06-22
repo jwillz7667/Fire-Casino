@@ -66,12 +66,15 @@ ASSETS = [
 
     # ---- frame + banners (keyed on white) ----
     ("reel_frame", "4:3", "scene",
-     "an ornate WIDE LANDSCAPE rectangular slot-machine frame for a 5-column by 4-row reel grid: "
-     "thick polished GOLD filigree border fused with deep-navy lacquer and small orange flame "
-     "motifs, ornamental crossed-torch/blade crests at the two TOP corners, ember gems at the "
-     "corners, surrounding a single EMPTY dark near-black glossy rectangular window that is clearly "
-     "WIDER THAN TALL (about 5:4) — no symbols, no grid lines, no text, just the ornate frame "
-     "around a plain dark panel. Drawn straight-on, centered, on a solid white background."),
+     "a SLIM, elegant rectangular slot-machine frame for a 5-column by 4-row reel grid: a NARROW "
+     "polished molten-gold border — the border is THIN relative to the frame so the central window "
+     "is LARGE (the dark window fills roughly 88% of the frame area, reaching close to all four "
+     "edges) — with fine flame filigree and small ember gems at the four CORNERS ONLY. Absolutely "
+     "NO large protruding crests, dragon heads, crossed torches or ornaments poking INTO the "
+     "window; the inner edge of the border is a clean rectangle. It surrounds a single EMPTY dark "
+     "near-black glossy rectangular window, slightly WIDER THAN TALL (about 5:4), that dominates "
+     "the frame — no symbols, no grid lines, no text. Drawn straight-on, centered, on a solid "
+     "white background."),
     ("banner_palace", "16:9", "white",
      "a single ornate horizontal GOLD ribbon banner plaque with curled scroll ends and small flame "
      "filigree, deep-navy enamel center field left EMPTY (no text), a premium slot header nameplate, "

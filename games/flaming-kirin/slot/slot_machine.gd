@@ -236,8 +236,14 @@ func _layout_metrics() -> void:
 	var W := view.x
 	var H := view.y
 	portrait = H >= W
-	var max_fw := W * (0.96 if portrait else 0.62)
-	var max_fh := H * (0.46 if portrait else 0.66)
+	# The frame art is WIDE + thick-bordered (wrong shape for a portrait phone), so sizing it to
+	# fit on-screen left the reel window small. Instead size it so the WINDOW fills ~the full
+	# screen width — the window (reels) stays fully on-screen and large, and only the ornate gold
+	# BORDER bleeds toward/off the screen edges. WIN width is (WIN_R-WIN_L) of the frame, so to put
+	# the window at ~0.96 of W the frame width = 0.96*W/(WIN_R-WIN_L).
+	var win_w_frac := WIN_R - WIN_L
+	var max_fw := (W * 0.97 / win_w_frac) if portrait else (W * 0.66)
+	var max_fh := H * (0.62 if portrait else 0.70)
 	var fw := max_fw
 	var fh := fw / frame_aspect
 	if fh > max_fh:
