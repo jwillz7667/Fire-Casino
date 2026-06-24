@@ -114,7 +114,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * this scales every payout onto the certified target. CALIBRATED by simulate.ts —
  * run it after any table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 7230;
+export const PAYOUT_SCALAR_BPS = 7296;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

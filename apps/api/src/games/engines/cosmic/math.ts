@@ -199,7 +199,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * `scaledRtp(scalar) + bonusRtp`. CALIBRATED by simulate.ts — run it after any table
  * change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 27360;
+export const PAYOUT_SCALAR_BPS = 27597;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

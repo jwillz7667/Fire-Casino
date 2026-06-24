@@ -104,7 +104,7 @@ export const MAX_ORB_MULTIPLIER = 100;
  * RTP; this scales every payout to land on the certified target. CALIBRATED by
  * engine.simulation.test.ts — see that test for the measured RTP this yields.
  */
-export const PAYOUT_SCALAR_BPS = 4558;
+export const PAYOUT_SCALAR_BPS = 4622;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;
