@@ -23,8 +23,10 @@ import {
 } from "../common/auth/auth.decorators";
 import { type OperatorPrincipal, type Principal } from "../common/auth/principal";
 import { UnauthorizedError } from "../common/errors/domain-error";
+import { regionFromRequest } from "../common/http/region";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { AUTH_RATE_LIMIT } from "../common/throttler/throttler.config";
+import { ComplianceService } from "../compliance/compliance.service";
 import { ENV } from "../config/config.module";
 import { type AuthContext, AuthService } from "./auth.service";
 import { REFRESH_COOKIE, refreshCookieOptions } from "./cookies";
@@ -37,6 +39,7 @@ function contextOf(req: Request): AuthContext {
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
+    private readonly compliance: ComplianceService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -63,6 +66,10 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ accessToken: string; expiresIn: number; player: PlayerSummary }> {
+    // LOGIN-1: enforce the geo gate at player login (when GEO_ENFORCED) BEFORE any
+    // credential check or token issuance, so a blocked/unverifiable region never
+    // establishes a session. Fails closed via ComplianceService.assertRegionAllowed.
+    await this.compliance.checkLogin(regionFromRequest(req));
     const { refreshToken, ...rest } = await this.auth.playerLogin(body, contextOf(req));
     res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions(this.env));
     return rest;

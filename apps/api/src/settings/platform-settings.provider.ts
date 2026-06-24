@@ -69,7 +69,11 @@ export class PlatformSettingsProvider {
       ),
       defaultRtpBps: this.readNumber(byKey.get("DEFAULT_GAME_RTP_BPS"), this.env.DEFAULT_GAME_RTP_BPS),
       kycEnforced: this.readBool(byKey.get("KYC_ENFORCED"), true),
-      geoEnforced: this.readBool(byKey.get("GEO_ENFORCED"), true),
+      // GEO-1: geo enforcement FAILS CLOSED on an unresolved region, so it must
+      // default ON only in production. In dev/test there is no CDN geo header, so a
+      // true default would deny all local play; an explicit GEO_ENFORCED setting
+      // still overrides this default in any environment.
+      geoEnforced: this.readBool(byKey.get("GEO_ENFORCED"), this.env.NODE_ENV === "production"),
     };
     this.cache = settings;
     this.cachedAt = now;

@@ -63,7 +63,9 @@ export class ComplianceService {
     opts: GateContext & { amountMinor?: bigint } = {},
   ): Promise<void> {
     await this.assertPlayerActionable(playerId);
-    await this.assertRegionAllowed(opts.region);
+    // Agent/operator-initiated recharge: the request region is the staff member's,
+    // not the player's, so region is advisory here (no fail-closed) — see GateContext.
+    await this.assertRegionAllowed(opts.region, false);
     if (opts.amountMinor !== undefined) {
       await this.assertRgLimit(playerId, "DEPOSIT", opts.amountMinor);
     }
@@ -75,7 +77,8 @@ export class ComplianceService {
     opts: GateContext & { betMinor?: bigint } = {},
   ): Promise<void> {
     await this.assertPlayerActionable(playerId);
-    await this.assertRegionAllowed(opts.region);
+    // Player play is always player-context: fail closed on an unresolved region.
+    await this.assertRegionAllowed(opts.region, true);
     await this.assertSessionTime(playerId);
     if (opts.betMinor !== undefined) {
       await this.assertRgLimit(playerId, "WAGER", opts.betMinor);
@@ -91,17 +94,19 @@ export class ComplianceService {
   async checkRedeem(
     playerId: string,
     amountMinor: bigint,
-    opts: GateContext = {},
+    // requireRegion: the player REQUEST path passes true (player-context, fail
+    // closed); the operator APPROVAL path omits it (operator-context, advisory).
+    opts: GateContext & { requireRegion?: boolean } = {},
   ): Promise<void> {
     await this.assertPlayerActionable(playerId);
-    await this.assertRegionAllowed(opts.region);
+    await this.assertRegionAllowed(opts.region, opts.requireRegion ?? false);
     await this.assertKycForAmount(playerId, amountMinor);
     await this.assertNoOpenAml(playerId);
   }
 
   /** Gate on login (docs/04 §2, docs/07 §2.1): region must be allowed. */
   async checkLogin(region?: string): Promise<void> {
-    await this.assertRegionAllowed(region);
+    await this.assertRegionAllowed(region, true);
   }
 
   /** Shared: the player exists, is ACTIVE, and is not under an active self-exclusion. */
@@ -185,13 +190,22 @@ export class ComplianceService {
 
   // ---- internals -------------------------------------------------------------
 
-  private async assertRegionAllowed(region?: string): Promise<void> {
-    // Region enforcement applies only when GEO_ENFORCED is on (CR6) and the caller
-    // resolved a region (from CF-IPCountry / X-Vercel-IP-Country at the HTTP edge,
-    // CR1). An absent region cannot be matched against a GeoRule. The rule promise
-    // is AWAITED so a BLOCK actually throws (the prior floating `void` failed open).
-    if (!region) return;
+  private async assertRegionAllowed(region: string | undefined, requireResolved: boolean): Promise<void> {
+    // Geo enforcement only acts when GEO_ENFORCED is on (defaults on only in
+    // production). When it IS on, PLAYER-FACING gates (play, cashout REQUEST, login)
+    // pass requireResolved=true and FAIL CLOSED (GEO-1) on an unresolved region
+    // (absent / "XX" / "T1"). OPERATOR/agent-context gates (agent recharge, operator
+    // redemption APPROVAL) carry the staff member's region, not the player's, so they
+    // pass requireResolved=false and skip rather than wrongly deny. The region is read
+    // from CF-IPCountry / X-Vercel-IP-Country, trustworthy ONLY because the edge sets
+    // them AND the strip-untrusted-geo middleware drops client-forged copies (gated by
+    // GEO_EDGE_HEADER_SECRET); `trust proxy` does NOT secure custom headers. The rule
+    // promise is AWAITED so a BLOCK actually throws.
     if (!(await this.settings.geoEnforced())) return;
+    if (!region) {
+      if (requireResolved) throw new RegionBlockedError();
+      return;
+    }
     await this.applyRegionRule(region);
   }
 

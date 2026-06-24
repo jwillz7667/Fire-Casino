@@ -82,8 +82,13 @@ export class RedemptionsService {
   /** Player requests a cashout. Places no hold; routes to the approving operator. */
   async request(player: PlayerPrincipal, input: CreateRedemptionInput, ctx: ActionContext) {
     const currency = this.redeemCurrency();
-    // Player-initiated: geo-check against the player's resolved region (CR1).
-    await this.compliance.checkRedeem(player.playerId, input.amountMinor, { region: ctx.region });
+    // Player-initiated: geo-check against the player's resolved region (CR1), failing
+    // closed on an unresolved region when geo is enforced (GEO-1). The operator
+    // APPROVAL path (below) intentionally omits requireRegion — it is operator-context.
+    await this.compliance.checkRedeem(player.playerId, input.amountMinor, {
+      region: ctx.region,
+      requireRegion: true,
+    });
 
     const owner = await this.system.operator.findUnique({
       where: { id: player.operatorId },
