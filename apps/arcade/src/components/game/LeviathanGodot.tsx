@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useRef } from "react";
 import { GameViewport } from "./GameViewport";
 import { useQueryClient } from "@tanstack/react-query";
-import { startSessionSchema, type Currency } from "@aureus/shared";
+import { type Currency } from "@aureus/shared";
 import { api } from "@/lib/api";
 import { messageForError } from "@/lib/errors";
 import { useWallet } from "@/lib/hooks";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { balanceFor } from "@/lib/mode";
 import { qk } from "@/lib/queries";
-import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from "@/lib/types";
+import type { BetResponse, GameDTO, WalletResponse } from "@/lib/types";
+import { useGameSession } from "@/lib/use-game-session";
 
 /**
  * Hosted Godot/WASM build on public Cloudflare R2 (bucket `goldwave`, prefix leviathan-deep/<ver>)
@@ -50,7 +51,7 @@ export function LeviathanGodot({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const queryClient = useQueryClient();
   const wallet = useWallet();
-  const sessionRef = useRef<StartSessionResponse | null>(null);
+  const { ensureSession, resetSession } = useGameSession({ gameCode: game.code, currency });
   const balanceRef = useRef<string>("0");
   const sendInitRef = useRef<() => void>(() => {});
 
@@ -81,18 +82,6 @@ export function LeviathanGodot({
     sendInitRef.current = sendInit;
   }, [sendInit]);
 
-  const ensureSession = useCallback(async (): Promise<StartSessionResponse> => {
-    if (sessionRef.current) return sessionRef.current;
-    const body = startSessionSchema.parse({
-      gameCode: game.code,
-      currency,
-      clientSeed: crypto.randomUUID().replace(/-/g, "").slice(0, 16),
-    });
-    const session = await api.post<StartSessionResponse>("/sessions", body);
-    sessionRef.current = session;
-    return session;
-  }, [game.code, currency]);
-
   const placeBet = useCallback(
     async (sessionId: string, betMinor: number, idempotencyKey: string): Promise<BetResponse> =>
       api.post<BetResponse>(
@@ -117,7 +106,7 @@ export function LeviathanGodot({
           try {
             result = await placeBet(session.sessionId, betMinor, idempotencyKey);
           } catch (retryErr) {
-            sessionRef.current = null;
+            resetSession();
             throw retryErr;
           }
         }
@@ -138,7 +127,7 @@ export function LeviathanGodot({
         post("betError", { message: messageForError(err) }, reqId);
       }
     },
-    [ensureSession, placeBet, queryClient, currency, post],
+    [ensureSession, resetSession, placeBet, queryClient, currency, post],
   );
 
   useEffect(() => {

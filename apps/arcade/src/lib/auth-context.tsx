@@ -31,6 +31,15 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * How long the app may be backgrounded before the player is forced to log back in.
+ * A short app-switch (switch to another app and return quickly) keeps the player
+ * logged in so they can resume playing; a background of >= 10 minutes expires the
+ * session and bounces to login. This is auth-level — leaving a game does NOT log out
+ * (that only ends the game session and returns to the lobby).
+ */
+const AUTH_BACKGROUND_TIMEOUT_MS = 600_000;
+
 interface PlayerLoginResponse {
   accessToken: string;
   expiresIn: number;
@@ -105,6 +114,29 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
     setPlayer(null);
     router.replace("/login");
   }, [router]);
+
+  // Force a re-login after a long background. We only DECIDE on return: never log out
+  // merely on `hidden` (the player may be switching back immediately). A background of
+  // >= AUTH_BACKGROUND_TIMEOUT_MS expires the session; a shorter one keeps them in.
+  useEffect(() => {
+    let hiddenAt: number | null = null;
+    function onVisibility(): void {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (hiddenAt === null) return;
+      const elapsed = Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (elapsed >= AUTH_BACKGROUND_TIMEOUT_MS && player !== null) {
+        void logout();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [logout, player]);
 
   const mode = useMemo<PlatformMode>(
     () => (player ? detectMode(player.wallets) : "OPERATOR"),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,6 +39,7 @@ import { useCompliance, useWallet } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { messageForError } from "@/lib/errors";
 import { newIdempotencyKey } from "@/lib/idempotency";
+import { SESSION_RESUME_GRACE_MS } from "@/lib/use-game-session";
 import { fetchGame, qk } from "@/lib/queries";
 import { balanceFor, currencyLabel, spendCurrency } from "@/lib/mode";
 import type {
@@ -170,6 +171,48 @@ function GameScreen(): React.ReactElement {
       toast.push({ title: "Couldn't reveal seed", description: messageForError(err), intent: "danger" });
     }
   }
+
+  // Same leave-the-game policy as the Godot path (useGameSession): leaving the game
+  // ends the open session so the next visit starts fresh, EXCEPT a quick app-switch
+  // (background < grace) which keeps it. The provably-fair reveal flow ends the
+  // session separately and is unaffected. Godot games own their session inside their
+  // component, so sessionIdRef stays null here and this is a no-op for them.
+  const sessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    sessionIdRef.current = session?.sessionId ?? null;
+  }, [session]);
+
+  useEffect(() => {
+    function endActiveSession(): void {
+      const sessionId = sessionIdRef.current;
+      if (!sessionId) return;
+      sessionIdRef.current = null;
+      // Fire-and-forget: the player has left, so a failed/expired end must not throw.
+      void api.post<EndSessionResponse>(`/sessions/${sessionId}/end`).catch(() => {});
+      setSession(null);
+      setRevealedServerSeed(null);
+      setLastResult(null);
+      setLastNonce(null);
+    }
+
+    let hiddenAt: number | null = null;
+    function onVisibility(): void {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (hiddenAt === null) return;
+      const elapsed = Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (elapsed >= SESSION_RESUME_GRACE_MS) endActiveSession();
+    }
+
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      endActiveSession();
+    };
+  }, []);
 
   if (gameQuery.isLoading) {
     return <BrandSpinner label="Loading game…" />;
