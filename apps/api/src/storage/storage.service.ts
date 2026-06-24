@@ -32,6 +32,13 @@ export class StorageService {
             secretAccessKey: env.R2_SECRET_ACCESS_KEY,
           }
         : null;
+
+    // SECRETS-3: never serve the dev stub in production — it would silently accept
+    // (and drop) KYC PII uploads to a fake host. env validation already requires
+    // R2_* in production; this is the last-line guard at the storage boundary.
+    if (this.env.NODE_ENV === "production" && !this.creds) {
+      throw new Error("StorageService: R2 credentials are required in production (refusing the dev stub client)");
+    }
   }
 
   private bucketName(bucket: "assets" | "kyc"): string {

@@ -8,6 +8,7 @@ import { loadDotenv } from "@aureus/shared/dotenv";
 import { AppModule } from "./app.module";
 import { RedisIoAdapter } from "./realtime/redis-io.adapter";
 import { securityHeaders } from "./common/http/security-headers";
+import { stripUntrustedGeoHeaders } from "./common/http/strip-untrusted-geo";
 
 async function bootstrap(): Promise<void> {
   loadDotenv();
@@ -16,11 +17,22 @@ async function bootstrap(): Promise<void> {
   const logger = app.get(Logger);
   app.useLogger(logger);
 
+  // INFRA-1: behind Railway's proxy, trust exactly TRUST_PROXY_HOPS hop(s) so
+  // req.ip resolves to the real client IP — restoring per-IP rate-limit buckets and
+  // truthful audit/AML IPs. Pin the count: NEVER use trust-all ('true'), or a client
+  // could spoof X-Forwarded-For to evade throttling and poison the audit trail.
+  if (env.TRUST_PROXY_HOPS > 0) {
+    app.getHttpAdapter().getInstance().set("trust proxy", env.TRUST_PROXY_HOPS);
+  }
+
   // Versioned REST surface; health probes stay at the root for load balancers.
   app.setGlobalPrefix("api/v1", { exclude: ["healthz", "readyz"] });
 
   app.use(securityHeaders);
   app.use(cookieParser());
+  // GEO-1: drop client-forged CF-IPCountry/X-Vercel-IP-Country unless the request
+  // carries the edge's x-edge-proof secret (no-op when GEO_EDGE_HEADER_SECRET unset).
+  app.use(stripUntrustedGeoHeaders(env.GEO_EDGE_HEADER_SECRET));
 
   app.enableCors({
     origin: env.ALLOWED_ORIGINS,

@@ -16,7 +16,11 @@ export const platformModeSchema = z.enum(["OPERATOR", "COMPLIANCE"]);
 export type PlatformMode = z.infer<typeof platformModeSchema>;
 
 export const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  // SECRETS: NO default — every entrypoint must declare NODE_ENV explicitly (.env /
+  // .env.example set "development", the Docker image sets "production", vitest sets
+  // "test"). A missing value fails fast rather than silently treating a real prod
+  // process as dev (which would disable the production-only guards below).
+  NODE_ENV: z.enum(["development", "test", "production"]),
   PLATFORM_MODE: platformModeSchema.default("OPERATOR"),
 
   DATABASE_URL: z.string().url(),
@@ -42,6 +46,12 @@ export const envSchema = z.object({
   // urls / cors
   API_URL: z.string().url().default("http://localhost:4000"),
   API_PORT: port.default(4000),
+  // INFRA-1: number of trusted proxy hops in front of the API (Railway = 1). Drives
+  // Express `trust proxy` so req.ip is the real client IP (per-IP throttle + audit
+  // forensics). Must match the real topology EXACTLY — OVER-counting lets a client
+  // spoof X-Forwarded-For (re-opening INFRA-1), so it is capped. 0 disables trust
+  // (safe default for an un-proxied / direct-exposed bind).
+  TRUST_PROXY_HOPS: z.coerce.number().int().nonnegative().max(8).default(1),
   CONSOLE_URL: z.string().url().default("http://localhost:3000"),
   ARCADE_URL: z.string().url().default("http://localhost:3001"),
   ALLOWED_ORIGINS: csv.default("http://localhost:3000,http://localhost:3001"),
@@ -60,6 +70,12 @@ export const envSchema = z.object({
   // compliance
   KYC_PROVIDER: z.string().default("stub"),
   GEO_PROVIDER: z.string().default("stub"),
+  // GEO-1: shared secret the trusted CDN/edge injects as `x-edge-proof`. When set,
+  // the strip-untrusted-geo middleware drops client-supplied CF-IPCountry/
+  // X-Vercel-IP-Country headers on any request lacking the matching proof, so a
+  // forged region header can't defeat the geo gate. MUST be set in production when
+  // GEO_ENFORCED is on (the edge config injects it); unset in dev = no stripping.
+  GEO_EDGE_HEADER_SECRET: z.string().optional(),
   AML_ENABLED: z
     .string()
     .transform((v) => v !== "false")
@@ -73,7 +89,37 @@ export const envSchema = z.object({
   // realtime / workers
   SOCKET_ADAPTER: z.enum(["redis", "memory"]).default("redis"),
   OUTBOX_RELAY_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
-});
+})
+  // SECRETS-2 / SECRETS-3: in production, real R2 storage is MANDATORY. Never fall
+  // back to the in-memory stub client (it would silently drop KYC PII uploads) and
+  // never run with an empty bucket name. Dev/test may omit R2_* and use the stub.
+  // (Operational: production R2 creds must come from the platform secret store, be
+  // bucket-scoped/least-privilege, and never live in a working-tree .env.)
+  .superRefine((val, ctx) => {
+    if (val.NODE_ENV !== "production") return;
+    const add = (path: string, message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+    if (!val.R2_ACCOUNT_ID?.trim()) add("R2_ACCOUNT_ID", "required in production (no stub storage)");
+    if (!val.R2_ACCESS_KEY_ID?.trim()) add("R2_ACCESS_KEY_ID", "required in production (no stub storage)");
+    if (!val.R2_SECRET_ACCESS_KEY?.trim()) add("R2_SECRET_ACCESS_KEY", "required in production (no stub storage)");
+    if (!val.R2_BUCKET_ASSETS.trim()) add("R2_BUCKET_ASSETS", "must be a non-empty bucket in production");
+    if (!val.R2_BUCKET_KYC.trim()) add("R2_BUCKET_KYC", "must be a non-empty bucket in production");
+    // KYC PII must never share the (public) assets bucket — keep them distinct.
+    if (val.R2_BUCKET_KYC.trim() === val.R2_BUCKET_ASSETS.trim()) {
+      add("R2_BUCKET_KYC", "must differ from R2_BUCKET_ASSETS (KYC PII must not share the public assets bucket)");
+    }
+    // GEO-1: the geo gate fails closed and defaults ENFORCED in production, so the
+    // edge-proof secret that authenticates the (otherwise forgeable) region headers is
+    // MANDATORY in production — without it a client hitting the origin directly could
+    // spoof CF-IPCountry to defeat a region BLOCK. Deploy it ATOMICALLY with the edge's
+    // x-edge-proof injection (else legitimate geo traffic fails closed until both agree).
+    if (!val.GEO_EDGE_HEADER_SECRET?.trim()) {
+      add(
+        "GEO_EDGE_HEADER_SECRET",
+        "required in production (authenticates the geo region headers; the trusted edge must inject x-edge-proof with this value)",
+      );
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 
