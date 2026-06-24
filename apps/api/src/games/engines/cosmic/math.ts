@@ -99,7 +99,7 @@ const BASE_COMMON: Record<SymbolId, number> = {
   TEN: 21,
   NINE: 23,
   WILD: 0,
-  SCATTER: 5.5,
+  SCATTER: 3.4,
   BONUS: BONUS_WEIGHT,
 };
 
@@ -109,12 +109,12 @@ const BASE_COMMON: Record<SymbolId, number> = {
  *  (the bonus-winrate invariant); the rising multiplier then amplifies on top, so the free
  *  weights only need to EDGE base — over-inflating them crashes the calibration scalar. */
 const FREE_COMMON: Record<SymbolId, number> = {
-  CORE: 5,
-  CRYSTAL: 6,
-  ORB: 7,
-  SATELLITE: 8,
-  ENERGY: 10,
-  TABLET: 12,
+  CORE: 7,
+  CRYSTAL: 8,
+  ORB: 9,
+  SATELLITE: 10,
+  ENERGY: 11,
+  TABLET: 13,
   A: 13,
   K: 15,
   Q: 17,
@@ -127,14 +127,14 @@ const FREE_COMMON: Record<SymbolId, number> = {
 };
 
 export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3.5);
-export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 6);
+export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 9);
 
 /** Pay per line for k-of-a-kind from reel 1, in bps of total bet. The cheapest royals
  *  pay little at 3 (keeps the sub-1× loss-disguised-as-win flood in check). */
 export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
-  CORE: { 3: 40000, 4: 200000, 5: 1000000 },
-  CRYSTAL: { 3: 25000, 4: 120000, 5: 600000 },
-  ORB: { 3: 18000, 4: 90000, 5: 450000 },
+  CORE: { 3: 40000, 4: 300000, 5: 4000000 },
+  CRYSTAL: { 3: 25000, 4: 180000, 5: 2200000 },
+  ORB: { 3: 18000, 4: 110000, 5: 1300000 },
   SATELLITE: { 3: 12000, 4: 50000, 5: 180000 },
   ENERGY: { 3: 9000, 4: 36000, 5: 140000 },
   TABLET: { 3: 7000, 4: 28000, 5: 100000 },
@@ -173,7 +173,7 @@ export const MAX_FREE_SPINS = 60;
  * …) and is capped. No RNG, no collectible — the ramp IS the feature, and as the spins
  * accumulate the multiplier climbs, concentrating volatility into the tail.
  */
-export const MAX_FS_MULTIPLIER = 10;
+export const MAX_FS_MULTIPLIER = 15;
 
 /** Minimum BONUS symbols to trigger the instant prize. */
 export const BONUS_TRIGGER = 3;
@@ -189,9 +189,9 @@ export const BONUS_AWARD: Record<number, number> = {
   5: 5000000,
 };
 
-/** Hard per-round win cap = 5000× total bet (in bps). Bounds liability and gives the
+/** Hard per-round win cap = 15000× total bet (in bps). Bounds liability and gives the
  *  game a headline max-win; binds very rarely so it stays a real jackpot event. */
-export const MAX_WIN_BPS = 50_000_000;
+export const MAX_WIN_BPS = 150_000_000;
 
 /**
  * Global linear RTP calibration (bps) for the SCALED slice (lines + scatter + free
@@ -199,7 +199,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * `scaledRtp(scalar) + bonusRtp`. CALIBRATED by simulate.ts — run it after any table
  * change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 27360;
+export const PAYOUT_SCALAR_BPS = 38889;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

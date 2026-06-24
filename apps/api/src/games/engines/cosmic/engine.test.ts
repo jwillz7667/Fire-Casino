@@ -36,7 +36,7 @@ describe("Cosmic Spins engine — RTP", () => {
     for (let i = 0; i < spins; i++) totalWinBps += BigInt(spin(rng).totalWinBps);
     const rtp = Number(totalWinBps) / (spins * 10_000);
     // 5% band absorbs the heavy bonus + free-spin tail (rising multiplier, 500× prize,
-    // 5000× cap) at this sample size.
+    // 15000× cap) at this sample size.
     expect(Math.abs(rtp - CERTIFIED_RTP_BPS / 10_000)).toBeLessThan(0.05);
   });
 
@@ -60,10 +60,10 @@ describe("Cosmic Spins engine — RTP", () => {
         expect(outcome.base.scatterCount).toBeGreaterThanOrEqual(3);
         expect(outcome.freeSpins.spins.length).toBe(outcome.freeSpins.totalSpins);
         expect(outcome.freeSpins.totalSpins).toBeGreaterThanOrEqual(8);
-        // multiplier ramps +1/spin (1,2,3,…) capped at 10; the first spin is always ×1.
+        // multiplier ramps +1/spin (1,2,3,…) capped at 15; the first spin is always ×1.
         expect(outcome.freeSpins.spins[0]!.multiplier).toBe(1);
         expect(outcome.freeSpins.endMultiplier).toBeGreaterThanOrEqual(1);
-        expect(outcome.freeSpins.endMultiplier).toBeLessThanOrEqual(10);
+        expect(outcome.freeSpins.endMultiplier).toBeLessThanOrEqual(15);
       } else {
         expect(outcome.base.scatterCount).toBeLessThan(3);
       }

@@ -213,7 +213,7 @@ function runFreeSpins(rng: Rng, triggerScatters: number): FreeSpinsResult {
  *
  * Calibration model: the line + scatter + free-spin slice is scaled by PAYOUT_SCALAR_BPS;
  * the BONUS prize is added VERBATIM (never scaled) so the headline 20×/100×/500× reveal is
- * always exact. The 5000× cap binds last.
+ * always exact. The 15000× cap binds last.
  */
 export function spin(rng: Rng): EngineResult {
   const baseGrid = drawGrid(rng, BASE_REEL_WEIGHTS);
