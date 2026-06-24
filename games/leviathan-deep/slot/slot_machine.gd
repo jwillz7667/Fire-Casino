@@ -154,6 +154,7 @@ var kraken_layer: CanvasLayer
 var textures := {}
 var words := {}
 var _add_mat: CanvasItemMaterial
+var _radial_glow_tex: GradientTexture2D
 
 # reel state
 var reels := []
@@ -211,8 +212,17 @@ var _speed_idx := 1            # index into SPEED_SCALES/SPEED_NAMES; 1 == NORMA
 var speed_scale := 1.0         # multiplies every gameplay animation duration (see dur())
 var _zoomed := false
 var _t := 0.0
-var _running_bps := 0
 var _gen_orbs := false   # mock: include MULT_ORB in the symbol pool during free-spin generation
+
+# ---- WIN display calibration (FIX A) ----
+# outcome.totalWinBps is the ONLY authoritative win. Per-step stepWinBps are PRE-CALIBRATION (the
+# server multiplies the base+free-spins slice by a hidden scalar before producing totalWinBps), so
+# summing them overstates the win — we use them ONLY as relative weights. See _calibrated_win_bps().
+var _raw_total := 0       # Σ all stepWinBps across base + free-spins cascades (display weights)
+var _raw_so_far := 0      # Σ stepWinBps that have been presented so far this round
+var _scaled_target := 0   # totalWinBps - bonus_award (the calibrated base+free-spins slice)
+var _bonus_award := 0     # verbatim Kraken award (an exact, un-scaled portion of totalWinBps)
+var _bonus_shown := 0     # 0 until the Kraken reveal, then == _bonus_award
 
 var BET_STEPS := [50, 100, 250, 500, 1000, 2000, 5000, 10000]  # $0.05 .. $10.00
 
@@ -384,6 +394,23 @@ func _additive_mat() -> CanvasItemMaterial:
 		_add_mat = CanvasItemMaterial.new()
 		_add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	return _add_mat
+
+## Cached soft radial glow (white core -> transparent). Tinted via a sprite's modulate + additive
+## blend; used for the red Kraken-eye takeover glow (FIX B). 128px so it scales up cleanly.
+func _radial_glow() -> GradientTexture2D:
+	if _radial_glow_tex == null:
+		var g := Gradient.new()
+		g.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
+		g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.5), Color(1, 1, 1, 0.0)])
+		var tex := GradientTexture2D.new()
+		tex.gradient = g
+		tex.fill = GradientTexture2D.FILL_RADIAL
+		tex.fill_from = Vector2(0.5, 0.5)
+		tex.fill_to = Vector2(1.0, 0.5)
+		tex.width = 128
+		tex.height = 128
+		_radial_glow_tex = tex
+	return _radial_glow_tex
 
 # ----------------------------------------------------------------- audio
 func _cue_stream(name: String) -> AudioStream:
@@ -738,19 +765,29 @@ func _resolve(outcome: Dictionary) -> void:
 	if _zoomed:
 		_zoom_board(1.0, 0.3)
 
-	_running_bps = 0
-	await _present_cascades(base)
+	# FIX A — drive the WIN from the authoritative outcome.totalWinBps. stepWinBps are pre-calibration
+	# and used ONLY as relative weights: the WIN is the calibrated base+free-spins slice scaled in
+	# proportionally as steps show, plus the verbatim Kraken award once revealed. Both terms only ever
+	# grow, so the displayed WIN is monotonic non-decreasing and lands exactly on totalWinBps.
+	var total := _num(outcome.get("totalWinBps", 0))
+	var bonus_d = outcome.get("bonus", null)
+	_bonus_award = _num(bonus_d.get("awardBps", 0)) if typeof(bonus_d) == TYPE_DICTIONARY else 0
+	_scaled_target = maxi(0, total - _bonus_award)
+	_raw_total = _sum_round_raw(outcome)
+	_raw_so_far = 0
+	_bonus_shown = 0
 
-	if outcome.get("bonus", null) != null:
-		await _present_bonus(outcome.bonus)
+	await _present_cascades(base)
+	if bonus_d != null:
+		await _present_bonus(bonus_d)
 	if outcome.get("freeSpins", null) != null:
 		await _run_free_spins(outcome.freeSpins)
 
-	var total := _num(outcome.get("totalWinBps", 0))
 	var mult := _final_multiplier(outcome)
 	if total > 0 and mult > 1:
 		await _fly_multiply_to_win(mult, total)
 	await _celebrate(str(feel.get("winTier", "NONE")), total)
+	# Snap to the exact authoritative figure (guards against integer-rounding drift during the climb).
 	if total > 0:
 		_show_win_amount(total)
 
@@ -892,8 +929,8 @@ func _present_cascades(spin: Dictionary) -> void:
 		if wins.is_empty():
 			continue
 		await _highlight_step(step)
-		_running_bps += _num(step.get("stepWinBps", 0))
-		_show_win_amount(_running_bps)
+		_raw_so_far += _num(step.get("stepWinBps", 0))
+		_show_win_amount(_calibrated_win_bps())
 		if i + 1 < cascades.size():
 			# Bonus drop-in anticipation: with exactly 2 BONUS already on the board, the next
 			# tumble could complete the 3-BONUS Kraken trigger — build suspense before it drops.
@@ -1196,6 +1233,27 @@ func _shake(mag: float, secs: float) -> void:
 		t.tween_property(board, "position", origin + Vector2(randf_range(-m, m), randf_range(-m, m)), dur(0.04))
 	t.tween_property(board, "position", origin, dur(0.06))
 
+## The authoritative WIN to display right now (FIX A): the calibrated base+free-spins slice scaled
+## in by the fraction of step weight already shown, plus the verbatim Kraken award once revealed.
+## Monotonic non-decreasing (both terms only ever grow); equals totalWinBps once every step has shown
+## (_raw_so_far == _raw_total) and the bonus is in (round(scaled_target*1) + bonus_award == total).
+func _calibrated_win_bps() -> int:
+	return int(round(float(_scaled_target) * float(_raw_so_far) / float(maxi(_raw_total, 1)))) + _bonus_shown
+
+func _sum_step_bps(spin: Dictionary) -> int:
+	var s := 0
+	for step in spin.get("cascades", []):
+		s += _num(step.get("stepWinBps", 0))
+	return s
+
+func _sum_round_raw(outcome: Dictionary) -> int:
+	var total := _sum_step_bps(outcome.get("base", {}))
+	var fs = outcome.get("freeSpins", null)
+	if typeof(fs) == TYPE_DICTIONARY:
+		for sp in fs.get("spins", []):
+			total += _sum_step_bps(sp)
+	return total
+
 func _show_win_amount(total_bps: int) -> void:
 	var credits := float(total_bps) / 10000.0 * float(bet_minor) / 1000.0
 	if credits <= 0:
@@ -1207,9 +1265,6 @@ func _show_win_amount(total_bps: int) -> void:
 	lbl_win.scale = Vector2(1.26, 1.26)
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	t.tween_property(lbl_win, "scale", Vector2(1.0, 1.0), dur(0.24))
-
-func _count_up(award_bps: int) -> void:
-	_show_win_amount(_running_bps)
 
 ## The dominant multiplier the player should see "applied" at the end of a round: the free-spins
 ## end tide if the feature ran, otherwise the top base-cascade multiplier.
@@ -1223,14 +1278,11 @@ func _final_multiplier(outcome: Dictionary) -> int:
 		m = maxi(m, _num(step.get("multiplier", 1)))
 	return m
 
-## PRESENTATION ONLY (the authoritative totalWinBps is unchanged): stage the multiply by snapping
-## the WIN back to the pre-multiplier subtotal, flying a multiplier orb from the win-cluster spot
-## into the WIN value, then counting WIN up to the final total. Respects dur() so it tracks speed.
-func _fly_multiply_to_win(mult: int, total_bps: int) -> void:
-	var subtotal := int(round(float(total_bps) / float(mult)))
-	if subtotal >= total_bps:
-		return
-	_show_win_amount(subtotal)
+## PRESENTATION ONLY — a cosmetic "delivering the multiplier" beat (FIX A): a multiplier orb (with
+## its xN) flies from the tide cluster into the WIN and the WIN pulses on arrival. By the time this
+## runs the WIN already reads the authoritative total (the proportional climb landed on it), so this
+## NEVER touches the number — it is pure flourish and can only ever celebrate, not lower, the figure.
+func _fly_multiply_to_win(mult: int, _total_bps: int) -> void:
 	var fsz: float = maxf(tide_orb.size.x, 76.0)
 	var start := tide_orb.position + tide_orb.size * 0.5
 	var dest := lbl_win.position + lbl_win.size * 0.5
@@ -1262,7 +1314,6 @@ func _fly_multiply_to_win(mult: int, total_bps: int) -> void:
 	await t.finished
 	fly.queue_free()
 	_pulse(lbl_win)
-	await _count_up_win(subtotal, total_bps)
 
 ## Count the WIN label from one bps figure to another over a short eased tween, then snap-pop the
 ## authoritative value. Keeps the displayed money exact at the end regardless of tween rounding.
@@ -1382,21 +1433,51 @@ func _set_tide_icon(on: bool) -> void:
 	tide_orb.visible = on
 
 # --------------------------------------------------------------- kraken awakens
-## Kraken Awakens — a full-screen takeover decided server-side from the BONUS count (3..6). The
-## fixed prize (awardBps) is added to the round VERBATIM and counted up exactly.
+## Kraken Awakens — a full-screen BIG-WIN takeover decided server-side from the BONUS count (3..6).
+## The fixed prize (awardBps: 20x/75x/300x/1000x) is the VERBATIM, un-scaled portion of totalWinBps,
+## so the WIN counts UP by exactly it (FIX A). The cinematic (FIX B): a pulsing red kraken-eye glow
+## at the frame's top-centre, the KRAKEN AWAKENS title pop, a redder/darker background + backplate
+## hue shift, and a dramatic cue — all of which revert cleanly so the next spin looks normal.
 func _present_bonus(bonus: Dictionary) -> void:
 	_duck_music(true)
 	play("kraken_awakens")
 	var count := _num(bonus.get("krakenCount", 3))
 	var award := _num(bonus.get("awardBps", 0))
 
+	# (FIX B) shift the deep background + reel backplate toward a redder, darker tone for the takeover.
+	var bg_was := cur_bg.modulate
+	var bp_was := backplate.modulate
+	var red_tint := Color(1.0, 0.55, 0.5) * 0.85
+	var ht := create_tween().set_trans(Tween.TRANS_SINE)
+	ht.tween_property(cur_bg, "modulate", red_tint, dur(0.5))
+	ht.parallel().tween_property(backplate, "modulate", red_tint, dur(0.5))
+
 	var dim := ColorRect.new()
-	dim.color = Color(0.01, 0.04, 0.08, 0.0)
+	dim.color = Color(0.06, 0.01, 0.02, 0.0)   # red-black dim to match the Kraken takeover
 	dim.size = view
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	kraken_layer.add_child(dim)
 	var dt := create_tween()
-	dt.tween_property(dim, "color", Color(0.01, 0.04, 0.08, 0.82), dur(0.4))
+	dt.tween_property(dim, "color", Color(0.06, 0.01, 0.02, 0.82), dur(0.4))
+
+	# (FIX B) red kraken-eye glow at the frame's top-centre (where reel_frame's eye/trident motif is).
+	# It lives on kraken_layer ABOVE the dim so it reads as the eye lighting up through the darkness,
+	# and is positioned in screen space mirroring _cell_world() so it stays glued to the frame.
+	var eye := Sprite2D.new()
+	eye.texture = _radial_glow()
+	eye.centered = true
+	eye.material = _additive_mat()
+	eye.z_index = 1
+	eye.position = board.position + Vector2(frame_pos.x + frame_size.x * 0.5, frame_pos.y + frame_size.y * 0.12) * board.scale.x
+	var eye_d: float = frame_size.x * 0.42 * board.scale.x
+	var eye_base := Vector2(eye_d, eye_d) / float(_radial_glow().width)
+	eye.scale = eye_base
+	eye.modulate = Color(1.0, 0.12, 0.08, 0.0)
+	kraken_layer.add_child(eye)
+	create_tween().set_trans(Tween.TRANS_SINE).tween_property(eye, "modulate:a", 0.95, dur(0.35))
+	var eye_pulse := create_tween().set_loops().set_trans(Tween.TRANS_SINE)
+	eye_pulse.tween_property(eye, "scale", eye_base * 1.22, dur(0.45))
+	eye_pulse.tween_property(eye, "scale", eye_base, dur(0.45))
 
 	var kr := Sprite2D.new()
 	var ktex = textures.get("KRAKEN", null)
@@ -1423,17 +1504,28 @@ func _present_bonus(bonus: Dictionary) -> void:
 	wt.tween_property(kr, "rotation", -0.04, dur(0.5))
 	await get_tree().create_timer(dur(1.6)).timeout
 
-	_running_bps += award
-	_count_up(award)
+	# (FIX A) reveal the verbatim award: count the WIN up by exactly the Kraken prize. _bonus_shown
+	# only ever goes 0 -> award, so the WIN climbs and stays monotonic.
+	var before := _calibrated_win_bps()
+	_bonus_shown += award
+	var after := _calibrated_win_bps()
 	_show_banner("+ %s" % _fmt(float(award) / 10000.0 * float(bet_minor) / 1000.0))
-	await get_tree().create_timer(dur(1.4)).timeout
+	await _count_up_win(before, after)
+	await get_tree().create_timer(dur(1.2)).timeout
 
+	# (FIX B) revert everything so a normal spin afterward looks normal: kill the eye pulse and fade
+	# the glow, restore the bg/backplate hue, lift the dim and retract the kraken.
+	eye_pulse.kill()
 	var out := create_tween()
 	out.tween_property(kr, "modulate", Color(1, 1, 1, 0), dur(0.4))
 	out.parallel().tween_property(kr, "position:y", view.y * 1.2, dur(0.5))
-	out.parallel().tween_property(dim, "color", Color(0.01, 0.04, 0.08, 0.0), dur(0.5))
+	out.parallel().tween_property(dim, "color", Color(0.06, 0.01, 0.02, 0.0), dur(0.5))
+	out.parallel().tween_property(eye, "modulate:a", 0.0, dur(0.4))
+	out.parallel().tween_property(cur_bg, "modulate", bg_was, dur(0.5))
+	out.parallel().tween_property(backplate, "modulate", bp_was, dur(0.5))
 	out.tween_callback(kr.queue_free)
 	out.tween_callback(dim.queue_free)
+	out.tween_callback(eye.queue_free)
 	await get_tree().create_timer(dur(0.5)).timeout
 	_duck_music(false)
 
