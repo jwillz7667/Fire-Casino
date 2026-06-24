@@ -412,6 +412,18 @@ func _radial_glow() -> GradientTexture2D:
 		_radial_glow_tex = tex
 	return _radial_glow_tex
 
+## A centred, additive radial-glow Sprite2D of board-local diameter `d`, tinted `col`, parented to
+## `parent`. Building block for the Kraken eye (socket halo / iris / glint).
+func _add_eye_glow(parent: Node2D, d: float, col: Color) -> Sprite2D:
+	var s := Sprite2D.new()
+	s.texture = _radial_glow()
+	s.centered = true
+	s.material = _additive_mat()
+	s.scale = Vector2.ONE * (d / float(_radial_glow().width))
+	s.modulate = col
+	parent.add_child(s)
+	return s
+
 # ----------------------------------------------------------------- audio
 func _cue_stream(name: String) -> AudioStream:
 	for ext in [".ogg", ".wav"]:
@@ -1435,9 +1447,10 @@ func _set_tide_icon(on: bool) -> void:
 # --------------------------------------------------------------- kraken awakens
 ## Kraken Awakens — a full-screen BIG-WIN takeover decided server-side from the BONUS count (3..6).
 ## The fixed prize (awardBps: 20x/75x/300x/1000x) is the VERBATIM, un-scaled portion of totalWinBps,
-## so the WIN counts UP by exactly it (FIX A). The cinematic (FIX B): a pulsing red kraken-eye glow
-## at the frame's top-centre, the KRAKEN AWAKENS title pop, a redder/darker background + backplate
-## hue shift, and a dramatic cue — all of which revert cleanly so the next spin looks normal.
+## so the WIN counts UP by exactly it (FIX A). The cinematic (FIX B): the frame's top-centre eye snaps
+## open as a glowing red slit-pupil kraken eye (socket halo + iris + narrowing slit + glint), the
+## KRAKEN AWAKENS title pops, the background + backplate hue-shift redder/darker, and a dramatic cue
+## plays — all of which revert (the eye blinks shut) cleanly so the next spin looks normal.
 func _present_bonus(bonus: Dictionary) -> void:
 	_duck_music(true)
 	play("kraken_awakens")
@@ -1460,24 +1473,54 @@ func _present_bonus(bonus: Dictionary) -> void:
 	var dt := create_tween()
 	dt.tween_property(dim, "color", Color(0.06, 0.01, 0.02, 0.82), dur(0.4))
 
-	# (FIX B) red kraken-eye glow at the frame's top-centre (where reel_frame's eye/trident motif is).
-	# It lives on kraken_layer ABOVE the dim so it reads as the eye lighting up through the darkness,
-	# and is positioned in screen space mirroring _cell_world() so it stays glued to the frame.
-	var eye := Sprite2D.new()
-	eye.texture = _radial_glow()
-	eye.centered = true
-	eye.material = _additive_mat()
-	eye.z_index = 1
-	eye.position = board.position + Vector2(frame_pos.x + frame_size.x * 0.5, frame_pos.y + frame_size.y * 0.12) * board.scale.x
-	var eye_d: float = frame_size.x * 0.42 * board.scale.x
-	var eye_base := Vector2(eye_d, eye_d) / float(_radial_glow().width)
-	eye.scale = eye_base
-	eye.modulate = Color(1.0, 0.12, 0.08, 0.0)
-	kraken_layer.add_child(eye)
-	create_tween().set_trans(Tween.TRANS_SINE).tween_property(eye, "modulate:a", 0.95, dur(0.35))
+	# (FIX B) Bring the FRAME'S eye to life. The painted green slit-eye in the top-centre crest becomes
+	# a glowing red kraken eye that snaps open, narrows and pulses. Everything hangs off one eye_root on
+	# kraken_layer (ABOVE the dim, so it reads as the eye burning through the dark); the root carries
+	# board.scale and is projected to the eye in screen space (mirroring _cell_world), so child sizes are
+	# authored in board-local frame fractions. eye_cy is the eye centre as a fraction of frame height.
+	var eye_cy := 0.135
+	var bscale: float = board.scale.x
+	var eye_root := Node2D.new()
+	eye_root.z_index = 1
+	eye_root.position = board.position + Vector2(frame_pos.x + frame_size.x * 0.5, frame_pos.y + frame_size.y * eye_cy) * bscale
+	kraken_layer.add_child(eye_root)
+	# socket halo (deep red — the crest glowing) + iris (hot orange-red — the eyeball burning).
+	var halo := _add_eye_glow(eye_root, frame_size.x * 0.27, Color(1.0, 0.07, 0.05, 0.85))
+	halo.z_index = 0
+	var iris := _add_eye_glow(eye_root, frame_size.x * 0.12, Color(1.0, 0.32, 0.12, 1.0))
+	iris.z_index = 1
+	var iris_base := iris.scale
+	# slit pupil — a thin vertical lens (near-black) on the iris so it reads as a reptilian eye.
+	var rx: float = frame_size.x * 0.011
+	var ry: float = frame_size.y * 0.033
+	var slit := Polygon2D.new()
+	var pts := PackedVector2Array()
+	for i in 24:
+		var a := TAU * float(i) / 24.0
+		pts.append(Vector2(rx * cos(a), ry * sin(a)))
+	slit.polygon = pts
+	slit.color = Color(0.05, 0.0, 0.0, 0.96)
+	slit.z_index = 2
+	eye_root.add_child(slit)
+	# a small white glint near the top of the iris for life.
+	var glint := _add_eye_glow(eye_root, frame_size.x * 0.022, Color(1, 1, 1, 0.9))
+	glint.position = Vector2(-rx * 0.6, -ry * 0.5)
+	glint.z_index = 3
+	# the eye SNAPS OPEN from a closed slit (squashed + dark) to full, then settles into a menacing
+	# pulse: the socket/iris breathe and the slit narrows and widens.
+	eye_root.scale = Vector2(bscale, bscale * 0.04)
+	eye_root.modulate = Color(1, 1, 1, 0)
+	var eopen := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	eopen.tween_property(eye_root, "scale", Vector2(bscale, bscale), dur(0.34))
+	eopen.parallel().tween_property(eye_root, "modulate:a", 1.0, dur(0.22))
 	var eye_pulse := create_tween().set_loops().set_trans(Tween.TRANS_SINE)
-	eye_pulse.tween_property(eye, "scale", eye_base * 1.22, dur(0.45))
-	eye_pulse.tween_property(eye, "scale", eye_base, dur(0.45))
+	eye_pulse.tween_property(halo, "modulate:a", 0.45, dur(0.55))
+	eye_pulse.parallel().tween_property(iris, "scale", iris_base * 1.12, dur(0.55))
+	eye_pulse.tween_property(halo, "modulate:a", 0.9, dur(0.55))
+	eye_pulse.parallel().tween_property(iris, "scale", iris_base, dur(0.55))
+	var slit_pulse := create_tween().set_loops().set_trans(Tween.TRANS_SINE)
+	slit_pulse.tween_property(slit, "scale", Vector2(0.6, 1.04), dur(0.7))
+	slit_pulse.tween_property(slit, "scale", Vector2(1.0, 1.0), dur(0.7))
 
 	var kr := Sprite2D.new()
 	var ktex = textures.get("KRAKEN", null)
@@ -1516,16 +1559,18 @@ func _present_bonus(bonus: Dictionary) -> void:
 	# (FIX B) revert everything so a normal spin afterward looks normal: kill the eye pulse and fade
 	# the glow, restore the bg/backplate hue, lift the dim and retract the kraken.
 	eye_pulse.kill()
+	slit_pulse.kill()
 	var out := create_tween()
 	out.tween_property(kr, "modulate", Color(1, 1, 1, 0), dur(0.4))
 	out.parallel().tween_property(kr, "position:y", view.y * 1.2, dur(0.5))
 	out.parallel().tween_property(dim, "color", Color(0.06, 0.01, 0.02, 0.0), dur(0.5))
-	out.parallel().tween_property(eye, "modulate:a", 0.0, dur(0.4))
+	out.parallel().tween_property(eye_root, "modulate:a", 0.0, dur(0.4))
+	out.parallel().tween_property(eye_root, "scale", Vector2(bscale, bscale * 0.04), dur(0.4))  # eye blinks shut
 	out.parallel().tween_property(cur_bg, "modulate", bg_was, dur(0.5))
 	out.parallel().tween_property(backplate, "modulate", bp_was, dur(0.5))
 	out.tween_callback(kr.queue_free)
 	out.tween_callback(dim.queue_free)
-	out.tween_callback(eye.queue_free)
+	out.tween_callback(eye_root.queue_free)
 	await get_tree().create_timer(dur(0.5)).timeout
 	_duck_music(false)
 
