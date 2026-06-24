@@ -84,6 +84,11 @@ const CASCADE_HOLD := 0.58
 const CASCADE_CLEAR := 0.24
 const CASCADE_DROP := 0.30
 
+## Session-only animation pace. NORMAL is the tuned baseline; SLOW/FAST multiply every gameplay
+## duration through dur(). Default NORMAL (index 1). No persistence is required.
+const SPEED_SCALES := [1.5, 1.0, 0.55]
+const SPEED_NAMES := ["SLOW", "NORMAL", "FAST"]
+
 # ---- ocean palette ----
 const AQUA_C := Color(0.36, 0.86, 1.0)
 const TEAL := Color(0.12, 0.62, 0.66)
@@ -140,7 +145,7 @@ var banner: Label
 var tide_orb: TextureRect
 var lbl_tide: Label
 var spin_btn: TextureButton
-var turbo_btn: TextureButton
+var speed_btn
 var bet_minus_btn
 var bet_plus_btn
 var maxbet_btn
@@ -170,7 +175,8 @@ var _bal_timer: Timer
 
 var _autospin := false
 var _autospin_left := 0
-var _turbo := false
+var _speed_idx := 1            # index into SPEED_SCALES/SPEED_NAMES; 1 == NORMAL (default)
+var speed_scale := 1.0         # multiplies every gameplay animation duration (see dur())
 var _zoomed := false
 var _muted := false
 var _t := 0.0
@@ -277,6 +283,12 @@ func _row_y(row: int) -> float:
 
 func _grid_center() -> Vector2:
 	return grid_pos + Vector2(cell_w * COLS, cell_h * ROWS) * 0.5
+
+## Every gameplay animation duration passes through here so the SLOW/NORMAL/FAST control rescales
+## the whole round at once. UI affordances (button taps, audio fades, idle breathing) deliberately
+## stay unscaled so the interface always feels responsive.
+func dur(base: float) -> float:
+	return base * speed_scale
 
 func _position_all_reels() -> void:
 	if reels.is_empty():
@@ -612,7 +624,7 @@ func request_spin() -> void:
 		_bet_cb = JavaScriptBridge.create_callback(_on_bridge_result)
 		bridge.placeBet(bet_minor, _bet_cb)
 	else:
-		await get_tree().create_timer(0.9).timeout
+		await get_tree().create_timer(dur(0.9)).timeout
 		_resolve(_mock_outcome())
 
 func _on_bridge_result(args: Array) -> void:
@@ -678,14 +690,12 @@ func _stop_reels(grid: Array, feel: Dictionary) -> void:
 		if anticipating:
 			stagger = ANTICIPATE_STAGGER
 			play("anticipation")
-		if _turbo:
-			stagger *= 0.4
-		await get_tree().create_timer(stagger).timeout
+		await get_tree().create_timer(dur(stagger)).timeout
 		var final_col: Array = grid[col] if col < grid.size() else _rand_col(col)
 		_land_reel(col, final_col)
 		_play_stop(col)
 		_reveal_specials(col, final_col)
-	await get_tree().create_timer(0.18 if not _turbo else 0.06).timeout
+	await get_tree().create_timer(dur(0.18)).timeout
 	if not feel.get("nearMiss", []).is_empty():
 		_near_miss_sting()
 
@@ -712,19 +722,29 @@ func _enter_anticipation(sym: String) -> void:
 	_flash("KRAKEN STIRS…" if sym == BONUS else "THE DEEP RISES…")
 	_shake(3.0, 0.25)
 
+## Suspense beat played mid-cascade when a BONUS is one symbol from awakening the Kraken and the
+## next tumble could complete it. Zooms + teases, then settles so the drop reveals the outcome.
+func _anticipate_bonus_drop() -> void:
+	_enter_anticipation(BONUS)
+	play("anticipation")
+	await get_tree().create_timer(dur(0.7)).timeout
+	if _zoomed:
+		_zoom_board(1.0, dur(0.3))
+
 func _near_miss_sting() -> void:
 	play("near_miss")
 	_flash("SO CLOSE…")
 	var t := create_tween().set_trans(Tween.TRANS_SINE)
-	t.tween_property(board, "scale", board.scale * 0.985, 0.12)
-	t.tween_property(board, "scale", Vector2.ONE if not _zoomed else board.scale, 0.18)
+	t.tween_property(board, "scale", board.scale * 0.985, dur(0.12))
+	t.tween_property(board, "scale", Vector2.ONE if not _zoomed else board.scale, dur(0.18))
 
-func _zoom_board(factor: float, dur: float) -> void:
+func _zoom_board(factor: float, secs: float) -> void:
 	_zoomed = factor != 1.0
 	var center := _grid_center()
+	var d := dur(secs)
 	var t := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.tween_property(board, "scale", Vector2(factor, factor), dur)
-	t.parallel().tween_property(board, "position", center * (1.0 - factor), dur)
+	t.tween_property(board, "scale", Vector2(factor, factor), d)
+	t.parallel().tween_property(board, "position", center * (1.0 - factor), d)
 
 func _play_stop(col: int) -> void:
 	var v := ["reel_land", "reel_land_b", "reel_land_c"]
@@ -745,7 +765,7 @@ func _land_reel(col: int, column: Array) -> void:
 	var base_y := grid_pos.y
 	win.position.y = base_y - 18.0
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_property(win, "position:y", base_y, 0.26)
+	t.tween_property(win, "position:y", base_y, dur(0.26))
 	# pop the freshly landed visible cells.
 	for row in ROWS:
 		var sp: Sprite2D = reel.sprites[row + 1]
@@ -753,7 +773,7 @@ func _land_reel(col: int, column: Array) -> void:
 		var bs := _sym_scale(sp.texture)
 		sp.scale = bs * 0.82
 		var pt := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		pt.tween_property(sp, "scale", bs, 0.22)
+		pt.tween_property(sp, "scale", bs, dur(0.22))
 
 func _force_stop() -> void:
 	for col in COLS:
@@ -784,6 +804,10 @@ func _present_cascades(spin: Dictionary) -> void:
 		_running_bps += _num(step.get("stepWinBps", 0))
 		_show_win_amount(_running_bps)
 		if i + 1 < cascades.size():
+			# Bonus drop-in anticipation: with exactly 2 BONUS already on the board, the next
+			# tumble could complete the 3-BONUS Kraken trigger — build suspense before it drops.
+			if _count(step.get("grid", []), BONUS) == BONUS_TRIGGER - 1:
+				await _anticipate_bonus_drop()
 			await _tumble_to(cascades[i + 1].get("grid", []), step)
 		else:
 			_reset_dim()
@@ -808,8 +832,8 @@ func _highlight_step(step: Dictionary) -> void:
 		sp.modulate = Color(1, 1, 1, 1)
 		var bs := _sym_scale(sp.texture)
 		var t := create_tween().set_loops(2).set_trans(Tween.TRANS_SINE)
-		t.tween_property(sp, "scale", bs * 1.16, 0.16)
-		t.tween_property(sp, "scale", bs, 0.16)
+		t.tween_property(sp, "scale", bs * 1.16, dur(0.16))
+		t.tween_property(sp, "scale", bs, dur(0.16))
 		var sym: String = cells[key]
 		if sym in HIGH: any_high = true
 		_glow_cell(col, row, sym, sym in HIGH)
@@ -820,7 +844,7 @@ func _highlight_step(step: Dictionary) -> void:
 		_show_cascade_mult(mult)
 	play("win_big" if any_high else "win_medium")
 	play("cascade_pop")
-	await get_tree().create_timer((CASCADE_HOLD * 0.5) if _turbo else CASCADE_HOLD).timeout
+	await get_tree().create_timer(dur(CASCADE_HOLD)).timeout
 
 func _tumble_to(next_grid: Array, step: Dictionary) -> void:
 	var cleared := _win_cells(step)
@@ -828,12 +852,12 @@ func _tumble_to(next_grid: Array, step: Dictionary) -> void:
 		var parts: Array = key.split(":")
 		_explode_cell(int(parts[0]), int(parts[1]))
 	play("cascade_pop")
-	await get_tree().create_timer((CASCADE_CLEAR * 0.5) if _turbo else CASCADE_CLEAR).timeout
-	var dur := 0.0
+	await get_tree().create_timer(dur(CASCADE_CLEAR)).timeout
+	var longest := 0.0
 	for col in COLS:
 		var col_syms: Array = next_grid[col] if col < next_grid.size() else _rand_col(col)
-		dur = max(dur, _drop_column(col, col_syms))
-	await get_tree().create_timer(dur + 0.04).timeout
+		longest = max(longest, _drop_column(col, col_syms))
+	await get_tree().create_timer(longest + 0.04).timeout
 	_reset_dim()
 
 ## Whole-column re-drop tumble: after the winners burst, the column refills from the top. The next
@@ -848,7 +872,6 @@ func _drop_column(col: int, col_syms: Array) -> float:
 	reel.symbols = s
 	reel.scroll = 0.0
 	reel.state = "stopped"
-	var speed := 0.5 if _turbo else 1.0
 	var longest := 0.0
 	for idx in SPR:
 		var sp: Sprite2D = reel.sprites[idx]
@@ -859,8 +882,8 @@ func _drop_column(col: int, col_syms: Array) -> float:
 			var bs := _sym_scale(sp.texture)
 			sp.position.y = final_y - cell_h * (ROWS - row + 0.8)
 			sp.scale = bs * 0.84
-			var delay := (ROWS - 1 - row) * 0.045 * speed
-			var drop := CASCADE_DROP * speed
+			var delay := dur((ROWS - 1 - row) * 0.045)
+			var drop := dur(CASCADE_DROP)
 			var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 			t.tween_interval(delay)
 			t.tween_property(sp, "position:y", final_y, drop)
@@ -877,8 +900,8 @@ func _explode_cell(col: int, row: int) -> void:
 	if sp.texture:
 		var bs := _sym_scale(sp.texture)
 		var t := create_tween().set_trans(Tween.TRANS_SINE)
-		t.tween_property(sp, "scale", bs * 1.34, 0.16)
-		t.parallel().tween_property(sp, "modulate:a", 0.0, 0.18)
+		t.tween_property(sp, "scale", bs * 1.34, dur(0.16))
+		t.parallel().tween_property(sp, "modulate:a", 0.0, dur(0.18))
 	var burst := CPUParticles2D.new()
 	burst.position = _cell_world(col, row)
 	burst.z_index = 58
@@ -949,8 +972,8 @@ func _pulse_cell(col: int, row: int) -> void:
 	if sp.texture == null: return
 	var bs := _sym_scale(sp.texture)
 	var t := create_tween().set_loops(2).set_trans(Tween.TRANS_SINE)
-	t.tween_property(sp, "scale", bs * 1.20, 0.16)
-	t.tween_property(sp, "scale", bs, 0.16)
+	t.tween_property(sp, "scale", bs * 1.20, dur(0.16))
+	t.tween_property(sp, "scale", bs, dur(0.16))
 
 func _cell_world(col: int, row: int) -> Vector2:
 	return board.position + Vector2(_reel_x(col), _row_y(row)) * board.scale.x
@@ -979,9 +1002,9 @@ func _glow_cell(col: int, row: int, sym: String, strong: bool) -> void:
 	var peak := 0.85 if strong else 0.5
 	var grow := 1.36 if strong else 1.2
 	var t := create_tween().set_trans(Tween.TRANS_SINE)
-	t.tween_property(g, "modulate:a", peak, 0.18)
-	t.parallel().tween_property(g, "scale", bs * grow, 0.18)
-	t.tween_property(g, "modulate:a", 0.0, 0.55)
+	t.tween_property(g, "modulate:a", peak, dur(0.18))
+	t.parallel().tween_property(g, "scale", bs * grow, dur(0.18))
+	t.tween_property(g, "modulate:a", 0.0, dur(0.55))
 	t.tween_callback(g.queue_free)
 
 func _celebrate(tier: String, total_bps: int) -> void:
@@ -990,24 +1013,24 @@ func _celebrate(tier: String, total_bps: int) -> void:
 			play("win_small")
 		"BIG":
 			play("bigwin_fanfare"); _shake(7.0, 0.45); _coin_shower(1)
-			await _show_word("big_win", 1.3 if not _turbo else 0.7)
+			await _show_word("big_win", 1.3)
 		"MEGA":
 			play("megawin_fanfare"); _shake(12.0, 0.65); _coin_shower(2)
-			await _show_word("mega_win", 1.7 if not _turbo else 0.9)
+			await _show_word("mega_win", 1.7)
 		"EPIC", "JACKPOT":
 			play("epicwin_fanfare"); _shake(16.0, 0.9); _coin_shower(3)
 			_zoom_pulse()
-			await _show_word("epic_win", 2.1 if not _turbo else 1.1)
+			await _show_word("epic_win", 2.1)
 		_:
 			pass
 
 func _zoom_pulse() -> void:
 	var center := _grid_center()
 	var t := create_tween().set_trans(Tween.TRANS_SINE)
-	t.tween_property(board, "scale", Vector2(1.05, 1.05), 0.18)
-	t.parallel().tween_property(board, "position", center * (1.0 - 1.05), 0.18)
-	t.tween_property(board, "scale", Vector2.ONE, 0.3)
-	t.parallel().tween_property(board, "position", Vector2.ZERO, 0.3)
+	t.tween_property(board, "scale", Vector2(1.05, 1.05), dur(0.18))
+	t.parallel().tween_property(board, "position", center * (1.0 - 1.05), dur(0.18))
+	t.tween_property(board, "scale", Vector2.ONE, dur(0.3))
+	t.parallel().tween_property(board, "position", Vector2.ZERO, dur(0.3))
 
 func _coin_shower(intensity: int) -> void:
 	play("coin_shower")
@@ -1050,16 +1073,16 @@ func _show_word(key: String, hold: float) -> void:
 	w.scale = Vector2(0.6, 0.6)
 	word_layer.add_child(w)
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_property(w, "modulate", Color(1, 1, 1, 1), 0.28)
-	t.parallel().tween_property(w, "scale", Vector2(1, 1), 0.36)
+	t.tween_property(w, "modulate", Color(1, 1, 1, 1), dur(0.28))
+	t.parallel().tween_property(w, "scale", Vector2(1, 1), dur(0.36))
 	if hold > 0.0:
-		await get_tree().create_timer(hold).timeout
+		await get_tree().create_timer(dur(hold)).timeout
 		var ft := create_tween()
-		ft.tween_property(w, "modulate", Color(1, 1, 1, 0), 0.4)
-		ft.parallel().tween_property(w, "scale", Vector2(1.12, 1.12), 0.4)
+		ft.tween_property(w, "modulate", Color(1, 1, 1, 0), dur(0.4))
+		ft.parallel().tween_property(w, "scale", Vector2(1.12, 1.12), dur(0.4))
 		ft.tween_callback(w.queue_free)
 	else:
-		get_tree().create_timer(2.4).timeout.connect(w.queue_free)
+		get_tree().create_timer(dur(2.4)).timeout.connect(w.queue_free)
 
 func _show_banner(text: String) -> void:
 	banner.text = text
@@ -1067,20 +1090,20 @@ func _show_banner(text: String) -> void:
 	banner.modulate = Color(1, 1, 1, 0)
 	banner.scale = Vector2(0.6, 0.6)
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_property(banner, "modulate", Color(1, 1, 1, 1), 0.25)
-	t.parallel().tween_property(banner, "scale", Vector2(1, 1), 0.35)
-	t.tween_interval(1.0)
-	t.tween_property(banner, "modulate", Color(1, 1, 1, 0), 0.4)
+	t.tween_property(banner, "modulate", Color(1, 1, 1, 1), dur(0.25))
+	t.parallel().tween_property(banner, "scale", Vector2(1, 1), dur(0.35))
+	t.tween_interval(dur(1.0))
+	t.tween_property(banner, "modulate", Color(1, 1, 1, 0), dur(0.4))
 	t.tween_callback(func(): banner.visible = false)
 
-func _shake(mag: float, dur: float) -> void:
+func _shake(mag: float, secs: float) -> void:
 	var origin := board.position
-	var steps := int(dur / 0.04)
+	var steps := int(secs / 0.04)
 	var t := create_tween()
 	for i in steps:
 		var m := mag * (1.0 - float(i) / float(max(1, steps)))
-		t.tween_property(board, "position", origin + Vector2(randf_range(-m, m), randf_range(-m, m)), 0.04)
-	t.tween_property(board, "position", origin, 0.06)
+		t.tween_property(board, "position", origin + Vector2(randf_range(-m, m), randf_range(-m, m)), dur(0.04))
+	t.tween_property(board, "position", origin, dur(0.06))
 
 func _show_win_amount(total_bps: int) -> void:
 	var credits := float(total_bps) / 10000.0 * float(bet_minor) / 1000.0
@@ -1092,7 +1115,7 @@ func _show_win_amount(total_bps: int) -> void:
 	lbl_win.pivot_offset = lbl_win.size * 0.5
 	lbl_win.scale = Vector2(1.26, 1.26)
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_property(lbl_win, "scale", Vector2(1.0, 1.0), 0.24)
+	t.tween_property(lbl_win, "scale", Vector2(1.0, 1.0), dur(0.24))
 
 func _count_up(award_bps: int) -> void:
 	_show_win_amount(_running_bps)
@@ -1104,7 +1127,7 @@ func _count_up(award_bps: int) -> void:
 func _run_free_spins(fs: Dictionary) -> void:
 	_duck_music(true)
 	play("free_spins_intro")
-	await _show_word("free_spins", 1.6 if not _turbo else 0.8)
+	await _show_word("free_spins", 1.6)
 	_set_music_fs(true)
 	var spins: Array = fs.get("spins", [])
 	var tide := _num(fs.get("startTide", 1))
@@ -1114,7 +1137,7 @@ func _run_free_spins(fs: Dictionary) -> void:
 		var sp: Dictionary = spins[i]
 		_flash("FREE SPIN  %d / %d" % [i + 1, spins.size()])
 		_begin_spin_visual()
-		await get_tree().create_timer(0.35 if not _turbo else 0.12).timeout
+		await get_tree().create_timer(dur(0.35)).timeout
 		var grid0: Array = (sp.get("cascades", [{}])[0].get("grid", []) if sp.get("cascades", []).size() > 0 else [])
 		await _stop_reels(grid0, {})
 		_spin_whir(false)
@@ -1124,9 +1147,9 @@ func _run_free_spins(fs: Dictionary) -> void:
 		await _raise_tide(grid0, tide, target)
 		tide = target
 		await _present_cascades(sp)
-		await get_tree().create_timer(0.12 if not _turbo else 0.04).timeout
+		await get_tree().create_timer(dur(0.12)).timeout
 	_flash("FREE SPINS COMPLETE")
-	await get_tree().create_timer(0.6).timeout
+	await get_tree().create_timer(dur(0.6)).timeout
 	_tide_visible(false)
 	_set_music_fs(false)
 	_duck_music(false)
@@ -1162,7 +1185,7 @@ func _raise_tide(grid: Array, from_tide: int, to_tide: int) -> void:
 	for s in range(1, steps + 1):
 		var v := from_tide + int(round(float(inc) * float(s) / float(steps)))
 		_set_tide(v)
-		await get_tree().create_timer(0.06 if not _turbo else 0.02).timeout
+		await get_tree().create_timer(dur(0.06)).timeout
 	_set_tide(to_tide)
 
 func _orb_popup(col: int, row: int, amount: int) -> void:
@@ -1177,9 +1200,9 @@ func _orb_popup(col: int, row: int, amount: int) -> void:
 	fx_layer.add_child(lbl)
 	lbl.scale = Vector2(0.6, 0.6)
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_property(lbl, "scale", Vector2(1.15, 1.15), 0.2)
-	t.tween_property(lbl, "position:y", lbl.position.y - cell_h * 0.7, 0.6)
-	t.parallel().tween_property(lbl, "modulate:a", 0.0, 0.6)
+	t.tween_property(lbl, "scale", Vector2(1.15, 1.15), dur(0.2))
+	t.tween_property(lbl, "position:y", lbl.position.y - cell_h * 0.7, dur(0.6))
+	t.parallel().tween_property(lbl, "modulate:a", 0.0, dur(0.6))
 	t.tween_callback(lbl.queue_free)
 
 func _tide_visible(on: bool) -> void:
@@ -1210,7 +1233,7 @@ func _present_bonus(bonus: Dictionary) -> void:
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	kraken_layer.add_child(dim)
 	var dt := create_tween()
-	dt.tween_property(dim, "color", Color(0.01, 0.04, 0.08, 0.82), 0.4)
+	dt.tween_property(dim, "color", Color(0.01, 0.04, 0.08, 0.82), dur(0.4))
 
 	var kr := Sprite2D.new()
 	var ktex = textures.get("KRAKEN", null)
@@ -1223,9 +1246,9 @@ func _present_bonus(bonus: Dictionary) -> void:
 	kr.modulate = Color(1, 1, 1, 0)
 	kraken_layer.add_child(kr)
 	var rt := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	rt.tween_property(kr, "position:y", view.y * 0.42, 0.6)
-	rt.parallel().tween_property(kr, "scale", Vector2(ks, ks), 0.6)
-	rt.parallel().tween_property(kr, "modulate", Color(1, 1, 1, 1), 0.4)
+	rt.tween_property(kr, "position:y", view.y * 0.42, dur(0.6))
+	rt.parallel().tween_property(kr, "scale", Vector2(ks, ks), dur(0.6))
+	rt.parallel().tween_property(kr, "modulate", Color(1, 1, 1, 1), dur(0.4))
 
 	await _show_word("kraken_awakens", 0.0)
 	play("kraken_roar")
@@ -1233,29 +1256,29 @@ func _present_bonus(bonus: Dictionary) -> void:
 	_flash("%d KRAKEN AMULETS" % count)
 	# slow tentacle wiggle while the prize builds.
 	var wt := create_tween().set_loops(3).set_trans(Tween.TRANS_SINE)
-	wt.tween_property(kr, "rotation", 0.04, 0.5)
-	wt.tween_property(kr, "rotation", -0.04, 0.5)
-	await get_tree().create_timer(1.6 if not _turbo else 0.8).timeout
+	wt.tween_property(kr, "rotation", 0.04, dur(0.5))
+	wt.tween_property(kr, "rotation", -0.04, dur(0.5))
+	await get_tree().create_timer(dur(1.6)).timeout
 
 	_running_bps += award
 	_count_up(award)
 	_show_banner("+ %s" % _fmt(float(award) / 10000.0 * float(bet_minor) / 1000.0))
-	await get_tree().create_timer(1.4 if not _turbo else 0.7).timeout
+	await get_tree().create_timer(dur(1.4)).timeout
 
 	var out := create_tween()
-	out.tween_property(kr, "modulate", Color(1, 1, 1, 0), 0.4)
-	out.parallel().tween_property(kr, "position:y", view.y * 1.2, 0.5)
-	out.parallel().tween_property(dim, "color", Color(0.01, 0.04, 0.08, 0.0), 0.5)
+	out.tween_property(kr, "modulate", Color(1, 1, 1, 0), dur(0.4))
+	out.parallel().tween_property(kr, "position:y", view.y * 1.2, dur(0.5))
+	out.parallel().tween_property(dim, "color", Color(0.01, 0.04, 0.08, 0.0), dur(0.5))
 	out.tween_callback(kr.queue_free)
 	out.tween_callback(dim.queue_free)
-	await get_tree().create_timer(0.5).timeout
+	await get_tree().create_timer(dur(0.5)).timeout
 	_duck_music(false)
 
 func _pulse(node: CanvasItem) -> void:
 	if node == null: return
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	node.scale = Vector2(1.32, 1.32)
-	t.tween_property(node, "scale", Vector2(1, 1), 0.3)
+	t.tween_property(node, "scale", Vector2(1, 1), dur(0.3))
 
 # ------------------------------------------------------------------------ HUD
 func _styled_label(size: int, color: Color) -> Label:
@@ -1265,6 +1288,27 @@ func _styled_label(size: int, color: Color) -> Label:
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	l.add_theme_constant_override("outline_size", 6)
 	return l
+
+## Big, centred, "bold" readout label for a value sitting inside a pill. No bold font is bundled,
+## so weight is faked with a heavy dark outline (outline_size) on top of a larger font_size — that
+## reads clearly over the teal pill inset. Centred on both axes so layout can size it to the inset.
+func _readout_label(size: int, color: Color) -> Label:
+	var l := _styled_label(size, color)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.add_theme_constant_override("outline_size", 12)
+	return l
+
+## Position a value label over a pill's LOWER inset (the pill art bakes its caption — BALANCE /
+## BET / WIN — into the top ~30%, leaving a recessed value box below). Centred in that box so the
+## number reads dead-centre of the readout regardless of pill size.
+func _place_value(lbl: Label, pill: TextureRect, font_size: int) -> void:
+	var p := pill.position
+	var s := pill.size
+	_place_lbl(lbl, Vector2(p.x, p.y + s.y * 0.30), Vector2(s.x, s.y * 0.58))
+	_set_font(lbl, font_size)
+	# fake-bold weight scales with the font so the small bet pill doesn't get a blobby outline.
+	lbl.add_theme_constant_override("outline_size", max(6, int(round(font_size * 0.16))))
 
 func _pill(path: String) -> TextureRect:
 	var r := TextureRect.new()
@@ -1319,16 +1363,13 @@ func _build_hud() -> void:
 	banner.visible = false
 	hud.add_child(banner)
 
-	lbl_balance = _styled_label(32, PEARL_C)
-	lbl_balance.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_balance = _readout_label(40, PEARL_C)
 	hud.add_child(lbl_balance)
 
-	lbl_win = _styled_label(46, GOLD)
-	lbl_win.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_win = _readout_label(48, GOLD)
 	hud.add_child(lbl_win)
 
-	lbl_bet = _styled_label(32, PEARL_C)
-	lbl_bet.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_bet = _readout_label(40, PEARL_C)
 	hud.add_child(lbl_bet)
 
 	bet_minus_btn = _glyph_button("minus", "")
@@ -1368,11 +1409,13 @@ func _build_hud() -> void:
 	spin_btn.pressed.connect(func(): play("spin_press"); request_spin())
 	hud.add_child(spin_btn)
 
-	turbo_btn = _tex_button("res://art/ui/btn_turbo.png")
-	turbo_btn.pressed.connect(_toggle_turbo)
-	hud.add_child(turbo_btn)
+	# the old turbo button is repurposed into a 3-state SLOW / NORMAL / FAST speed cycle.
+	speed_btn = _glyph_button("speed", SPEED_NAMES[_speed_idx])
+	speed_btn.pressed.connect(_cycle_speed)
+	hud.add_child(speed_btn)
 
 	_update_hud()
+	_update_speed_visual()
 
 func _build_word_layer() -> void:
 	word_layer = CanvasLayer.new(); word_layer.layer = 45; add_child(word_layer)
@@ -1385,14 +1428,15 @@ func _layout_hud() -> void:
 	if portrait:
 		_place_lbl(logo, Vector2(W * 0.5 - W * 0.46, H * 0.006), Vector2(W * 0.92, H * 0.085))
 
-		# balance (left pill) + bet (right pill) row under the logo
+		# top readout row under the logo: BALANCE (left pill) + WIN (right pill). BET moves down to
+		# its stepper in the control deck, so WIN takes the top-right slot beside the balance.
 		var pill_y := H * 0.098
 		var pw := W * 0.42
 		var ph := pw * (437.0 / 1597.0)
 		_place_lbl(pill_balance, Vector2(W * 0.04, pill_y), Vector2(pw, ph))
-		_place_lbl(lbl_balance, Vector2(W * 0.04, pill_y + ph * 0.22), Vector2(pw, ph * 0.56)); _set_font(lbl_balance, 30)
-		_place_lbl(pill_bet, Vector2(W * 0.54, pill_y), Vector2(pw, ph))
-		_place_lbl(lbl_bet, Vector2(W * 0.54, pill_y + ph * 0.22), Vector2(pw, ph * 0.56)); _set_font(lbl_bet, 30)
+		_place_value(lbl_balance, pill_balance, int(ph * 0.36))
+		_place_lbl(pill_win, Vector2(W * 0.54, pill_y), Vector2(pw, ph))
+		_place_value(lbl_win, pill_win, int(ph * 0.36))
 
 		# rising-tide ribbon just under the reels (free spins / cascade multiplier)
 		_place_lbl(tide_orb, Vector2(W * 0.5 - cell_h * 0.4, grid_bottom + H * 0.002), Vector2(cell_h * 0.8, cell_h * 0.8))
@@ -1400,23 +1444,27 @@ func _layout_hud() -> void:
 		_place_lbl(lbl_tide, Vector2(0, grid_bottom + H * 0.006), Vector2(W, 58)); _set_font(lbl_tide, 44)
 		lbl_tide.pivot_offset = Vector2(W * 0.5, 29)
 
-		# win readout pill, centred under the reels
-		var wpw := W * 0.62
-		var wph := wpw * (435.0 / 1597.0)
-		_place_lbl(pill_win, Vector2(W * 0.5 - wpw * 0.5, grid_bottom + H * 0.030), Vector2(wpw, wph))
-		_place_lbl(lbl_win, Vector2(0, grid_bottom + H * 0.030 + wph * 0.22), Vector2(W, wph * 0.6)); _set_font(lbl_win, 52)
-		_place_lbl(lbl_ways, Vector2(0, grid_bottom + H * 0.030 + wph * 0.92), Vector2(W, 40)); _set_font(lbl_ways, 30)
+		# transient callouts sit on the frame's lower gold border (just below the symbols)
 		_place_lbl(lbl_msg, Vector2(0, grid_bottom - H * 0.052), Vector2(W, 44)); _set_font(lbl_msg, 34)
+		_place_lbl(lbl_ways, Vector2(0, grid_bottom - H * 0.020), Vector2(W, 34)); _set_font(lbl_ways, 28)
 		_place_lbl(banner, Vector2(0, _grid_center().y - 70), Vector2(W, 140))
 		banner.pivot_offset = Vector2(W * 0.5, 70)
 
-		# main control deck: AUTO  −  [ SPIN ]  +  TURBO
-		var spin_y := H * 0.852
-		_place_btn(spin_btn, Vector2(W * 0.5, spin_y), Vector2(W * 0.27, W * 0.27))
-		_place_btn(bet_minus_btn, Vector2(W * 0.255, spin_y), Vector2(W * 0.125, W * 0.125))
-		_place_btn(bet_plus_btn, Vector2(W * 0.745, spin_y), Vector2(W * 0.125, W * 0.125))
-		_place_btn(autoplay_btn, Vector2(W * 0.095, spin_y), Vector2(W * 0.12, W * 0.12))
-		_place_btn(turbo_btn, Vector2(W * 0.905, spin_y), Vector2(W * 0.13, W * 0.13))
+		# main control deck: AUTO  [ − BET + ]  SPIN  SPEED — the minus/plus tightly flank the bet
+		# pill so it reads as one stepper, with the spin button to its right.
+		var spin_y := H * 0.85
+		var bp_w := W * 0.27
+		var bp_h := bp_w * (437.0 / 1597.0)
+		var step_btn := Vector2(W * 0.085, bp_h)
+		var step_gap := W * 0.006
+		var step_cx := W * 0.355
+		_place_lbl(pill_bet, Vector2(step_cx - bp_w * 0.5, spin_y - bp_h * 0.5), Vector2(bp_w, bp_h))
+		_place_value(lbl_bet, pill_bet, int(bp_h * 0.46))
+		_place_btn(bet_minus_btn, Vector2(step_cx - bp_w * 0.5 - step_gap - step_btn.x * 0.5, spin_y), step_btn)
+		_place_btn(bet_plus_btn, Vector2(step_cx + bp_w * 0.5 + step_gap + step_btn.x * 0.5, spin_y), step_btn)
+		_place_btn(spin_btn, Vector2(W * 0.72, spin_y), Vector2(W * 0.25, W * 0.25))
+		_place_btn(autoplay_btn, Vector2(W * 0.07, spin_y), Vector2(W * 0.10, W * 0.10))
+		_place_btn(speed_btn, Vector2(W * 0.925, spin_y), Vector2(W * 0.14, W * 0.115))
 		# utility row: MAX BET + settings / sound / info / menu
 		var icon_y := H * 0.945
 		_place_btn(maxbet_btn, Vector2(W * 0.145, icon_y), Vector2(W * 0.18, W * 0.085))
@@ -1429,27 +1477,31 @@ func _layout_hud() -> void:
 		var pw := W * 0.22
 		var ph := pw * (437.0 / 1597.0)
 		_place_lbl(pill_balance, Vector2(W * 0.03, H * 0.04), Vector2(pw, ph))
-		_place_lbl(lbl_balance, Vector2(W * 0.03, H * 0.04 + ph * 0.22), Vector2(pw, ph * 0.56)); _set_font(lbl_balance, 26)
-		_place_lbl(pill_bet, Vector2(W * 0.75, H * 0.04), Vector2(pw, ph))
-		_place_lbl(lbl_bet, Vector2(W * 0.75, H * 0.04 + ph * 0.22), Vector2(pw, ph * 0.56)); _set_font(lbl_bet, 26)
+		_place_value(lbl_balance, pill_balance, int(ph * 0.36))
+		_place_lbl(pill_win, Vector2(W * 0.75, H * 0.04), Vector2(pw, ph))
+		_place_value(lbl_win, pill_win, int(ph * 0.36))
 		_place_lbl(tide_orb, Vector2(W * 0.5 - cell_h * 0.4, grid_bottom + 2.0), Vector2(cell_h * 0.7, cell_h * 0.7))
 		tide_orb.pivot_offset = Vector2(cell_h * 0.35, cell_h * 0.35)
 		_place_lbl(lbl_tide, Vector2(W - W * 0.26, frame_pos.y), Vector2(W * 0.24, 56)); _set_font(lbl_tide, 36)
-		var wpw := W * 0.30
-		var wph := wpw * (435.0 / 1597.0)
-		_place_lbl(pill_win, Vector2(W * 0.5 - wpw * 0.5, grid_bottom + 6.0), Vector2(wpw, wph))
-		_place_lbl(lbl_win, Vector2(0, grid_bottom + 6.0 + wph * 0.24), Vector2(W, wph * 0.6)); _set_font(lbl_win, 40)
 		_place_lbl(lbl_ways, Vector2(0, frame_pos.y - 44), Vector2(W, 40)); _set_font(lbl_ways, 28)
 		_place_lbl(lbl_msg, Vector2(0, frame_pos.y - 86), Vector2(W, 44))
 		_place_lbl(banner, Vector2(0, _grid_center().y - 64), Vector2(W, 130))
 		banner.pivot_offset = Vector2(W * 0.5, 64)
 		var bar_y := H * 0.9
-		_place_btn(bet_minus_btn, Vector2(W * 0.40, bar_y), Vector2(96, 96))
-		_place_btn(bet_plus_btn, Vector2(W * 0.52, bar_y), Vector2(96, 96))
-		_place_btn(maxbet_btn, Vector2(W * 0.62, bar_y), Vector2(120, 76))
-		_place_btn(autoplay_btn, Vector2(W * 0.71, bar_y), Vector2(92, 92))
-		_place_btn(turbo_btn, Vector2(W * 0.79, bar_y), Vector2(100, 100))
-		_place_btn(spin_btn, Vector2(W * 0.90, bar_y), Vector2(150, 150))
+		# bet stepper: [ − BET + ] grouped at the left of the control bar
+		var bp_w := W * 0.16
+		var bp_h := bp_w * (437.0 / 1597.0)
+		var step_btn := Vector2(W * 0.05, bp_h)
+		var step_gap := W * 0.004
+		var step_cx := W * 0.30
+		_place_lbl(pill_bet, Vector2(step_cx - bp_w * 0.5, bar_y - bp_h * 0.5), Vector2(bp_w, bp_h))
+		_place_value(lbl_bet, pill_bet, int(bp_h * 0.46))
+		_place_btn(bet_minus_btn, Vector2(step_cx - bp_w * 0.5 - step_gap - step_btn.x * 0.5, bar_y), step_btn)
+		_place_btn(bet_plus_btn, Vector2(step_cx + bp_w * 0.5 + step_gap + step_btn.x * 0.5, bar_y), step_btn)
+		_place_btn(maxbet_btn, Vector2(W * 0.45, bar_y), Vector2(120, 76))
+		_place_btn(autoplay_btn, Vector2(W * 0.55, bar_y), Vector2(92, 92))
+		_place_btn(speed_btn, Vector2(W * 0.65, bar_y), Vector2(132, 96))
+		_place_btn(spin_btn, Vector2(W * 0.88, bar_y), Vector2(150, 150))
 		_place_btn(settings_btn, Vector2(W * 0.05, H * 0.20), Vector2(72, 72))
 		_place_btn(sound_btn, Vector2(W * 0.05, H * 0.30), Vector2(72, 72))
 		_place_btn(info_btn, Vector2(W * 0.95, H * 0.20), Vector2(72, 72))
@@ -1497,9 +1549,20 @@ func _toggle_sound() -> void:
 	sound_btn.active = not _muted
 	sound_btn.queue_redraw()
 
-func _toggle_turbo() -> void:
-	_turbo = not _turbo
-	turbo_btn.modulate = GOLD if _turbo else Color(1, 1, 1)
+func _cycle_speed() -> void:
+	_speed_idx = (_speed_idx + 1) % SPEED_SCALES.size()
+	speed_scale = SPEED_SCALES[_speed_idx]
+	_update_speed_visual()
+
+func _update_speed_visual() -> void:
+	if speed_btn == null: return
+	var col := SEAFOAM            # NORMAL
+	if _speed_idx == 0: col = AQUA_C   # SLOW
+	elif _speed_idx == 2: col = GOLD   # FAST
+	speed_btn.text_label = SPEED_NAMES[_speed_idx]
+	speed_btn.accent = col
+	speed_btn.active = true
+	speed_btn.queue_redraw()
 
 func _toggle_autospin() -> void:
 	play("bet_change")
@@ -1525,7 +1588,7 @@ func _maybe_autospin() -> void:
 		_autospin = false
 		_update_autospin_visual()
 		return
-	await get_tree().create_timer(0.5).timeout
+	await get_tree().create_timer(dur(0.5)).timeout
 	if _autospin and not busy:
 		request_spin()
 
@@ -1558,8 +1621,9 @@ func _fmt(c: float) -> String:
 	return "%s$%s.%02d" % ["-" if neg else "", out, rem]
 
 func _update_hud() -> void:
+	# the pill art bakes the "BALANCE" / "BET" captions, so the labels carry the value only.
 	lbl_balance.text = _fmt(float(balance_minor) / 1000.0)
-	lbl_bet.text = "BET  %s" % _fmt(float(bet_minor) / 1000.0)
+	lbl_bet.text = _fmt(float(bet_minor) / 1000.0)
 
 func _flash(msg: String) -> void:
 	if lbl_msg: lbl_msg.text = msg
@@ -1871,6 +1935,16 @@ class GlyphButton extends Control:
 				var fs := int(u * 0.36)
 				var ts := f.get_string_size(text_label, HORIZONTAL_ALIGNMENT_CENTER, -1, fs)
 				draw_string(f, Vector2(cx - ts.x * 0.5, cy + ts.y * 0.32), text_label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
+			"speed":
+				# two-line label: "SPEED" caption above the current state (text_label).
+				var sf := get_theme_default_font()
+				var cap_fs := int(h * 0.21)
+				var val_fs := int(h * 0.27)
+				var cap := "SPEED"
+				var cw := sf.get_string_size(cap, HORIZONTAL_ALIGNMENT_CENTER, -1, cap_fs).x
+				draw_string(sf, Vector2(cx - cw * 0.5, cy - h * 0.08), cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs, Color(c.r, c.g, c.b, 0.8))
+				var vw := sf.get_string_size(text_label, HORIZONTAL_ALIGNMENT_CENTER, -1, val_fs).x
+				draw_string(sf, Vector2(cx - vw * 0.5, cy + h * 0.30), text_label, HORIZONTAL_ALIGNMENT_LEFT, -1, val_fs, c)
 			"auto":
 				# circular arrow (autoplay)
 				draw_arc(Vector2(cx, cy), u * 0.26, deg_to_rad(40), deg_to_rad(310), 28, c, lw)
