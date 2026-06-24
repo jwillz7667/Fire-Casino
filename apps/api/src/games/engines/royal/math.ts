@@ -7,7 +7,7 @@ import { type PayingSymbol, type SymbolId } from "./symbols";
  * JOKER wild, which only lands on the three interior reels (anchored wins: a run
  * must start on reel 1 and, for a 5-of-a-kind, end on reel 5 with a real symbol).
  *
- * Tuned to a MEDIUM-volatility profile (≈27.9% hit, ≈14.7% sub-1x, 5000× cap)
+ * Tuned to a MEDIUM-volatility profile (≈29.8% hit, ≈16.5% sub-1x, 5000× cap)
  * comparable to real sweeps slots — the low royals (TEN/J/Q) are heavy filler that
  * pay nothing at 3-of-a-kind, the top end is rich, and the free-spins multiplier
  * ramps ×2/spin to push variance into the tail rather than a flood of tiny wins.
@@ -46,7 +46,7 @@ const BASE_COMMON: Record<SymbolId, number> = {
   J: 20,
   TEN: 23,
   JOKER: 0,
-  CHEST: 3.6,
+  CHEST: 2.8,
 };
 
 /** Free-spins per-cell weights: richer highs, more wilds, rarer scatter. */
@@ -69,9 +69,9 @@ export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 7);
 /** Pay per single way for k-of-a-kind from reel 1, in bps of total bet. The three
  *  cheapest royals pay nothing at 3 (kills the sub-1x loss-disguised-as-win flood). */
 export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
-  QUEEN: { 3: 12000, 4: 50000, 5: 250000 },
-  CASTLE: { 3: 7000, 4: 28000, 5: 140000 },
-  SHIELD: { 3: 4500, 4: 18000, 5: 90000 },
+  QUEEN: { 3: 12000, 4: 60000, 5: 500000 },
+  CASTLE: { 3: 7000, 4: 34000, 5: 280000 },
+  SHIELD: { 3: 4500, 4: 21000, 5: 170000 },
   A: { 3: 2500, 4: 9000, 5: 40000 },
   K: { 3: 1800, 4: 6500, 5: 28000 },
   Q: { 3: 0, 4: 4000, 5: 16000 },
@@ -114,7 +114,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * this scales every payout onto the certified target. CALIBRATED by simulate.ts —
  * run it after any table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 7230;
+export const PAYOUT_SCALAR_BPS = 8914;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

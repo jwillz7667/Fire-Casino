@@ -83,7 +83,7 @@ const BASE_COMMON: Record<SymbolId, number> = {
   Q: 17,
   J: 19,
   WILD: 0,
-  COINS: 4.6,
+  COINS: 2.8,
 };
 
 /** Free-spins per-cell weights: richer dragons, more wilds. Royals match base while the
@@ -111,8 +111,8 @@ export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 6.5);
 /** Pay per line for k-of-a-kind from reel 1, in bps of total bet. The cheapest royals
  *  pay little at 3 (keeps the sub-1x loss-disguised-as-win flood in check). */
 export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
-  GOLD_DRAGON: { 3: 37500, 4: 190000, 5: 940000 },
-  RED_DRAGON: { 3: 19000, 4: 95000, 5: 470000 },
+  GOLD_DRAGON: { 3: 37500, 4: 240000, 5: 1700000 },
+  RED_DRAGON: { 3: 19000, 4: 120000, 5: 820000 },
   BLUE_DRAGON: { 3: 14000, 4: 70000, 5: 375000 },
   RED_GEM: { 3: 9400, 4: 38000, 5: 140000 },
   GREEN_GEM: { 3: 7500, 4: 28000, 5: 112000 },
@@ -150,18 +150,18 @@ export const MAX_FREE_SPINS = 60;
  * …) and is capped. No RNG, no collectible — the ramp IS the feature, and as the spins
  * accumulate the hoard multiplier climbs, concentrating volatility into the tail.
  */
-export const MAX_FS_MULTIPLIER = 10;
+export const MAX_FS_MULTIPLIER = 12;
 
-/** Hard per-round win cap = 5000× total bet (in bps). Bounds liability and gives the
+/** Hard per-round win cap = 8000× total bet (in bps). Bounds liability and gives the
  *  game a headline max-win; binds very rarely so it stays a real jackpot event. */
-export const MAX_WIN_BPS = 50_000_000;
+export const MAX_WIN_BPS = 80_000_000;
 
 /**
  * Global linear RTP calibration (bps). The raw tables produce some intrinsic RTP; this
  * scales every payout onto the certified target. CALIBRATED by simulate.ts — run it
  * after any table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 10885;
+export const PAYOUT_SCALAR_BPS = 19824;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

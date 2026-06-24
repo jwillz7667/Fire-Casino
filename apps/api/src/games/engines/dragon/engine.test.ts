@@ -59,10 +59,10 @@ describe("Dragon's Hoard engine — RTP", () => {
         expect(outcome.base.scatterCount).toBeGreaterThanOrEqual(3);
         expect(outcome.freeSpins.spins.length).toBe(outcome.freeSpins.totalSpins);
         expect(outcome.freeSpins.totalSpins).toBeGreaterThanOrEqual(8);
-        // multiplier ramps +1/spin (1,2,3,…) capped at 10; the first spin is always ×1.
+        // multiplier ramps +1/spin (1,2,3,…) capped at 12; the first spin is always ×1.
         expect(outcome.freeSpins.spins[0]!.multiplier).toBe(1);
         expect(outcome.freeSpins.endMultiplier).toBeGreaterThanOrEqual(1);
-        expect(outcome.freeSpins.endMultiplier).toBeLessThanOrEqual(10);
+        expect(outcome.freeSpins.endMultiplier).toBeLessThanOrEqual(12);
       } else {
         expect(outcome.base.scatterCount).toBeLessThan(3);
       }
