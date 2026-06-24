@@ -6,6 +6,7 @@ import {
   FREE_SPIN_WEIGHTS,
   MAX_FREE_SPINS,
   MAX_ORB_MULTIPLIER,
+  MAX_WIN_BPS,
   ORB_VALUE_WEIGHTS,
   PAYOUT_SCALAR_BPS,
   PAYTABLE,
@@ -199,7 +200,9 @@ export function spin(rng: Rng): EngineResult {
   }
 
   const rawBps = base.spinWinBps + (freeSpins?.totalBps ?? 0);
-  const totalWinBps = Math.floor((rawBps * PAYOUT_SCALAR_BPS) / 10_000);
+  const scaledBps = Math.floor((rawBps * PAYOUT_SCALAR_BPS) / 10_000);
+  // Safety clamp on the extreme sticky-ORB tail: a round can never pay past the certified max win.
+  const totalWinBps = Math.min(scaledBps, MAX_WIN_BPS);
 
   // Presentation-only suspense/celebration hints, derived from the BASE grid the player watches
   // reel-by-reel (free spins auto-play). The SCATTER triggers free spins on 3+ and teases on the
