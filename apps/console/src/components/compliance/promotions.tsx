@@ -30,7 +30,7 @@ export function Promotions(): ReactElement {
   const toast = useToast();
   const queryClient = useQueryClient();
   const principal = usePrincipal();
-  const canManage = hasPermission(principal, "compliance.manage");
+  const canManage = hasPermission(principal, "promotion.manage");
 
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");

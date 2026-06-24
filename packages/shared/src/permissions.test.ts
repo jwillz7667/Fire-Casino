@@ -3,9 +3,11 @@ import {
   can,
   canGrantPermission,
   effectivePermissions,
+  GRANTABLE_PERMISSIONS,
   hasBasePermission,
   hasGrant,
   isGrantablePermission,
+  SUPER_ADMIN_ONLY_GRANTS,
 } from "./permissions";
 import { tierRequiresMfa } from "./enums";
 import { isInSubtree } from "./scope";
@@ -79,6 +81,32 @@ describe("canGrantPermission — grant authority (docs/04 §3, security B1)", ()
     const superAdmin = { tier: "SUPER_ADMIN" as const, settings: null };
     expect(canGrantPermission(superAdmin, "credit.mint").allowed).toBe(true);
     expect(canGrantPermission(superAdmin, "ledger.adjust").allowed).toBe(true);
+  });
+
+  it("promotion.manage (mints redeemable PROMO_GRANT credits) is super-admin-only to grant (AUTHZ-1)", () => {
+    // Promo creation is a credit-mint surface: SUPER_ADMIN base only, ADMIN never base.
+    expect(hasBasePermission("ADMIN", "promotion.manage")).toBe(false);
+    expect(hasBasePermission("SUPER_ADMIN", "promotion.manage")).toBe(true);
+    // The AUTHZ-1 closure: an ADMIN holding the grantable compliance.manage can no
+    // longer confer promotion creation on a descendant, and compliance.manage does
+    // not itself grant the promo mint capability.
+    const admin = {
+      tier: "ADMIN" as const,
+      settings: { permissions: ["compliance.manage", "promotion.manage"] },
+    };
+    expect(canGrantPermission(admin, "promotion.manage").allowed).toBe(false);
+    expect(can("ADMIN", { permissions: ["compliance.manage"] }, "promotion.manage")).toBe(false);
+    // A SUPER_ADMIN may still confer it deliberately.
+    const superAdmin = { tier: "SUPER_ADMIN" as const, settings: null };
+    expect(canGrantPermission(superAdmin, "promotion.manage").allowed).toBe(true);
+  });
+
+  it("every super-admin-only grant is itself grantable (canGrantPermission checks grantability first)", () => {
+    // Guards the drift the reviewer flagged: a super-admin-only grant that fell out of
+    // GRANTABLE_PERMISSIONS would become ungrantable even for a SUPER_ADMIN.
+    for (const p of SUPER_ADMIN_ONLY_GRANTS) {
+      expect(GRANTABLE_PERMISSIONS).toContain(p);
+    }
   });
 
   it("a granter cannot confer a permission it does not itself hold", () => {

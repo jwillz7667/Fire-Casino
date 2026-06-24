@@ -28,7 +28,7 @@ export function GeoRules(): ReactElement {
   const toast = useToast();
   const queryClient = useQueryClient();
   const principal = usePrincipal();
-  const canManage = hasPermission(principal, "compliance.manage");
+  const canManage = hasPermission(principal, "platform.settings");
 
   const [addOpen, setAddOpen] = useState(false);
   const [removeRegion, setRemoveRegion] = useState<string | null>(null);

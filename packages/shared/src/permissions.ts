@@ -37,6 +37,7 @@ export const PERMISSIONS = [
   "game.rtp_agent",
   "compliance.manage",
   "compliance.view",
+  "promotion.manage",
   "ledger.adjust",
   "platform.settings",
   "audit.view",
@@ -61,6 +62,7 @@ export const GRANTABLE_PERMISSIONS = [
   "game.rtp_override",
   "compliance.manage",
   "compliance.view",
+  "promotion.manage",
   "ledger.adjust",
   "platform.settings",
   "report.ledger_health",
@@ -71,12 +73,14 @@ export const GRANTABLE_PERMISSIONS = [
 export type GrantablePermission = (typeof GRANTABLE_PERMISSIONS)[number];
 
 /**
- * Grants that ONLY a SUPER_ADMIN may confer (docs/04 §3 `grant-only`): minting,
- * manual ledger adjustments, and platform-wide settings. No other tier can hand
- * these out, even to a descendant.
+ * Grants that ONLY a SUPER_ADMIN may confer (docs/04 §3 `grant-only`): minting
+ * (direct `credit.mint` and `promotion.manage`, which mints redeemable
+ * PROMO_GRANT credits), manual ledger adjustments, and platform-wide settings.
+ * No other tier can hand these out, even to a descendant.
  */
 export const SUPER_ADMIN_ONLY_GRANTS = [
   "credit.mint",
+  "promotion.manage",
   "ledger.adjust",
   "platform.settings",
 ] as const satisfies readonly Permission[];
@@ -139,6 +143,12 @@ const BASE_MATRIX: Record<Permission, OperatorTier[]> = {
   "game.rtp_agent": ["SUPER_ADMIN", "ADMIN", "STORE"], // agents tune their own players' win rates
   "compliance.manage": ["SUPER_ADMIN", "ADMIN"],
   "compliance.view": ["SUPER_ADMIN", "ADMIN"],
+  // Promotions MINT credits (a PROMO_GRANT redeemable by players), so promo
+  // management is SUPER_ADMIN base + super-admin-only grant, exactly like
+  // credit.mint — it must NEVER be reachable via the grantable compliance.manage
+  // (AUTHZ-1). Global geo-rule editing is likewise restricted to platform.settings
+  // (SUPER_ADMIN-only) rather than compliance.manage (AUTHZ-2).
+  "promotion.manage": ["SUPER_ADMIN"],
   "ledger.adjust": ["SUPER_ADMIN"],
   "platform.settings": ["SUPER_ADMIN"],
   "audit.view": ALL_TIERS, // scoped to subtree below SUPER_ADMIN/ADMIN

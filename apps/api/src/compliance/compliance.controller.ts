@@ -91,7 +91,7 @@ export class ComplianceController {
   @Post("geo")
   @HttpCode(200)
   @Auth("operator")
-  @RequirePermission("compliance.manage")
+  @RequirePermission("platform.settings")
   upsertGeo(
     @CurrentUser() caller: OperatorPrincipal,
     @Body(new ZodValidationPipe(upsertGeoRuleSchema)) body: UpsertGeoRuleInput,
@@ -102,7 +102,7 @@ export class ComplianceController {
 
   @Delete("geo/:region")
   @Auth("operator")
-  @RequirePermission("compliance.manage")
+  @RequirePermission("platform.settings")
   removeGeo(
     @CurrentUser() caller: OperatorPrincipal,
     @Param("region") region: string,
@@ -227,7 +227,7 @@ export class ComplianceController {
 
   @Post("promotions")
   @Auth("operator")
-  @RequirePermission("compliance.manage")
+  @RequirePermission("promotion.manage")
   createPromotion(
     @CurrentUser() caller: OperatorPrincipal,
     @Body(new ZodValidationPipe(createPromotionSchema)) body: CreatePromotionInput,
