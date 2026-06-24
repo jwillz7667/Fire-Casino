@@ -20,7 +20,7 @@ import type { BetResponse, GameDTO, StartSessionResponse, WalletResponse } from 
  * and bump the version prefix per rebuild.
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/royal-ascendant/v6/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/royal-ascendant/v7/index.html";
 export const ROYAL_GAME_URL = process.env.NEXT_PUBLIC_ROYAL_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = ROYAL_GAME_URL;
