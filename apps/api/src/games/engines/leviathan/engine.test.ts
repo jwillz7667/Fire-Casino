@@ -126,7 +126,7 @@ describe("Leviathan's Deep engine — ways & tumbling", () => {
     expect(lev).toBeDefined();
     expect(lev!.reels).toBe(3);
     expect(lev!.ways).toBe(2); // 2 (reel0) × 1 (wild) × 1 (reel2)
-    expect(lev!.payBps).toBe(2000 * 2);
+    expect(lev!.payBps).toBe(800 * 2); // LEVIATHAN[3] × 2 ways (high-volatility paytable)
     expect(lev!.cells).toEqual([
       [0, 0],
       [0, 1],

@@ -50,23 +50,28 @@ function perReel(common: Record<SymbolId, number>, wildInterior: number): Record
  * jackpot-style trigger on the 30-cell grid, high enough that "two landed, one to go" tease shows
  * regularly. Re-measure with simulate.ts after a change.
  */
-const BONUS_WEIGHT = 1.2;
+const BONUS_WEIGHT = 1.0;
 
 /** Base-game per-cell weights (WILD filled per-reel by perReel; no MULT_ORB in base). Gem lows are
- *  heavy filler so wins are frequent but skew toward the picture premiums and the features. */
+ *  leaner than a classic ways game on purpose: the commonest source of wins is a gem 4-of-a-kind, so
+ *  trimming the gem weights is the cleanest lever to cut the small-win frequency and lean the base
+ *  into a high-volatility profile (fewer, bigger wins) that skews toward the premiums and features. */
 const BASE_COMMON: Record<SymbolId, number> = {
   LEVIATHAN: 4,
   KRAKEN: 6,
   SIREN: 8,
   TRIDENT: 10,
   CHEST: 13,
-  EMERALD: 16,
-  AMETHYST: 18,
-  SAPPHIRE: 20,
-  AQUA: 22,
-  PEARL: 24,
+  EMERALD: 13,
+  AMETHYST: 14,
+  SAPPHIRE: 15,
+  AQUA: 16,
+  PEARL: 17,
   WILD: 0,
-  SCATTER: 3.6,
+  // SCATTER/BONUS are trimmed alongside the gems: leaning the gem weights raises every other
+  // symbol's relative share, so the trigger symbols are scaled down to keep the features RARE
+  // (the owner wants bigger, rarer wins, not more frequent features). Re-measure after any change.
+  SCATTER: 3.2,
   BONUS: BONUS_WEIGHT,
   MULT_ORB: 0,
 };
@@ -103,18 +108,23 @@ export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 7);
  * multiple ways is the headline win. The PAYOUT_SCALAR_BPS knob calibrates the whole slice.
  */
 export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5 | 6, number>> = {
-  LEVIATHAN: { 3: 2000, 4: 6000, 5: 20000, 6: 60000 },
-  KRAKEN: { 3: 1200, 4: 4000, 5: 12000, 6: 36000 },
-  SIREN: { 3: 800, 4: 2500, 5: 8000, 6: 24000 },
-  TRIDENT: { 3: 500, 4: 1600, 5: 5000, 6: 15000 },
-  CHEST: { 3: 350, 4: 1000, 5: 3000, 6: 9000 },
-  EMERALD: { 3: 200, 4: 600, 5: 1800, 6: 5000 },
-  AMETHYST: { 3: 160, 4: 480, 5: 1400, 6: 4000 },
-  SAPPHIRE: { 3: 120, 4: 360, 5: 1000, 6: 3000 },
-  // The two commonest gems pay only from 4 of a kind: this trims the sub-1× win flood so the
-  // game reads as high-volatility (fewer, bigger wins) rather than a constant dribble.
-  AQUA: { 3: 0, 4: 320, 5: 900, 6: 2400 },
-  PEARL: { 3: 0, 4: 260, 5: 700, 6: 1800 },
+  // Premiums carry the headline tail: the 5- and 6-of-a-kind tiers are steep so the wins that DO
+  // land are large, with LEVIATHAN the clear top symbol. A full 6-reel premium run across multiple
+  // ways (amplified by the cascade ladder / rising tide) is what reaches toward the 20000× cap.
+  LEVIATHAN: { 3: 800, 4: 6000, 5: 42000, 6: 150000 },
+  KRAKEN: { 3: 600, 4: 4200, 5: 26000, 6: 100000 },
+  SIREN: { 3: 450, 4: 3000, 5: 18000, 6: 64000 },
+  TRIDENT: { 3: 300, 4: 2000, 5: 11000, 6: 40000 },
+  CHEST: { 3: 200, 4: 1400, 5: 7200, 6: 26000 },
+  // ALL five gem lows pay only from 4 of a kind: zeroing the 3-of-a-kind tier removes the sub-1×
+  // win flood. The 3-of-a-kind premium pays and the 4-of-a-kind gem pays are deliberately small
+  // (consolation only) while the 5/6-of-a-kind tiers are steep — this concentrates RTP in the rare
+  // big wins (a fat tail at the same certified RTP) instead of a constant sub-1× dribble.
+  EMERALD: { 3: 0, 4: 350, 5: 1800, 6: 7000 },
+  AMETHYST: { 3: 0, 4: 300, 5: 1500, 6: 5500 },
+  SAPPHIRE: { 3: 0, 4: 250, 5: 1200, 6: 4500 },
+  AQUA: { 3: 0, 4: 200, 5: 950, 6: 3200 },
+  PEARL: { 3: 0, 4: 170, 5: 800, 6: 2600 },
 };
 
 /**
@@ -122,7 +132,7 @@ export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5 | 6, number>> = {
  * spin (step 0 = ×1, step 1 = ×2, …), clamped at the last entry. Concentrates volatility into long
  * cascades without an unbounded ramp.
  */
-export const BASE_CASCADE_MULTIPLIERS: readonly number[] = [1, 2, 3, 5];
+export const BASE_CASCADE_MULTIPLIERS: readonly number[] = [1, 3, 6, 12];
 
 /** Hard cap on tumble steps per spin so a round always terminates (defensive; effectively never
  *  hit — each step clears ≥3 cells and refills are independent). */
@@ -150,10 +160,11 @@ export const FREE_START_TIDE = 1;
  * with simulate.ts after a change: the free-spins RTP slice is highly sensitive to these.
  */
 export const ORB_VALUE_WEIGHTS: Record<number, number> = {
-  2: 50,
-  3: 30,
-  5: 15,
-  10: 5,
+  2: 30,
+  3: 26,
+  5: 24,
+  10: 15,
+  25: 5,
 };
 
 /** Minimum BONUS symbols on the initial grid to awaken the Kraken. */
@@ -179,7 +190,7 @@ export const MAX_WIN_BPS = 200_000_000;
  * Kraken prize is added on top unscaled, so realized RTP = `scaledRtp(scalar) + bonusRtp`.
  * CALIBRATED by simulate.ts — run it after any table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 2337;
+export const PAYOUT_SCALAR_BPS = 1115;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

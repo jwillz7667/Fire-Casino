@@ -138,8 +138,45 @@ INFERNO = [
     ("music_base_loop", "Seamless looping background music for a blazing fire-themed casino slot, an energetic mid-tempo theme with bold brass stabs, driving tribal drums, warm low strings and crackling fiery intensity, exciting and hot, instrumental, no vocals, loopable", 22.0, True, 0.3),
 ]
 
+# Leviathan's Deep: a 6x5 ways + tumbling deep-ocean treasure slot. Abyssal/water/leviathan/kraken
+# timbres, bioluminescent shimmer, rising-tide free spins, a Kraken Awakens bonus. No vocals.
+LEVIATHAN = [
+    ("spin_start", "Start of an undersea treasure slot spin, a deep watery whoosh with a swell of rushing current and a low oceanic rumble, mysterious and inviting, no music, no vocals", 0.8, False, 0.55),
+    ("spin_press", "Pressing a large glossy gold-and-coral spin button on an undersea slot, a satisfying click with a deep watery bloop and a soft golden ring, no music", 0.5, False, 0.6),
+    ("button_tap", "Soft UI button tap for an undersea treasure game, a gentle muffled bubble click, crisp and short, no music", 0.5, False, 0.6),
+    ("bet_change", "Quick UI blip changing a bet on an undersea slot, a short watery bubble tick with a soft pearl ping, clean, no music", 0.5, False, 0.6),
+    ("error_blip", "Gentle error notification, a soft low descending two-note watery bloop, polite negative feedback, no music, no vocals", 0.5, False, 0.6),
+    ("reel_land", "An undersea slot reel dropping into place, a heavy watery thud with a deep bubble plonk and a short current swirl tail, weighty, no music", 0.5, False, 0.6),
+    ("reel_land_b", "An undersea slot reel dropping into place, a heavy watery thud with a deep bubble plonk and a short current swirl tail, weighty, no music", 0.5, False, 0.6),
+    ("reel_land_c", "An undersea slot reel dropping into place, a heavy watery thud with a deep bubble plonk and a short current swirl tail, weighty, no music", 0.5, False, 0.6),
+    ("symbol_land", "A single treasure symbol settling onto an undersea reel, a soft watery tap with a faint shimmer, short, no music, no vocals", 0.6, False, 0.6),
+    ("wild_land", "An ocean wild medallion landing on a reel, a magical watery shimmer with a deep glowing bloom and bubble sparkle, no vocals", 1.0, False, 0.6),
+    ("scatter_land", "A golden conch scatter landing with a resonant watery chime and a bright bubble sparkle, important and rewarding, no music", 0.8, False, 0.6),
+    ("bonus_land", "A glowing kraken-amulet bonus symbol landing on an undersea reel, an ominous deep watery boom with a dark shimmer and a faint kraken groan, important, no music, no vocals", 0.8, False, 0.6),
+    ("orb_land", "A glowing bioluminescent multiplier orb landing on an undersea reel, a soft watery bloop into a bright magical chime, rewarding, no vocals", 0.7, False, 0.6),
+    ("cascade_pop", "Treasure symbols bursting and dissolving in water as new ones tumble down, a watery pop with bubbles and a soft shimmering clink, satisfying, no music, no vocals", 0.5, False, 0.6),
+    ("tide_rise", "A rising tide multiplier climbing on an undersea slot, an ascending watery swell with glowing bubbling shimmer and a bright magical ping at the top, no vocals", 1.5, False, 0.6),
+    ("anticipation", "Tense rising undersea riser, a swelling deep ocean drone with a growing low kraken groan, churning water and a heartbeat pulse, suspenseful abyssal dread, no vocals", 3.0, False, 0.6),
+    ("near_miss", "Suspenseful deflating undersea near-miss, a dragged watery groan sinking into a low disappointed bubble, anticipation fading, no vocals", 1.2, False, 0.6),
+    ("win_small", "Pleasant short undersea win chime, bright watery bells with a soft pearl sparkle, cheerful, no vocals", 1.2, False, 0.6),
+    ("win_medium", "Rewarding medium undersea win, an ascending watery bell arpeggio with a warm oceanic swell and bubbling shimmer, treasure, no vocals", 1.8, False, 0.6),
+    ("win_big", "Big undersea-treasure win, soaring triumphant orchestral swell with a deep oceanic horn, cascading gold coins and a rush of water, exciting abyssal jackpot, no vocals", 3.0, False, 0.6),
+    ("bigwin_fanfare", "Triumphant undersea jackpot fanfare, huge cinematic brass and pounding drums with a surging wave and cascading gold treasure, grand oceanic celebration, no vocals", 4.0, False, 0.6),
+    ("megawin_fanfare", "Epic mega-win for an undersea slot, massive orchestral brass and thunderous drums, a colossal kraken roar, a torrent of gold coins and crashing waves, overwhelming abyssal triumph, no vocals", 5.0, False, 0.6),
+    ("epicwin_fanfare", "Colossal epic-win for an undersea-treasure slot, enormous booming orchestra and choir-like swells, a monstrous leviathan roar, a tidal wave of gold and crashing surf, earth-shaking oceanic triumph, no vocals", 5.0, False, 0.6),
+    ("free_spins_intro", "Transition into an undersea free-spins bonus, a swelling magical watery rise into a deep oceanic horn and a glowing tide of gold, epic abyssal reveal, no vocals", 3.0, False, 0.6),
+    ("kraken_awakens", "The Kraken awakens beneath the sea, a monstrous deep groaning roar rising from the abyss with churning water, thunderous low brass and an ominous swell, terrifying and grand, no vocals", 4.0, False, 0.6),
+    ("kraken_roar", "A short colossal kraken roar bursting through water, a deep monstrous bellow with a splash and rumble, powerful, no music, no vocals", 2.0, False, 0.6),
+    ("coin_shower", "Cascade of gold coins and pearls pouring through water onto a sunken hoard, rich watery metallic clattering treasure shower, abundant, no music", 2.5, False, 0.6),
+    ("coin_tick", "Single short gold coin counter tick, a tiny bright wet metallic clink, crisp, one-shot, no music", 0.5, False, 0.6),
+    ("spin_loop", "Hypnotic continuous loop of spinning undersea slot reels, a steady watery whir with a low oceanic current rumble and faint bubbles, seamless loop, no music, no vocals", 2.5, True, 0.5),
+    ("music_base_loop", "Seamless looping background music for a deep-ocean treasure slot, a mysterious mid-tempo cinematic theme with low strings, soft choir pads, gentle harp shimmer and a deep oceanic pulse, adventurous and majestic, instrumental, no vocals, loopable", 22.0, True, 0.3),
+    ("music_freespins_loop", "Seamless looping music for an undersea free-spins bonus, an uplifting majestic orchestral theme with soaring strings, bright harp, triumphant low brass and a flowing oceanic energy, magical and rewarding, instrumental, no vocals, loopable", 22.0, True, 0.3),
+]
+
 GROUPS = {
     "dragon": (REPO / "games/dragon-hoard/audio", DRAGON),
+    "leviathan": (REPO / "games/leviathan-deep/audio", LEVIATHAN),
     "wheel": (REPO / "games/fortune-wheel/audio", WHEEL),
     "lobby": (REPO / "apps/arcade/public/audio", LOBBY),
     "cosmic": (REPO / "games/cosmic-slots/audio", COSMIC),

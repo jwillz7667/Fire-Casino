@@ -70,6 +70,30 @@ const MOCK_PAY := {
 const MOCK_KRAKEN := {3: 300000, 4: 800000, 5: 2000000, 6: 6000000}
 const MOCK_MAX_CASCADES := 7
 
+## Paytable display copy (Info screen only; the server is authoritative for real pays). Each row is
+## [symbol id, pay for 3, 4, 5, 6 of a kind] — per matching WAY, as a multiple of the total bet.
+## Held as strings so the screen renders the exact figures from docs without float formatting drift.
+const PT_HIGH := [
+	["LEVIATHAN", "0.2x", "0.6x", "2x", "6x"],
+	["KRAKEN", "0.12x", "0.4x", "1.2x", "3.6x"],
+	["SIREN", "0.08x", "0.25x", "0.8x", "2.4x"],
+	["TRIDENT", "0.05x", "0.16x", "0.5x", "1.5x"],
+	["CHEST", "0.035x", "0.1x", "0.3x", "0.9x"],
+]
+const PT_LOW := [
+	["EMERALD", "0.02x", "0.06x", "0.18x", "0.5x"],
+	["AMETHYST", "0.016x", "0.048x", "0.14x", "0.4x"],
+	["SAPPHIRE", "0.012x", "0.036x", "0.1x", "0.3x"],
+	["AQUA", "-", "0.032x", "0.09x", "0.24x"],
+	["PEARL", "-", "0.026x", "0.07x", "0.18x"],
+]
+const PT_SUBTITLES := [
+	"HIGH SYMBOLS    -    pays per way x total bet",
+	"GEM SYMBOLS    -    pays per way x total bet",
+	"SPECIAL SYMBOLS & FEATURES",
+	"HOW IT PAYS",
+]
+
 ## Cut-window opening as fractions of the frame art (measured from reel_frame.png alpha:
 ## central transparent run l,t,r,b). Window aspect ~1.324; the 6x5 grid is centred inside it.
 const WIN_L := 0.1013
@@ -97,6 +121,10 @@ const CORAL := Color(1.0, 0.42, 0.36)
 const SEAFOAM := Color(0.55, 1.0, 0.86)
 const PEARL_C := Color(0.93, 0.97, 1.0)
 const PANEL := Color(0.04, 0.13, 0.19, 0.9)
+# Multiplier number drawn on the near-white pearl orb: a DARK fill so it reads on the bright pearl,
+# with a warm-gold rim so it also pops when the number drifts off the orb onto the deep background.
+const ORB_NUM := Color(0.04, 0.12, 0.22)
+const ORB_NUM_OUT := Color(1.0, 0.86, 0.45)
 
 # ---- live layout ----
 var view := DESIGN
@@ -145,6 +173,7 @@ var banner: Label
 var tide_orb: TextureRect
 var lbl_tide: Label
 var spin_btn: TextureButton
+var lbl_spin: Label
 var speed_btn
 var bet_minus_btn
 var bet_plus_btn
@@ -161,6 +190,9 @@ var _spin_loop: AudioStreamPlayer
 var _music: AudioStreamPlayer
 var _music_fs: AudioStreamPlayer
 var _audio_unlocked := false
+var _sfx_on := true            # gates play()/spin-loop (SFX master, toggled from HUD + overlays)
+var _music_on := true          # controls the music streams (separate from SFX)
+var _fs_music := false          # which loop is "current": free-spins loop vs base loop
 
 # session (from bridge)
 var balance_minor := 0
@@ -178,12 +210,25 @@ var _autospin_left := 0
 var _speed_idx := 1            # index into SPEED_SCALES/SPEED_NAMES; 1 == NORMAL (default)
 var speed_scale := 1.0         # multiplies every gameplay animation duration (see dur())
 var _zoomed := false
-var _muted := false
 var _t := 0.0
 var _running_bps := 0
 var _gen_orbs := false   # mock: include MULT_ORB in the symbol pool during free-spin generation
 
 var BET_STEPS := [50, 100, 250, 500, 1000, 2000, 5000, 10000]  # $0.05 .. $10.00
+
+# ---- modal overlays (INFO / SETTINGS / MENU) — own high CanvasLayer above the HUD ----
+var overlay_layer: CanvasLayer
+var _overlay := ""                 # "" | "info" | "settings" | "menu" — only one open at a time
+var _overlay_root: Control
+var _overlay_panel: Control
+var _overlay_scrim: ColorRect
+var _pt_page := 0                  # paytable page index (persists across reopen)
+var _pt_pages := []                # page Controls inside the paytable panel
+var _pt_dots                       # PageDots indicator
+var _pt_subtitle: Label
+var _sfx_switch                    # live ToggleSwitch in the open panel (SFX) — synced on change
+var _music_switch                  # live ToggleSwitch in the open panel (music)
+var _speed_seg                     # live SegmentedControl in the open settings panel
 
 func _ready() -> void:
 	randomize()
@@ -201,6 +246,7 @@ func _ready() -> void:
 	_build_reels()
 	_build_hud()
 	_build_word_layer()
+	_build_overlay_layer()
 	_apply_layout()
 	_idle_fill()
 	_connect_bridge()
@@ -237,6 +283,12 @@ func _on_resize() -> void:
 		return
 	view = v
 	_apply_layout()
+	if _overlay != "":
+		# rebuild the open overlay against the new viewport (preserves the paytable page; no anim)
+		var which := _overlay
+		_teardown_overlay()
+		_overlay = ""
+		_open_overlay(which, false)
 
 # ----------------------------------------------------------------- layout
 func _apply_layout() -> void:
@@ -375,11 +427,13 @@ func _make_loop(name: String, db: float) -> AudioStreamPlayer:
 	return pl
 
 func play(name: String) -> void:
+	if not _sfx_on: return
 	var pl = _audio.get(name, null)
 	if pl: pl.play()
 
 func _spin_whir(on: bool) -> void:
 	if _spin_loop == null: return
+	if on and not _sfx_on: return
 	var t := create_tween()
 	if on:
 		_spin_loop.volume_db = -30.0
@@ -390,20 +444,50 @@ func _spin_whir(on: bool) -> void:
 		t.tween_callback(_spin_loop.stop)
 
 func _start_music() -> void:
-	if _music: _music.play()
+	if _music and _music_on: _music.play()
 
 func _duck_music(on: bool) -> void:
 	if _music:
 		_music.volume_db = -17.0 if on else -11.0
 
 func _set_music_fs(on: bool) -> void:
+	_fs_music = on
 	if _music_fs == null: return
 	if on:
-		_music_fs.play()
+		if _music_on: _music_fs.play()
 		if _music: _music.stop()
 	else:
 		_music_fs.stop()
-		if _music and _audio_unlocked: _music.play()
+		if _music and _audio_unlocked and _music_on: _music.play()
+
+## Settings/menu SFX toggle. Gates play()/the spin loop; already-playing one-shots are short so we
+## only need to silence the looping whir immediately. Keeps the HUD speaker glyph + any open switch
+## in sync so the three entry points never disagree.
+func _set_sfx(on: bool) -> void:
+	_sfx_on = on
+	if not on and _spin_loop and _spin_loop.playing:
+		_spin_loop.stop()
+	if sound_btn:
+		sound_btn.active = on
+		sound_btn.queue_redraw()
+	if _sfx_switch and is_instance_valid(_sfx_switch):
+		_sfx_switch.apply(on, true)
+
+## Settings MUSIC toggle — actually stops/starts the looping streams (the current loop is whichever
+## the round selected via _set_music_fs). No bus muting so SFX is unaffected.
+func _set_music(on: bool) -> void:
+	_music_on = on
+	if on:
+		if _audio_unlocked:
+			if _fs_music:
+				if _music_fs: _music_fs.play()
+			elif _music:
+				_music.play()
+	else:
+		if _music: _music.stop()
+		if _music_fs: _music_fs.stop()
+	if _music_switch and is_instance_valid(_music_switch):
+		_music_switch.apply(on, true)
 
 # ----------------------------------------------------------------- background
 func _build_bg() -> void:
@@ -555,10 +639,14 @@ func _process(dt: float) -> void:
 	_t += dt
 	_drift_bg()
 	if spinning:
+		# Scroll velocity is routed through speed_scale (inversely): SLOW (1.5) scrolls slower and
+		# FAST (0.55) scrolls faster, so the spin VISIBLY differs by speed — the stop staggers (via
+		# dur()) already scale the duration, but without this the blur looked identical at SLOW/NORMAL.
+		var scroll_v := SPIN_SPEED / speed_scale
 		for col in COLS:
 			var reel: Dictionary = reels[col]
 			if reel.state != "spin": continue
-			reel.scroll += SPIN_SPEED * dt
+			reel.scroll += scroll_v * dt
 			while reel.scroll >= cell_h:
 				reel.scroll -= cell_h
 				reel.symbols.push_front(reel.symbols.pop_back())
@@ -610,7 +698,7 @@ func _begin_spin_visual() -> void:
 	_spin_whir(true)
 
 func request_spin() -> void:
-	if busy: return
+	if busy or _overlay != "": return
 	_unlock_audio()
 	busy = true
 	spin_btn.disabled = true
@@ -659,6 +747,9 @@ func _resolve(outcome: Dictionary) -> void:
 		await _run_free_spins(outcome.freeSpins)
 
 	var total := _num(outcome.get("totalWinBps", 0))
+	var mult := _final_multiplier(outcome)
+	if total > 0 and mult > 1:
+		await _fly_multiply_to_win(mult, total)
 	await _celebrate(str(feel.get("winTier", "NONE")), total)
 	if total > 0:
 		_show_win_amount(total)
@@ -1120,6 +1211,74 @@ func _show_win_amount(total_bps: int) -> void:
 func _count_up(award_bps: int) -> void:
 	_show_win_amount(_running_bps)
 
+## The dominant multiplier the player should see "applied" at the end of a round: the free-spins
+## end tide if the feature ran, otherwise the top base-cascade multiplier.
+func _final_multiplier(outcome: Dictionary) -> int:
+	var fs = outcome.get("freeSpins", null)
+	if typeof(fs) == TYPE_DICTIONARY:
+		return maxi(1, _num(fs.get("endTide", 1)))
+	var base: Dictionary = outcome.get("base", {})
+	var m := 1
+	for step in base.get("cascades", []):
+		m = maxi(m, _num(step.get("multiplier", 1)))
+	return m
+
+## PRESENTATION ONLY (the authoritative totalWinBps is unchanged): stage the multiply by snapping
+## the WIN back to the pre-multiplier subtotal, flying a multiplier orb from the win-cluster spot
+## into the WIN value, then counting WIN up to the final total. Respects dur() so it tracks speed.
+func _fly_multiply_to_win(mult: int, total_bps: int) -> void:
+	var subtotal := int(round(float(total_bps) / float(mult)))
+	if subtotal >= total_bps:
+		return
+	_show_win_amount(subtotal)
+	var fsz: float = maxf(tide_orb.size.x, 76.0)
+	var start := tide_orb.position + tide_orb.size * 0.5
+	var dest := lbl_win.position + lbl_win.size * 0.5
+	var fly := TextureRect.new()
+	fly.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	fly.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	fly.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fly.texture = tide_orb.texture
+	fly.size = Vector2(fsz, fsz)
+	fly.pivot_offset = Vector2(fsz, fsz) * 0.5
+	fly.position = start - Vector2(fsz, fsz) * 0.5
+	fly.z_index = 25
+	hud.add_child(fly)
+	var num := _styled_label(int(fsz * 0.5), ORB_NUM)
+	num.add_theme_color_override("font_outline_color", ORB_NUM_OUT)
+	num.add_theme_constant_override("outline_size", maxi(6, int(fsz * 0.07)))
+	num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	num.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	num.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	num.text = "x%d" % mult
+	num.size = Vector2(fsz, fsz)
+	fly.add_child(num)
+	play("tide_rise")
+	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(fly, "scale", Vector2(1.3, 1.3), dur(0.16))
+	t.chain().tween_property(fly, "position", dest - Vector2(fsz, fsz) * 0.5, dur(0.26)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.parallel().tween_property(fly, "scale", Vector2(0.45, 0.45), dur(0.26))
+	t.parallel().tween_property(fly, "modulate:a", 0.0, dur(0.26))
+	await t.finished
+	fly.queue_free()
+	_pulse(lbl_win)
+	await _count_up_win(subtotal, total_bps)
+
+## Count the WIN label from one bps figure to another over a short eased tween, then snap-pop the
+## authoritative value. Keeps the displayed money exact at the end regardless of tween rounding.
+func _count_up_win(from_bps: int, to_bps: int) -> void:
+	if to_bps <= from_bps:
+		_show_win_amount(to_bps)
+		return
+	play("coin_tick")
+	var t := create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	t.tween_method(_set_win_bps, float(from_bps), float(to_bps), dur(0.55))
+	await t.finished
+	_show_win_amount(to_bps)
+
+func _set_win_bps(bps: float) -> void:
+	lbl_win.text = _fmt(bps / 10000.0 * float(bet_minor) / 1000.0)
+
 # --------------------------------------------------------------- free spins
 ## Free spins: a sequence of tumbling spins under a PERSISTENT rising tide. The tide only ever
 ## climbs; MULT_ORB landings + the per-spin cascade multipliers drive the displayed value, which
@@ -1190,7 +1349,10 @@ func _raise_tide(grid: Array, from_tide: int, to_tide: int) -> void:
 
 func _orb_popup(col: int, row: int, amount: int) -> void:
 	_glow_cell(col, row, MULT_ORB, true)
-	var lbl := _styled_label(int(cell_h * 0.34), SEAFOAM)
+	# the "+N" rises off the white pearl orb, so it's dark with a gold rim for contrast (item 5).
+	var lbl := _styled_label(int(cell_h * 0.34), ORB_NUM)
+	lbl.add_theme_color_override("font_outline_color", ORB_NUM_OUT)
+	lbl.add_theme_constant_override("outline_size", maxi(7, int(cell_h * 0.07)))
 	lbl.text = "+%d" % amount
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.z_index = 62
@@ -1210,7 +1372,8 @@ func _tide_visible(on: bool) -> void:
 	lbl_tide.visible = on
 
 func _set_tide(value: int) -> void:
-	lbl_tide.text = "RISING TIDE  x%d" % value
+	# compact "xN" reads cleanly on the small orb cluster under the WIN pill (the orb gives context).
+	lbl_tide.text = "x%d" % value
 	_set_tide_icon(true)
 	_pulse(lbl_tide)
 	_pulse(tide_orb)
@@ -1344,8 +1507,12 @@ func _build_hud() -> void:
 	tide_orb.visible = false
 	hud.add_child(tide_orb)
 
-	lbl_tide = _styled_label(46, SEAFOAM)
+	# the multiplier number sits ON the white pearl orb, so it's drawn dark with a gold rim (item 5).
+	lbl_tide = _styled_label(46, ORB_NUM)
+	lbl_tide.add_theme_color_override("font_outline_color", ORB_NUM_OUT)
+	lbl_tide.add_theme_constant_override("outline_size", 10)
 	lbl_tide.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_tide.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl_tide.visible = false
 	hud.add_child(lbl_tide)
 
@@ -1389,7 +1556,7 @@ func _build_hud() -> void:
 	hud.add_child(autoplay_btn)
 
 	settings_btn = _glyph_button("gear", "")
-	settings_btn.pressed.connect(func(): play("button_tap"))
+	settings_btn.pressed.connect(func(): _open_overlay("settings"))
 	hud.add_child(settings_btn)
 
 	sound_btn = _glyph_button("sound", "")
@@ -1398,16 +1565,25 @@ func _build_hud() -> void:
 	hud.add_child(sound_btn)
 
 	info_btn = _glyph_button("info", "")
-	info_btn.pressed.connect(func(): play("button_tap"))
+	info_btn.pressed.connect(func(): _open_overlay("info"))
 	hud.add_child(info_btn)
 
 	menu_btn = _glyph_button("menu", "")
-	menu_btn.pressed.connect(func(): play("button_tap"))
+	menu_btn.pressed.connect(func(): _open_overlay("menu"))
 	hud.add_child(menu_btn)
 
 	spin_btn = _tex_button("res://art/ui/btn_spin.png")
 	spin_btn.pressed.connect(func(): play("spin_press"); request_spin())
 	hud.add_child(spin_btn)
+
+	# "SPIN" caption centred directly under the spin button (positioned in _layout_hud).
+	lbl_spin = _styled_label(40, GOLD)
+	lbl_spin.text = "SPIN"
+	lbl_spin.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_spin.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl_spin.add_theme_constant_override("outline_size", 8)
+	lbl_spin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(lbl_spin)
 
 	# the old turbo button is repurposed into a 3-state SLOW / NORMAL / FAST speed cycle.
 	speed_btn = _glyph_button("speed", SPEED_NAMES[_speed_idx])
@@ -1438,11 +1614,20 @@ func _layout_hud() -> void:
 		_place_lbl(pill_win, Vector2(W * 0.54, pill_y), Vector2(pw, ph))
 		_place_value(lbl_win, pill_win, int(ph * 0.36))
 
-		# rising-tide ribbon just under the reels (free spins / cascade multiplier)
-		_place_lbl(tide_orb, Vector2(W * 0.5 - cell_h * 0.4, grid_bottom + H * 0.002), Vector2(cell_h * 0.8, cell_h * 0.8))
-		tide_orb.pivot_offset = Vector2(cell_h * 0.4, cell_h * 0.4)
-		_place_lbl(lbl_tide, Vector2(0, grid_bottom + H * 0.006), Vector2(W, 58)); _set_font(lbl_tide, 44)
-		lbl_tide.pivot_offset = Vector2(W * 0.5, 29)
+		# multiplier indicator (free-spins rising tide / base cascade mult): orb + "xN" sitting
+		# DIRECTLY UNDER the WIN pill so it reads as part of the win cluster (item 4).
+		var win_b := pill_y + ph
+		var orb_s := ph * 0.66
+		var tide_num_w := pw * 0.34
+		var pair_w := orb_s + tide_num_w
+		var pair_x := (W * 0.54 + pw * 0.5) - pair_w * 0.5
+		var clu_y := win_b + H * 0.004
+		_place_lbl(tide_orb, Vector2(pair_x, clu_y), Vector2(orb_s, orb_s))
+		tide_orb.pivot_offset = Vector2(orb_s * 0.5, orb_s * 0.5)
+		var tide_fs := int(orb_s * 0.62)
+		_place_lbl(lbl_tide, Vector2(pair_x + orb_s, clu_y), Vector2(tide_num_w, orb_s)); _set_font(lbl_tide, tide_fs)
+		lbl_tide.add_theme_constant_override("outline_size", maxi(6, int(tide_fs * 0.2)))
+		lbl_tide.pivot_offset = Vector2(tide_num_w * 0.5, orb_s * 0.5)
 
 		# transient callouts sit on the frame's lower gold border (just below the symbols)
 		_place_lbl(lbl_msg, Vector2(0, grid_bottom - H * 0.052), Vector2(W, 44)); _set_font(lbl_msg, 34)
@@ -1451,8 +1636,9 @@ func _layout_hud() -> void:
 		banner.pivot_offset = Vector2(W * 0.5, 70)
 
 		# main control deck: AUTO  [ − BET + ]  SPIN  SPEED — the minus/plus tightly flank the bet
-		# pill so it reads as one stepper, with the spin button to its right.
-		var spin_y := H * 0.85
+		# pill so it reads as one stepper, with the spin button to its right. The deck is raised a
+		# touch (and the utility row dropped) to open a clean band for the SPIN caption.
+		var spin_y := H * 0.84
 		var bp_w := W * 0.27
 		var bp_h := bp_w * (437.0 / 1597.0)
 		var step_btn := Vector2(W * 0.085, bp_h)
@@ -1462,16 +1648,31 @@ func _layout_hud() -> void:
 		_place_value(lbl_bet, pill_bet, int(bp_h * 0.46))
 		_place_btn(bet_minus_btn, Vector2(step_cx - bp_w * 0.5 - step_gap - step_btn.x * 0.5, spin_y), step_btn)
 		_place_btn(bet_plus_btn, Vector2(step_cx + bp_w * 0.5 + step_gap + step_btn.x * 0.5, spin_y), step_btn)
-		_place_btn(spin_btn, Vector2(W * 0.72, spin_y), Vector2(W * 0.25, W * 0.25))
+		var spin_c := Vector2(W * 0.72, spin_y)
+		var spin_sz := Vector2(W * 0.24, W * 0.24)
+		_place_btn(spin_btn, spin_c, spin_sz)
 		_place_btn(autoplay_btn, Vector2(W * 0.07, spin_y), Vector2(W * 0.10, W * 0.10))
-		_place_btn(speed_btn, Vector2(W * 0.925, spin_y), Vector2(W * 0.14, W * 0.115))
-		# utility row: MAX BET + settings / sound / info / menu
-		var icon_y := H * 0.945
+		# wider + taller SPEED box so "NORMAL" fits without clipping (item 3); the value font also
+		# auto-shrinks to the box width in GlyphButton._draw_glyph.
+		_place_btn(speed_btn, Vector2(W * 0.92, spin_y), Vector2(W * 0.15, W * 0.13))
+		# utility row: MAX BET + settings / sound / info / menu (dropped slightly)
+		var icon_y := H * 0.96
 		_place_btn(maxbet_btn, Vector2(W * 0.145, icon_y), Vector2(W * 0.18, W * 0.085))
 		_place_btn(settings_btn, Vector2(W * 0.40, icon_y), Vector2(W * 0.095, W * 0.095))
 		_place_btn(sound_btn, Vector2(W * 0.525, icon_y), Vector2(W * 0.095, W * 0.095))
 		_place_btn(info_btn, Vector2(W * 0.65, icon_y), Vector2(W * 0.095, W * 0.095))
 		_place_btn(menu_btn, Vector2(W * 0.775, icon_y), Vector2(W * 0.095, W * 0.095))
+		# SPIN caption centred in the gap between the spin button and the utility row (item 1).
+		# icon_top uses the TALLEST utility glyph (W*0.095, info/menu flank the spin column) so the
+		# caption can never overlap them.
+		var cap_w := W * 0.32
+		var cap_h := H * 0.022
+		var spin_bottom := spin_c.y + spin_sz.y * 0.5
+		var icon_top := icon_y - (W * 0.095) * 0.5
+		var cap_cy: float = (spin_bottom + icon_top) * 0.5
+		_place_lbl(lbl_spin, Vector2(spin_c.x - cap_w * 0.5, cap_cy - cap_h * 0.5), Vector2(cap_w, cap_h))
+		_set_font(lbl_spin, int(cap_h * 0.82))
+		lbl_spin.add_theme_constant_override("outline_size", 8)
 	else:
 		_place_lbl(logo, Vector2(W * 0.5 - W * 0.22, H * 0.01), Vector2(W * 0.44, H * 0.10))
 		var pw := W * 0.22
@@ -1480,9 +1681,19 @@ func _layout_hud() -> void:
 		_place_value(lbl_balance, pill_balance, int(ph * 0.36))
 		_place_lbl(pill_win, Vector2(W * 0.75, H * 0.04), Vector2(pw, ph))
 		_place_value(lbl_win, pill_win, int(ph * 0.36))
-		_place_lbl(tide_orb, Vector2(W * 0.5 - cell_h * 0.4, grid_bottom + 2.0), Vector2(cell_h * 0.7, cell_h * 0.7))
-		tide_orb.pivot_offset = Vector2(cell_h * 0.35, cell_h * 0.35)
-		_place_lbl(lbl_tide, Vector2(W - W * 0.26, frame_pos.y), Vector2(W * 0.24, 56)); _set_font(lbl_tide, 36)
+		# multiplier indicator directly under the WIN pill (item 4), mirroring portrait.
+		var lwin_b := H * 0.04 + ph
+		var lorb_s := ph * 0.7
+		var ltide_num_w := pw * 0.4
+		var lpair_w := lorb_s + ltide_num_w
+		var lpair_x := (W * 0.75 + pw * 0.5) - lpair_w * 0.5
+		var lclu_y := lwin_b + H * 0.01
+		_place_lbl(tide_orb, Vector2(lpair_x, lclu_y), Vector2(lorb_s, lorb_s))
+		tide_orb.pivot_offset = Vector2(lorb_s * 0.5, lorb_s * 0.5)
+		var ltide_fs := int(lorb_s * 0.6)
+		_place_lbl(lbl_tide, Vector2(lpair_x + lorb_s, lclu_y), Vector2(ltide_num_w, lorb_s)); _set_font(lbl_tide, ltide_fs)
+		lbl_tide.add_theme_constant_override("outline_size", maxi(6, int(ltide_fs * 0.2)))
+		lbl_tide.pivot_offset = Vector2(ltide_num_w * 0.5, lorb_s * 0.5)
 		_place_lbl(lbl_ways, Vector2(0, frame_pos.y - 44), Vector2(W, 40)); _set_font(lbl_ways, 28)
 		_place_lbl(lbl_msg, Vector2(0, frame_pos.y - 86), Vector2(W, 44))
 		_place_lbl(banner, Vector2(0, _grid_center().y - 64), Vector2(W, 130))
@@ -1500,8 +1711,13 @@ func _layout_hud() -> void:
 		_place_btn(bet_plus_btn, Vector2(step_cx + bp_w * 0.5 + step_gap + step_btn.x * 0.5, bar_y), step_btn)
 		_place_btn(maxbet_btn, Vector2(W * 0.45, bar_y), Vector2(120, 76))
 		_place_btn(autoplay_btn, Vector2(W * 0.55, bar_y), Vector2(92, 92))
-		_place_btn(speed_btn, Vector2(W * 0.65, bar_y), Vector2(132, 96))
+		_place_btn(speed_btn, Vector2(W * 0.655, bar_y), Vector2(172, 108))
 		_place_btn(spin_btn, Vector2(W * 0.88, bar_y), Vector2(150, 150))
+		# SPIN caption tucked under the spin button (clamped within the bottom margin).
+		var lcap_h := minf(H * 0.034, maxf(0.0, H - (bar_y + 78.0) - H * 0.004))
+		_place_lbl(lbl_spin, Vector2(W * 0.88 - W * 0.09, bar_y + 78.0), Vector2(W * 0.18, lcap_h))
+		_set_font(lbl_spin, int(lcap_h * 0.78))
+		lbl_spin.add_theme_constant_override("outline_size", 6)
 		_place_btn(settings_btn, Vector2(W * 0.05, H * 0.20), Vector2(72, 72))
 		_place_btn(sound_btn, Vector2(W * 0.05, H * 0.30), Vector2(72, 72))
 		_place_btn(info_btn, Vector2(W * 0.95, H * 0.20), Vector2(72, 72))
@@ -1544,15 +1760,19 @@ func _btn_feedback(b: Control) -> void:
 	t.tween_property(b, "scale", Vector2(1, 1), 0.18)
 
 func _toggle_sound() -> void:
-	_muted = not _muted
-	AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), _muted)
-	sound_btn.active = not _muted
-	sound_btn.queue_redraw()
+	_set_sfx(not _sfx_on)
 
 func _cycle_speed() -> void:
-	_speed_idx = (_speed_idx + 1) % SPEED_SCALES.size()
+	_set_speed((_speed_idx + 1) % SPEED_SCALES.size())
+
+## Absolute speed select (HUD cycle + settings segmented control share this). Keeps a live
+## segmented control in sync so the two surfaces never drift apart.
+func _set_speed(idx: int) -> void:
+	_speed_idx = clampi(idx, 0, SPEED_SCALES.size() - 1)
 	speed_scale = SPEED_SCALES[_speed_idx]
 	_update_speed_visual()
+	if _speed_seg and is_instance_valid(_speed_seg):
+		_speed_seg.select_index(_speed_idx)
 
 func _update_speed_visual() -> void:
 	if speed_btn == null: return
@@ -1864,6 +2084,415 @@ func _mock_freespins(scatter_ct: int) -> Dictionary:
 	}
 
 
+# ===================================================================== overlays
+## INFO / SETTINGS / MENU modals. Every overlay node lives on `overlay_layer` (a CanvasLayer ABOVE
+## the HUD/word/kraken layers), so the full-screen scrim Control intercepts input first and blocks
+## the reels + HUD on its own; request_spin() also guards on `_overlay`. Only one panel is open at a
+## time — opening another tears the current one down. Open/close animate with a scale+fade tween.
+func _build_overlay_layer() -> void:
+	overlay_layer = CanvasLayer.new()
+	overlay_layer.layer = 80
+	add_child(overlay_layer)
+
+func _open_overlay(which: String, animate := true) -> void:
+	if which == _overlay:
+		return
+	if not (which == "info" or which == "settings" or which == "menu"):
+		return
+	if _overlay != "":
+		_teardown_overlay()
+	_overlay = which
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay_layer.add_child(root)
+	_overlay_root = root
+
+	var scrim := ColorRect.new()
+	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scrim.color = Color(0.012, 0.07, 0.10, 0.0)
+	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	scrim.gui_input.connect(_on_scrim_input)
+	root.add_child(scrim)
+	_overlay_scrim = scrim
+
+	var panel: Control
+	match which:
+		"info": panel = _build_paytable_panel()
+		"settings": panel = _build_settings_panel()
+		"menu": panel = _build_menu_panel()
+	root.add_child(panel)
+	_overlay_panel = panel
+	panel.pivot_offset = panel.size * 0.5
+
+	if animate:
+		play("button_tap")
+		create_tween().tween_property(scrim, "color:a", 0.72, dur(0.18))
+		panel.scale = Vector2(0.86, 0.86)
+		panel.modulate = Color(1, 1, 1, 0)
+		var pt := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		pt.tween_property(panel, "scale", Vector2.ONE, dur(0.22))
+		pt.parallel().tween_property(panel, "modulate:a", 1.0, dur(0.18))
+	else:
+		scrim.color.a = 0.72
+		panel.scale = Vector2.ONE
+		panel.modulate = Color(1, 1, 1, 1)
+
+func _on_scrim_input(event: InputEvent) -> void:
+	var hit := false
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		hit = true
+	elif event is InputEventScreenTouch and event.pressed:
+		hit = true
+	if hit:
+		_close_overlay()
+
+func _close_overlay() -> void:
+	if _overlay == "":
+		return
+	_overlay = ""
+	play("button_tap")
+	var root := _overlay_root
+	var panel := _overlay_panel
+	var scrim := _overlay_scrim
+	if scrim and is_instance_valid(scrim):
+		scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		create_tween().tween_property(scrim, "color:a", 0.0, dur(0.16))
+	if panel and is_instance_valid(panel):
+		var pt := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		pt.tween_property(panel, "scale", Vector2(0.86, 0.86), dur(0.16))
+		pt.parallel().tween_property(panel, "modulate:a", 0.0, dur(0.16))
+	_clear_overlay_refs()
+	if root and is_instance_valid(root):
+		var ft := create_tween()
+		ft.tween_interval(dur(0.2))
+		ft.tween_callback(root.queue_free)
+
+func _teardown_overlay() -> void:
+	if _overlay_root and is_instance_valid(_overlay_root):
+		_overlay_root.queue_free()
+	_clear_overlay_refs()
+
+func _clear_overlay_refs() -> void:
+	_overlay_root = null
+	_overlay_panel = null
+	_overlay_scrim = null
+	_pt_pages = []
+	_pt_dots = null
+	_pt_subtitle = null
+	_sfx_switch = null
+	_music_switch = null
+	_speed_seg = null
+
+# ---- shared panel construction ------------------------------------------------
+func _make_panel(w: float, h: float) -> OceanPanel:
+	var p := OceanPanel.new()
+	p.size = Vector2(w, h)
+	p.position = (view - Vector2(w, h)) * 0.5
+	p.mouse_filter = Control.MOUSE_FILTER_STOP
+	return p
+
+## Title + close (X) shared by every panel. The X reuses the GlyphButton glyph set / tap feedback.
+func _panel_header(panel: Control, title: String) -> void:
+	var w := panel.size.x
+	var pad := w * 0.05
+	var head_h := panel.size.y * 0.085
+	var csz := w * 0.10
+	var title_lbl := _styled_label(int(w * 0.058), GOLD)
+	title_lbl.text = title
+	title_lbl.position = Vector2(pad, panel.size.y * 0.022)
+	title_lbl.size = Vector2(w - pad * 2.0 - csz, head_h)
+	title_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(title_lbl)
+	var close = _glyph_button("close", "")
+	close.accent = GOLD
+	close.pressed.connect(_close_overlay)
+	_place_btn(close, Vector2(w - pad - csz * 0.5, panel.size.y * 0.022 + head_h * 0.5), Vector2(csz, csz))
+	panel.add_child(close)
+
+func _ov_label(parent: Control, txt: String, pos: Vector2, sz: Vector2, font_size: int, color: Color, halign := HORIZONTAL_ALIGNMENT_LEFT, wrap := false) -> Label:
+	var l := _styled_label(font_size, color)
+	l.text = txt
+	l.horizontal_alignment = halign
+	l.position = pos
+	l.size = sz
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.add_theme_constant_override("outline_size", maxi(2, int(font_size * 0.10)))
+	if wrap:
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	else:
+		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	parent.add_child(l)
+	return l
+
+func _ov_icon(parent: Control, id: String, pos: Vector2, sz: Vector2) -> TextureRect:
+	var r := TextureRect.new()
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var t = textures.get(id, null)
+	if t: r.texture = t
+	r.position = pos
+	r.size = sz
+	parent.add_child(r)
+	return r
+
+func _ov_divider(parent: Control, pos: Vector2, width: float) -> void:
+	var d := ColorRect.new()
+	d.color = Color(GOLD.r, GOLD.g, GOLD.b, 0.30)
+	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	d.position = pos
+	d.size = Vector2(width, 2.0)
+	parent.add_child(d)
+
+# ---- INFO: paginated paytable & rules ----------------------------------------
+func _build_paytable_panel() -> OceanPanel:
+	var w: float = min(view.x * 0.94, 1010.0)
+	var h := view.y * 0.86
+	var panel := _make_panel(w, h)
+	_panel_header(panel, "PAYTABLE & RULES")
+
+	var pad := w * 0.05
+	_pt_subtitle = _ov_label(panel, "", Vector2(pad, h * 0.095), Vector2(w - pad * 2.0, h * 0.05), int(w * 0.034), AQUA_C, HORIZONTAL_ALIGNMENT_CENTER)
+	_ov_divider(panel, Vector2(pad, h * 0.155), w - pad * 2.0)
+
+	var footer_h := h * 0.11
+	var content_y := h * 0.175
+	var content_h := h - content_y - footer_h - h * 0.015
+	var content := Rect2(pad, content_y, w - pad * 2.0, content_h)
+
+	_pt_pages = []
+	_pt_pages.append(_pt_make_pay_page(panel, content, PT_HIGH))
+	_pt_pages.append(_pt_make_pay_page(panel, content, PT_LOW))
+	_pt_pages.append(_pt_make_special_page(panel, content))
+	_pt_pages.append(_pt_make_rules_page(panel, content))
+
+	var fy := h - footer_h
+	var asz := footer_h * 0.66
+	var left = _glyph_button("arrow_left", "")
+	left.accent = GOLD
+	left.pressed.connect(func(): _show_pt_page(_pt_page - 1))
+	_place_btn(left, Vector2(pad + asz * 0.6, fy + footer_h * 0.5), Vector2(asz, asz))
+	panel.add_child(left)
+	var right = _glyph_button("arrow_right", "")
+	right.accent = GOLD
+	right.pressed.connect(func(): _show_pt_page(_pt_page + 1))
+	_place_btn(right, Vector2(w - pad - asz * 0.6, fy + footer_h * 0.5), Vector2(asz, asz))
+	panel.add_child(right)
+	var dots := PageDots.new()
+	dots.count = _pt_pages.size()
+	dots.accent = GOLD
+	dots.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dots.size = Vector2(w * 0.5, footer_h * 0.5)
+	dots.position = Vector2(w * 0.25, fy + footer_h * 0.25)
+	panel.add_child(dots)
+	_pt_dots = dots
+
+	_pt_page = clampi(_pt_page, 0, _pt_pages.size() - 1)
+	_show_pt_page(_pt_page)
+	return panel
+
+func _show_pt_page(idx: int) -> void:
+	if _pt_pages.is_empty():
+		return
+	var n := _pt_pages.size()
+	_pt_page = ((idx % n) + n) % n
+	for i in n:
+		_pt_pages[i].visible = (i == _pt_page)
+	if _pt_dots and is_instance_valid(_pt_dots):
+		_pt_dots.index = _pt_page
+		_pt_dots.queue_redraw()
+	if _pt_subtitle and is_instance_valid(_pt_subtitle):
+		_pt_subtitle.text = PT_SUBTITLES[_pt_page]
+
+## A high/low symbol pay page: icon + name on the left, then right-aligned 3/4/5/6 columns under
+## numeric headers. Headline pay figures are gold; the "-" (no pay) cells are dimmed.
+func _pt_make_pay_page(panel: Control, content: Rect2, rows: Array) -> Control:
+	var page := Control.new()
+	page.position = content.position
+	page.size = content.size
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(page)
+
+	var cw := content.size.x
+	var ch := content.size.y
+	var head_h := ch * 0.11
+	var n := rows.size()
+	var row_h := (ch - head_h) / float(n)
+	var val_left := cw * 0.40
+	var val_w := (cw - val_left) / 4.0
+	var head_fs := int(cw * 0.05)
+	var name_fs := int(cw * 0.046)
+	var val_fs := int(cw * 0.05)
+
+	_ov_label(page, "OF A KIND", Vector2(0, 0), Vector2(val_left, head_h), int(cw * 0.036), Color(SEAFOAM.r, SEAFOAM.g, SEAFOAM.b, 0.85), HORIZONTAL_ALIGNMENT_LEFT)
+	for c in 4:
+		_ov_label(page, str(c + 3), Vector2(val_left + c * val_w, 0), Vector2(val_w, head_h), head_fs, AQUA_C, HORIZONTAL_ALIGNMENT_CENTER)
+
+	for i in n:
+		var rd: Array = rows[i]
+		var ry := head_h + i * row_h
+		if i % 2 == 1:
+			var zebra := ColorRect.new()
+			zebra.color = Color(SEAFOAM.r, SEAFOAM.g, SEAFOAM.b, 0.05)
+			zebra.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			zebra.position = Vector2(0, ry)
+			zebra.size = Vector2(cw, row_h)
+			page.add_child(zebra)
+		var isz := row_h * 0.80
+		_ov_icon(page, str(rd[0]), Vector2(0, ry + (row_h - isz) * 0.5), Vector2(isz, isz))
+		var name_x := isz + cw * 0.02
+		_ov_label(page, str(rd[0]), Vector2(name_x, ry), Vector2(val_left - name_x, row_h), name_fs, PEARL_C, HORIZONTAL_ALIGNMENT_LEFT)
+		for c in 4:
+			var v := str(rd[c + 1])
+			var col := GOLD if v != "-" else Color(0.55, 0.66, 0.72)
+			_ov_label(page, v, Vector2(val_left + c * val_w, ry), Vector2(val_w, row_h), val_fs, col, HORIZONTAL_ALIGNMENT_CENTER)
+	return page
+
+func _pt_make_special_page(panel: Control, content: Rect2) -> Control:
+	var page := Control.new()
+	page.position = content.position
+	page.size = content.size
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(page)
+
+	var cw := content.size.x
+	var ch := content.size.y
+	var entries := [
+		["WILD", "WILD", "Substitutes for every paying symbol. Appears on reels 2, 3, 4 and 5 only."],
+		["SCATTER", "SCATTER  (CONCH)", "4 or more anywhere trigger FREE SPINS - 4 award 10 spins, 5 award 12, 6 award 15. Retriggers add +5 (up to 50). Scatters count across the whole tumbling sequence."],
+		["BONUS", "BONUS  (KRAKEN AMULET)", "3 or more anywhere awaken the KRAKEN for an instant prize - 3 = 20x, 4 = 75x, 5 = 300x, 6 = 1000x total bet. Bonus symbols count across the whole cascade."],
+		["MULT_ORB", "MULTIPLIER ORB", "Free spins only. Each orb adds to the persistent RISING TIDE multiplier (x2 / x3 / x5 / x10). The tide only ever rises during the feature."],
+	]
+	var n := entries.size()
+	var row_h := ch / float(n)
+	var isz := row_h * 0.62
+	var title_fs := int(cw * 0.044)
+	var body_fs := int(cw * 0.032)
+	for i in n:
+		var e: Array = entries[i]
+		var ry := i * row_h
+		_ov_icon(page, str(e[0]), Vector2(0, ry + (row_h - isz) * 0.5), Vector2(isz, isz))
+		var tx := isz + cw * 0.035
+		_ov_label(page, str(e[1]), Vector2(tx, ry + row_h * 0.06), Vector2(cw - tx, row_h * 0.28), title_fs, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+		_ov_label(page, str(e[2]), Vector2(tx, ry + row_h * 0.34), Vector2(cw - tx, row_h * 0.62), body_fs, PEARL_C, HORIZONTAL_ALIGNMENT_LEFT, true)
+	return page
+
+func _pt_make_rules_page(panel: Control, content: Rect2) -> Control:
+	var page := Control.new()
+	page.position = content.position
+	page.size = content.size
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(page)
+
+	var cw := content.size.x
+	var ch := content.size.y
+	var blocks := [
+		["WAYS", "Up to 15,625 ways. Matching symbols pay on ADJACENT reels starting from reel 1 (leftmost), in any position. Pays = paytable value x number of ways."],
+		["TUMBLING", "Winning symbols burst and clear; symbols above fall and new ones drop in, repeating while there are wins. In the BASE game the win multiplier climbs x1, x2, x3, x5 across successive tumbles."],
+		["FREE SPINS", "Tumbling continues under a persistent rising-tide multiplier fed by multiplier orbs - the tide carries from spin to spin and only ever rises."],
+	]
+	var head_fs := int(cw * 0.05)
+	var body_fs := int(cw * 0.034)
+	var block_h := ch * 0.27
+	for i in blocks.size():
+		var b: Array = blocks[i]
+		var by := i * block_h
+		_ov_label(page, str(b[0]), Vector2(0, by), Vector2(cw, ch * 0.07), head_fs, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+		_ov_label(page, str(b[1]), Vector2(0, by + ch * 0.075), Vector2(cw, block_h - ch * 0.08), body_fs, PEARL_C, HORIZONTAL_ALIGNMENT_LEFT, true)
+	_ov_divider(page, Vector2(cw * 0.1, ch * 0.86), cw * 0.8)
+	_ov_label(page, "RTP 96.0%        MAX WIN 20,000x TOTAL BET", Vector2(0, ch * 0.88), Vector2(cw, ch * 0.1), int(cw * 0.042), GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	return page
+
+# ---- SETTINGS -----------------------------------------------------------------
+func _build_settings_panel() -> OceanPanel:
+	var w: float = min(view.x * 0.88, 880.0)
+	var h := view.y * 0.60
+	var panel := _make_panel(w, h)
+	_panel_header(panel, "SETTINGS")
+	_ov_divider(panel, Vector2(w * 0.06, h * 0.135), w * 0.88)
+
+	var x := w * 0.08
+	var cw := w - x * 2.0
+	var y := h * 0.20
+	y = _settings_toggle_row(panel, x, y, cw, "SOUND EFFECTS", _sfx_on, _set_sfx, "sfx")
+	y += h * 0.03
+	y = _settings_toggle_row(panel, x, y, cw, "MUSIC", _music_on, _set_music, "music")
+	y += h * 0.06
+
+	_ov_label(panel, "GAME SPEED", Vector2(x, y), Vector2(cw, h * 0.08), int(w * 0.046), AQUA_C, HORIZONTAL_ALIGNMENT_LEFT)
+	y += h * 0.09
+	var seg := SegmentedControl.new()
+	seg.options = SPEED_NAMES.duplicate()
+	seg.index = _speed_idx
+	seg.accent = GOLD
+	seg.size = Vector2(cw, h * 0.14)
+	seg.position = Vector2(x, y)
+	seg.selected.connect(func(i): _set_speed(i))
+	panel.add_child(seg)
+	_speed_seg = seg
+	return panel
+
+func _settings_toggle_row(panel: Control, x: float, y: float, cw: float, label: String, state: bool, cb: Callable, kind: String) -> float:
+	var rh := panel.size.y * 0.11
+	_ov_label(panel, label, Vector2(x, y), Vector2(cw * 0.68, rh), int(panel.size.x * 0.046), PEARL_C, HORIZONTAL_ALIGNMENT_LEFT)
+	var sw := ToggleSwitch.new()
+	sw.on = state
+	sw.accent = SEAFOAM
+	var sww := panel.size.x * 0.20
+	var swh := rh * 0.58
+	sw.size = Vector2(sww, swh)
+	sw.position = Vector2(x + cw - sww, y + (rh - swh) * 0.5)
+	sw.toggled.connect(cb)
+	panel.add_child(sw)
+	if kind == "sfx":
+		_sfx_switch = sw
+	elif kind == "music":
+		_music_switch = sw
+	return y + rh
+
+# ---- MENU ---------------------------------------------------------------------
+func _build_menu_panel() -> OceanPanel:
+	var w: float = min(view.x * 0.82, 760.0)
+	var h := view.y * 0.62
+	var panel := _make_panel(w, h)
+	_panel_header(panel, "MENU")
+	_ov_divider(panel, Vector2(w * 0.07, h * 0.135), w * 0.86)
+
+	var x := w * 0.10
+	var cw := w - x * 2.0
+	var y := h * 0.19
+	var bh := h * 0.13
+	var gap := h * 0.035
+
+	var resume := _menu_button(panel, "RESUME", "play", x, y, cw, bh)
+	resume.pressed.connect(_close_overlay)
+	y += bh + gap
+	var rules := _menu_button(panel, "GAME RULES", "info", x, y, cw, bh)
+	rules.pressed.connect(func(): _open_overlay("info"))
+	y += bh + gap
+	var setting := _menu_button(panel, "SETTINGS", "gear", x, y, cw, bh)
+	setting.pressed.connect(func(): _open_overlay("settings"))
+	y += bh + gap + h * 0.02
+	_settings_toggle_row(panel, x, y, cw, "SOUND", _sfx_on, _set_sfx, "sfx")
+	return panel
+
+func _menu_button(panel: Control, text_label: String, icon_kind: String, x: float, y: float, w: float, h: float) -> OceanMenuButton:
+	var b := OceanMenuButton.new()
+	b.text_label = text_label
+	b.icon_kind = icon_kind
+	b.accent = GOLD
+	b.size = Vector2(w, h)
+	b.position = Vector2(x, y)
+	b.pivot_offset = Vector2(w, h) * 0.5
+	b.pressed.connect(func(): _btn_feedback(b))
+	panel.add_child(b)
+	return b
+
+
 ## Code-drawn control button (no art exists for bet +/-, max-bet, autoplay, settings, sound, info,
 ## menu). A rounded "glass" pill with a vector glyph, styled to the ocean palette; emits `pressed`
 ## on tap/click (touch is routed via Godot's emulate-mouse-from-touch). `active` brightens the
@@ -1936,14 +2565,22 @@ class GlyphButton extends Control:
 				var ts := f.get_string_size(text_label, HORIZONTAL_ALIGNMENT_CENTER, -1, fs)
 				draw_string(f, Vector2(cx - ts.x * 0.5, cy + ts.y * 0.32), text_label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
 			"speed":
-				# two-line label: "SPEED" caption above the current state (text_label).
+				# two-line label: "SPEED" caption above the current state (text_label). Both fonts
+				# auto-shrink to the box width so the longest state ("NORMAL") never clips (item 3).
 				var sf := get_theme_default_font()
-				var cap_fs := int(h * 0.21)
-				var val_fs := int(h * 0.27)
+				var avail: float = w * 0.84
 				var cap := "SPEED"
+				var cap_fs := int(h * 0.20)
 				var cw := sf.get_string_size(cap, HORIZONTAL_ALIGNMENT_CENTER, -1, cap_fs).x
-				draw_string(sf, Vector2(cx - cw * 0.5, cy - h * 0.08), cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs, Color(c.r, c.g, c.b, 0.8))
+				if cw > avail:
+					cap_fs = maxi(8, int(cap_fs * avail / cw))
+					cw = sf.get_string_size(cap, HORIZONTAL_ALIGNMENT_CENTER, -1, cap_fs).x
+				draw_string(sf, Vector2(cx - cw * 0.5, cy - h * 0.10), cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs, Color(c.r, c.g, c.b, 0.8))
+				var val_fs := int(h * 0.26)
 				var vw := sf.get_string_size(text_label, HORIZONTAL_ALIGNMENT_CENTER, -1, val_fs).x
+				if vw > avail:
+					val_fs = maxi(8, int(val_fs * avail / vw))
+					vw = sf.get_string_size(text_label, HORIZONTAL_ALIGNMENT_CENTER, -1, val_fs).x
 				draw_string(sf, Vector2(cx - vw * 0.5, cy + h * 0.30), text_label, HORIZONTAL_ALIGNMENT_LEFT, -1, val_fs, c)
 			"auto":
 				# circular arrow (autoplay)
@@ -1980,5 +2617,257 @@ class GlyphButton extends Control:
 				for j in 3:
 					var yy := cy - u * 0.16 + float(j) * u * 0.16
 					draw_line(Vector2(cx - u * 0.22, yy), Vector2(cx + u * 0.22, yy), c, lw)
+			"close":
+				draw_line(Vector2(cx - u * 0.18, cy - u * 0.18), Vector2(cx + u * 0.18, cy + u * 0.18), c, lw)
+				draw_line(Vector2(cx + u * 0.18, cy - u * 0.18), Vector2(cx - u * 0.18, cy + u * 0.18), c, lw)
+			"arrow_left":
+				draw_line(Vector2(cx + u * 0.13, cy - u * 0.20), Vector2(cx - u * 0.15, cy), c, lw)
+				draw_line(Vector2(cx - u * 0.15, cy), Vector2(cx + u * 0.13, cy + u * 0.20), c, lw)
+			"arrow_right":
+				draw_line(Vector2(cx - u * 0.13, cy - u * 0.20), Vector2(cx + u * 0.15, cy), c, lw)
+				draw_line(Vector2(cx + u * 0.15, cy), Vector2(cx - u * 0.13, cy + u * 0.20), c, lw)
 			_:
 				pass
+
+
+## Code-drawn modal card: deep-teal rounded panel with a gold border, soft drop shadow and a faint
+## inner hairline. Solid fill keeps it crisp on WebGL2. mouse_filter STOP so taps on the panel body
+## don't fall through to the scrim (which closes the overlay).
+class OceanPanel extends Control:
+	var accent := Color(1.0, 0.82, 0.38)
+	var fill := Color(0.03, 0.12, 0.18, 0.97)
+
+	func _draw() -> void:
+		var r := Rect2(Vector2.ZERO, size)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = fill
+		var rad := int(min(size.x, size.y) * 0.045)
+		sb.set_corner_radius_all(rad)
+		sb.set_border_width_all(3)
+		sb.border_color = accent
+		sb.shadow_color = Color(0, 0, 0, 0.55)
+		sb.shadow_size = 22
+		draw_style_box(sb, r)
+		var inner := StyleBoxFlat.new()
+		inner.draw_center = false
+		inner.set_corner_radius_all(maxi(0, rad - 6))
+		inner.set_border_width_all(1)
+		inner.border_color = Color(accent.r, accent.g, accent.b, 0.20)
+		draw_style_box(inner, r.grow(-10.0))
+
+
+## iOS-style sliding toggle. apply() drives the knob without re-emitting, so external state sync
+## (HUD speaker / menu quick-toggle) never feedback-loops with the switch's own input.
+class ToggleSwitch extends Control:
+	signal toggled(on)
+	var on := true
+	var accent := Color(0.55, 1.0, 0.86)
+	var off_col := Color(0.16, 0.24, 0.28)
+	var _k := 1.0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		_k = 1.0 if on else 0.0
+
+	func _gui_input(event: InputEvent) -> void:
+		var press := false
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			press = true
+		elif event is InputEventScreenTouch and event.pressed:
+			press = true
+		if press:
+			apply(not on, true)
+			emit_signal("toggled", on)
+
+	func apply(v: bool, animate: bool) -> void:
+		on = v
+		var target := 1.0 if on else 0.0
+		if animate and is_inside_tree():
+			var t := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			t.tween_method(_set_k, _k, target, 0.16)
+		else:
+			_set_k(target)
+
+	func _set_k(v: float) -> void:
+		_k = v
+		queue_redraw()
+
+	func _draw() -> void:
+		var track := StyleBoxFlat.new()
+		track.bg_color = off_col.lerp(accent, _k)
+		track.set_corner_radius_all(int(size.y * 0.5))
+		draw_style_box(track, Rect2(Vector2.ZERO, size))
+		var kr := size.y * 0.5
+		var kx: float = lerp(kr, size.x - kr, _k)
+		draw_circle(Vector2(kx, size.y * 0.5), kr * 0.80, Color(0.98, 1.0, 1.0))
+
+
+## Segmented control (SLOW / NORMAL / FAST). select_index() sets selection without emitting, for
+## external sync with the HUD speed cycle.
+class SegmentedControl extends Control:
+	signal selected(index)
+	var options: Array = []
+	var index := 0
+	var accent := Color(1.0, 0.82, 0.38)
+	var base_col := Color(0.05, 0.16, 0.22, 0.95)
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+
+	func _gui_input(event: InputEvent) -> void:
+		var press := false
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			press = true
+		elif event is InputEventScreenTouch and event.pressed:
+			press = true
+		if not press:
+			return
+		var n := options.size()
+		if n == 0:
+			return
+		var seg_w := size.x / float(n)
+		var i := clampi(int(event.position.x / seg_w), 0, n - 1)
+		if i != index:
+			index = i
+			queue_redraw()
+			emit_signal("selected", i)
+
+	func select_index(i: int) -> void:
+		index = clampi(i, 0, maxi(0, options.size() - 1))
+		queue_redraw()
+
+	func _draw() -> void:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = base_col
+		sb.set_corner_radius_all(int(size.y * 0.30))
+		sb.set_border_width_all(2)
+		sb.border_color = Color(accent.r, accent.g, accent.b, 0.45)
+		draw_style_box(sb, Rect2(Vector2.ZERO, size))
+		var n := options.size()
+		if n == 0:
+			return
+		var seg_w := size.x / float(n)
+		var f := get_theme_default_font()
+		var fs := int(size.y * 0.34)
+		for i in n:
+			if i == index:
+				var hb := StyleBoxFlat.new()
+				hb.bg_color = Color(accent.r, accent.g, accent.b, 0.92)
+				hb.set_corner_radius_all(int(size.y * 0.26))
+				draw_style_box(hb, Rect2(i * seg_w, 0, seg_w, size.y).grow(-4.0))
+			var col := Color(0.03, 0.10, 0.14) if i == index else Color(0.86, 0.95, 1.0)
+			var txt := str(options[i])
+			var ts := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_CENTER, -1, fs)
+			draw_string(f, Vector2(i * seg_w + seg_w * 0.5 - ts.x * 0.5, size.y * 0.5 + ts.y * 0.32), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+		for i in range(1, n):
+			draw_line(Vector2(i * seg_w, size.y * 0.22), Vector2(i * seg_w, size.y * 0.78), Color(accent.r, accent.g, accent.b, 0.25), 1.0)
+
+
+## Wide menu row: rounded pill with a left glyph, label and a right chevron. Emits pressed on
+## release (mirrors GlyphButton's input handling).
+class OceanMenuButton extends Control:
+	signal pressed
+	var text_label := ""
+	var icon_kind := ""
+	var accent := Color(1.0, 0.82, 0.38)
+	var base_col := Color(0.05, 0.16, 0.22, 0.95)
+	var _down := false
+	var _hover := false
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_entered.connect(func(): _hover = true; queue_redraw())
+		mouse_exited.connect(func(): _hover = false; _down = false; queue_redraw())
+
+	func _gui_input(event: InputEvent) -> void:
+		var press := false
+		var rel := false
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			press = event.pressed
+			rel = not event.pressed
+		elif event is InputEventScreenTouch:
+			press = event.pressed
+			rel = not event.pressed
+		else:
+			return
+		if press:
+			_down = true
+			queue_redraw()
+		elif rel:
+			if _down:
+				emit_signal("pressed")
+			_down = false
+			queue_redraw()
+
+	func _draw() -> void:
+		var sb := StyleBoxFlat.new()
+		var fill := base_col
+		if _down:
+			fill = base_col.lightened(0.14)
+		elif _hover:
+			fill = base_col.lightened(0.06)
+		sb.bg_color = fill
+		sb.set_corner_radius_all(int(size.y * 0.30))
+		sb.set_border_width_all(2)
+		sb.border_color = Color(accent.r, accent.g, accent.b, 0.65 if (_hover or _down) else 0.4)
+		draw_style_box(sb, Rect2(Vector2.ZERO, size))
+		var h := size.y
+		var pad := h * 0.42
+		if icon_kind != "":
+			_menu_glyph(icon_kind, Vector2(pad, h * 0.5), h * 0.30, accent)
+		var f := get_theme_default_font()
+		var fs := int(h * 0.38)
+		var tx: float = pad + (h * 0.55 if icon_kind != "" else 0.0)
+		var ts := f.get_string_size(text_label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		draw_string(f, Vector2(tx, h * 0.5 + ts.y * 0.32), text_label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0.9, 0.97, 1.0))
+		var cxr := size.x - pad
+		var cy := h * 0.5
+		var s := h * 0.15
+		var lw: float = max(2.0, h * 0.045)
+		draw_line(Vector2(cxr - s, cy - s), Vector2(cxr, cy), accent, lw)
+		draw_line(Vector2(cxr, cy), Vector2(cxr - s, cy + s), accent, lw)
+
+	func _menu_glyph(kind: String, center: Vector2, rad: float, c: Color) -> void:
+		var lw: float = max(2.0, rad * 0.18)
+		match kind:
+			"play":
+				draw_colored_polygon(PackedVector2Array([
+					center + Vector2(-rad * 0.5, -rad * 0.7),
+					center + Vector2(rad * 0.75, 0),
+					center + Vector2(-rad * 0.5, rad * 0.7),
+				]), c)
+			"info":
+				draw_arc(center, rad, 0, TAU, 28, c, lw)
+				draw_circle(center + Vector2(0, -rad * 0.45), rad * 0.14, c)
+				draw_line(center + Vector2(0, -rad * 0.08), center + Vector2(0, rad * 0.55), c, lw)
+			"gear":
+				draw_arc(center, rad * 0.62, 0, TAU, 24, c, lw)
+				draw_circle(center, rad * 0.24, c)
+				for i in 8:
+					var a := TAU * float(i) / 8.0
+					var dir := Vector2(cos(a), sin(a))
+					draw_line(center + dir * rad * 0.7, center + dir * rad * 1.0, c, lw)
+			_:
+				pass
+
+
+## Pagination dots (filled = current page). Non-interactive; navigation is via the arrow buttons.
+class PageDots extends Control:
+	var count := 1
+	var index := 0
+	var accent := Color(1.0, 0.82, 0.38)
+
+	func _draw() -> void:
+		if count <= 0:
+			return
+		var rad := size.y * 0.30
+		var gap := rad * 3.2
+		var total := float(count - 1) * gap
+		var x0 := size.x * 0.5 - total * 0.5
+		var cy := size.y * 0.5
+		for i in count:
+			var cx := x0 + float(i) * gap
+			if i == index:
+				draw_circle(Vector2(cx, cy), rad, accent)
+			else:
+				draw_circle(Vector2(cx, cy), rad * 0.66, Color(accent.r, accent.g, accent.b, 0.35))

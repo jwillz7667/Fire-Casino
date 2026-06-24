@@ -21,7 +21,7 @@ import { useGameSession } from "@/lib/use-game-session";
  * point R2_GAME_URL below at the new prefix.
  */
 const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/leviathan-deep/v5/index.html";
+  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/leviathan-deep/v6/index.html";
 export const LEVIATHAN_GAME_URL = process.env.NEXT_PUBLIC_LEVIATHAN_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = LEVIATHAN_GAME_URL;
