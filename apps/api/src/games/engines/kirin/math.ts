@@ -93,7 +93,7 @@ const BASE_COMMON: Record<SymbolId, number> = {
   Q: 24,
   J: 28,
   WILD: 0,
-  SCATTER: 4.6,
+  SCATTER: 2.7,
   BONUS: BONUS_WEIGHT,
 };
 
@@ -120,21 +120,22 @@ const FREE_COMMON: Record<SymbolId, number> = {
 export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3.5);
 export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 6);
 
-/** Pay per line for k-of-a-kind from reel 1, in bps of total bet. The cheapest royals pay
- *  little at 3 (keeps the sub-1× loss-disguised-as-win flood in check). */
+/** Pay per line for k-of-a-kind from reel 1, in bps of total bet. The cheapest royal (J) pays
+ *  NOTHING at 3-of-a-kind to kill the hollow sub-1× win flood, and the top premiums
+ *  (KIRIN/QUEEN/PHOENIX/SHARK) carry steep 4/5-of-a-kind pays to build a fat line tail. */
 export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
-  KIRIN: { 3: 40000, 4: 200000, 5: 1000000 },
-  QUEEN: { 3: 25000, 4: 120000, 5: 600000 },
-  PHOENIX: { 3: 18000, 4: 90000, 5: 450000 },
-  SHARK: { 3: 12000, 4: 50000, 5: 180000 },
-  CHEST: { 3: 9000, 4: 36000, 5: 140000 },
+  KIRIN: { 3: 40000, 4: 250000, 5: 2000000 },
+  QUEEN: { 3: 25000, 4: 150000, 5: 1200000 },
+  PHOENIX: { 3: 18000, 4: 110000, 5: 800000 },
+  SHARK: { 3: 12000, 4: 55000, 5: 220000 },
+  CHEST: { 3: 9000, 4: 38000, 5: 150000 },
   BELL: { 3: 7000, 4: 28000, 5: 100000 },
   RUBY: { 3: 5000, 4: 20000, 5: 80000 },
   LOTUS: { 3: 4000, 4: 16000, 5: 64000 },
   A: { 3: 3000, 4: 12000, 5: 48000 },
   K: { 3: 2500, 4: 10000, 5: 40000 },
   Q: { 3: 2000, 4: 8000, 5: 32000 },
-  J: { 3: 1500, 4: 6000, 5: 24000 },
+  J: { 3: 0, 4: 6000, 5: 24000 },
 };
 
 /** Scatter (pearl) pays anywhere on the grid by count, in bps of total bet. Kept modest: the
@@ -198,9 +199,10 @@ export const JACKPOT_TIER_WEIGHTS: Record<KirinJackpotTier, number> = {
 /** Jackpot award per tier, in bps — the public fixed bet-multiples (paid verbatim). */
 export const JACKPOT_AWARD = KIRIN_JACKPOTS;
 
-/** Hard per-round win cap = 5000× total bet (in bps). Bounds liability and gives the game a
- *  headline max-win; binds very rarely so it stays a real jackpot event. */
-export const MAX_WIN_BPS = 50_000_000;
+/** Hard per-round win cap = 15,000× total bet (in bps). Bounds liability and gives the game a
+ *  headline max-win; binds very rarely so it stays a real jackpot event. Raised so a long
+ *  premium line run plus the free-spin Kirin-Fire ramp can post a true 1000×+ tail. */
+export const MAX_WIN_BPS = 150_000_000;
 
 /**
  * Global linear RTP calibration (bps) for the SCALED slice (lines + scatter + free spins). The
@@ -208,7 +210,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * `scaledRtp(scalar) + bonusRtp + jackpotRtp`. CALIBRATED by simulate.ts — run it after any
  * table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 22243;
+export const PAYOUT_SCALAR_BPS = 39352;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;
