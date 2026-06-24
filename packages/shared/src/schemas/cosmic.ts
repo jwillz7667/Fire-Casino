@@ -19,6 +19,8 @@
  * reveal. It is a fixed awarded prize, NOT a pick mini-game.
  */
 
+import { type SlotFeel } from "./slot-feel";
+
 /** Catalog code + engine key for the game (server dispatch + client renderer). */
 export const COSMIC_GAME_CODE = "cosmic-slots";
 
@@ -107,6 +109,7 @@ export interface CosmicOutcome {
   freeSpins: CosmicFreeSpins | null;
   bonus: CosmicBonus | null;
   totalWinBps: number; // final win in bps of total bet, AFTER calibration (+ exact bonus)
+  feel: SlotFeel; // presentation-only suspense + win-tier hints (never affects the money figure)
 }
 
 /** Narrow an opaque round outcome JSON to the Cosmic payload. */

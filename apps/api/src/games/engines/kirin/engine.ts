@@ -1,4 +1,5 @@
-import { type KirinJackpotTier } from "@aureus/shared";
+import { type KirinJackpotTier, type SlotFeel } from "@aureus/shared";
+import { buildFeel, computeAnticipation } from "../shared/feel";
 import {
   BASE_REEL_WEIGHTS,
   BONUS_AWARD,
@@ -77,6 +78,7 @@ export interface KirinOutcome extends Record<string, unknown> {
   bonus: BonusResult | null;
   jackpot: JackpotResult | null;
   totalWinBps: number;
+  feel: SlotFeel;
 }
 
 export interface EngineResult {
@@ -264,6 +266,18 @@ export function spin(rng: Rng): EngineResult {
     scaled + (bonus?.awardBps ?? 0) + (jackpot?.awardBps ?? 0),
   );
 
+  // Presentation-only suspense/celebration hints, derived from the BASE grid the player watches
+  // reel-by-reel (free spins auto-play). Scatter → free spins, BONUS → instant prize; both tease
+  // on the "one-to-go" reel. Never affects totalWinBps.
+  const feel = buildFeel({
+    totalWinBps,
+    jackpot: jackpot !== null,
+    anticipation: [
+      computeAnticipation(baseGrid, SCATTER, SCATTER_TRIGGER),
+      computeAnticipation(baseGrid, BONUS, BONUS_TRIGGER),
+    ],
+  });
+
   return {
     totalWinBps,
     outcome: {
@@ -274,6 +288,7 @@ export function spin(rng: Rng): EngineResult {
       bonus,
       jackpot,
       totalWinBps,
+      feel,
     },
   };
 }

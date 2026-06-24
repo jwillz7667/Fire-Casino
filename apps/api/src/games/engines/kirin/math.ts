@@ -75,7 +75,7 @@ function perReel(common: Record<SymbolId, number>, wildInterior: number): Record
  * enough that 3+ is a rare jackpot-style trigger on the 20-cell grid, high enough that "two
  * landed, one to go" anticipation shows regularly. Re-measure with simulate.ts after a change.
  */
-const BONUS_WEIGHT = 1.4;
+const BONUS_WEIGHT = 2.2;
 
 /** Base-game per-cell weights (WILD filled per-reel by perReel). Royals are heavy filler so
  *  wins skew toward the picture premiums and the features. */
@@ -88,12 +88,12 @@ const BASE_COMMON: Record<SymbolId, number> = {
   BELL: 11,
   RUBY: 13,
   LOTUS: 15,
-  A: 16,
-  K: 17,
-  Q: 18,
-  J: 19,
+  A: 18,
+  K: 22,
+  Q: 24,
+  J: 28,
   WILD: 0,
-  SCATTER: 3.2,
+  SCATTER: 4.6,
   BONUS: BONUS_WEIGHT,
 };
 
@@ -108,16 +108,16 @@ const FREE_COMMON: Record<SymbolId, number> = {
   BELL: 11,
   RUBY: 12,
   LOTUS: 13,
-  A: 13,
-  K: 14,
-  Q: 15,
-  J: 16,
+  A: 18,
+  K: 22,
+  Q: 24,
+  J: 28,
   WILD: 0,
-  SCATTER: 2.4,
+  SCATTER: 2.6,
   BONUS: 0,
 };
 
-export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3);
+export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3.5);
 export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 6);
 
 /** Pay per line for k-of-a-kind from reel 1, in bps of total bet. The cheapest royals pay
@@ -137,11 +137,13 @@ export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
   J: { 3: 1500, 4: 6000, 5: 24000 },
 };
 
-/** Scatter (pearl) pays anywhere on the grid by count, in bps of total bet. */
+/** Scatter (pearl) pays anywhere on the grid by count, in bps of total bet. Kept modest: the
+ *  scatter's value is the FREE-SPINS trigger, not the anywhere-pay — a small direct pay frees
+ *  RTP budget for frequent line wins (a higher PAYOUT_SCALAR_BPS, fewer hollow sub-1× wins). */
 export const SCATTER_PAY: Record<number, number> = {
-  3: 50000,
-  4: 250000,
-  5: 1250000,
+  3: 15000,
+  4: 60000,
+  5: 300000,
 };
 
 /** Minimum scatters to award free spins, and the spins granted per count. */
@@ -206,7 +208,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * `scaledRtp(scalar) + bonusRtp + jackpotRtp`. CALIBRATED by simulate.ts — run it after any
  * table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 23356;
+export const PAYOUT_SCALAR_BPS = 22243;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

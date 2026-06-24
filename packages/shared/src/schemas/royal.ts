@@ -9,6 +9,8 @@
  * assignable to them in the engine tests, so the contract can't drift.
  */
 
+import { type SlotFeel } from "./slot-feel";
+
 /** Catalog code + engine key for the game (server dispatch + client renderer). */
 export const ROYAL_GAME_CODE = "royal-ascendant";
 
@@ -67,6 +69,7 @@ export interface RoyalOutcome {
   base: RoyalSpinResult;
   freeSpins: RoyalFreeSpins | null;
   totalWinBps: number; // final win in bps of total bet, AFTER calibration
+  feel: SlotFeel; // presentation-only suspense + win-tier hints (never affects the money figure)
 }
 
 /** Narrow an opaque round outcome JSON to the Royal payload. */

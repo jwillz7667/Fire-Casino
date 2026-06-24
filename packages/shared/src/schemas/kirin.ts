@@ -19,6 +19,8 @@
  * the fixed bet-multiple here — a genuine cross-player progressive pool is out of scope.
  */
 
+import { type SlotFeel } from "./slot-feel";
+
 /** Catalog code + engine key for the game (server dispatch + client renderer). */
 export const KIRIN_GAME_CODE = "flaming-kirin";
 
@@ -132,6 +134,7 @@ export interface KirinOutcome {
   bonus: KirinBonus | null;
   jackpot: KirinJackpotWin | null;
   totalWinBps: number; // final win in bps of total bet, AFTER calibration (+ exact bonus + jackpot)
+  feel: SlotFeel; // presentation-only suspense + win-tier hints (never affects the money figure)
 }
 
 /** Narrow an opaque round outcome JSON to the Flaming Kirin payload. */

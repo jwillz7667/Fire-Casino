@@ -79,49 +79,54 @@ function perReel(
  * "two landed, one to go" anticipation shows up regularly. Re-measure with simulate.ts
  * after any change — the bonus RTP moves super-linearly in this weight.
  */
-const BONUS_WEIGHT = 2;
+const BONUS_WEIGHT = 2.5;
 
 /** Base-game per-cell weights (WILD filled per-reel by perReel). Low royals are heavy
- *  filler so wins skew toward the premiums and the features. */
+ *  filler so the grid lands frequent cheap line wins (high hit frequency) while the RTP
+ *  cost stays low — the cheap pays are small, so a fuller paytable still calibrates to the
+ *  same certified RTP via the scalar. Premiums and features carry the volatility. */
 const BASE_COMMON: Record<SymbolId, number> = {
-  CORE: 4,
-  CRYSTAL: 5,
-  ORB: 6,
-  SATELLITE: 8,
-  ENERGY: 9,
+  CORE: 3,
+  CRYSTAL: 4,
+  ORB: 5,
+  SATELLITE: 6,
+  ENERGY: 8,
   TABLET: 10,
-  A: 11,
-  K: 12,
-  Q: 13,
-  J: 14,
-  TEN: 15,
-  NINE: 16,
+  A: 13,
+  K: 15,
+  Q: 17,
+  J: 19,
+  TEN: 21,
+  NINE: 23,
   WILD: 0,
-  SCATTER: 4,
+  SCATTER: 5.5,
   BONUS: BONUS_WEIGHT,
 };
 
-/** Free-spins per-cell weights: richer premiums, more wilds, rarer scatter, NO bonus —
- *  the instant bonus is a base-game-only feature, so free spins never re-award it. */
+/** Free-spins per-cell weights: richer premiums, more wilds, NO bonus — the instant bonus
+ *  is a base-game-only feature, so free spins never re-award it. Royals match base while
+ *  premiums + wild edge it, so free spins win MORE OFTEN and pay MORE per spin than base
+ *  (the bonus-winrate invariant); the rising multiplier then amplifies on top, so the free
+ *  weights only need to EDGE base — over-inflating them crashes the calibration scalar. */
 const FREE_COMMON: Record<SymbolId, number> = {
-  CORE: 6,
-  CRYSTAL: 7,
-  ORB: 8,
-  SATELLITE: 9,
+  CORE: 5,
+  CRYSTAL: 6,
+  ORB: 7,
+  SATELLITE: 8,
   ENERGY: 10,
-  TABLET: 11,
-  A: 11,
-  K: 12,
-  Q: 13,
-  J: 14,
-  TEN: 15,
-  NINE: 16,
+  TABLET: 12,
+  A: 13,
+  K: 15,
+  Q: 17,
+  J: 19,
+  TEN: 21,
+  NINE: 23,
   WILD: 0,
   SCATTER: 3,
   BONUS: 0,
 };
 
-export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3);
+export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3.5);
 export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 6);
 
 /** Pay per line for k-of-a-kind from reel 1, in bps of total bet. The cheapest royals
@@ -141,11 +146,14 @@ export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
   NINE: { 3: 1200, 4: 5000, 5: 20000 },
 };
 
-/** Scatter (SCATTER) pays anywhere on the grid by count, in bps of total bet. */
+/** Scatter (SCATTER) pays anywhere on the grid by count, in bps of total bet. Kept MODEST:
+ *  the scatter's value is the FREE-SPINS trigger, not the anywhere-pay — a small direct pay
+ *  frees RTP budget for frequent line wins (a higher PAYOUT_SCALAR_BPS, fewer hollow sub-1×
+ *  wins) and lets the SCATTER weight rise for more frequent triggers + 2-symbol teases. */
 export const SCATTER_PAY: Record<number, number> = {
-  3: 56000,
-  4: 280000,
-  5: 1400000,
+  3: 15000,
+  4: 60000,
+  5: 300000,
 };
 
 /** Minimum scatters to award free spins, and the spins granted per count. */
@@ -191,7 +199,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * `scaledRtp(scalar) + bonusRtp`. CALIBRATED by simulate.ts — run it after any table
  * change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 23540;
+export const PAYOUT_SCALAR_BPS = 27360;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

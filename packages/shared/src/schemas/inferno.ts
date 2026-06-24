@@ -12,6 +12,8 @@
  * measured by the engine's simulate.ts.
  */
 
+import { type SlotFeel } from "./slot-feel";
+
 export const INFERNO_GAME_CODE = "inferno-link";
 
 export const INFERNO_REELS = 5;
@@ -88,6 +90,7 @@ export interface InfernoOutcome {
   baseFireballCount: number;
   holdSpin: InfernoHoldSpin | null;
   totalWinBps: number; // final win in bps of total bet
+  feel: SlotFeel; // presentation-only suspense + win-tier hints (never affects the money figure)
 }
 
 /** Narrow an opaque round outcome JSON to the Inferno Link payload. */

@@ -112,6 +112,7 @@ func _ready() -> void:
 	board = load("res://slot/inferno_board.gd").new()
 	add_child(board)
 	board.configure(textures.get("reel_frame", null), textures.get("bonus_frame", null), sym_tex, title_font)
+	board.anticipation_started.connect(_on_anticipation)
 	fx_layer = Node2D.new(); fx_layer.z_index = 60; add_child(fx_layer)
 	_build_hud()
 	_apply_layout()
@@ -178,6 +179,7 @@ func _load_audio() -> void:
 		"win_small", "win_medium", "win_big", "bigwin_fanfare", "megawin_fanfare",
 		"fireball_land", "holdspin_enter", "holdspin_respin", "grand_jackpot",
 		"coin_tick", "coin_shower", "button_tap", "bet_change", "error_blip",
+		"anticipation", "near_miss",
 	]:
 		var st := _cue_stream(name)
 		if st == null: continue
@@ -471,6 +473,7 @@ func request_spin() -> void:
 	spin_btn.disabled = true
 	lbl_win.text = ""
 	_flash("")
+	board.stop_win_flash()
 	board.dim_unlocked(false)
 	play("spin_press"); play("spin_start"); _spin_whir(true)
 	if bridge != null:
@@ -501,36 +504,68 @@ func _resolve(outcome: Dictionary) -> void:
 	var grid = outcome.get("grid", [])
 	if typeof(grid) != TYPE_ARRAY or grid.size() != REELS:
 		_flash("Bad outcome"); _finish_idle(); return
-	# label each base credit ball with its $ value so it shows on the reels; anticipate when
-	# one short of the 4-ball trigger.
+	# Presentation-only "feel" hints (packages/shared/src/schemas/slot-feel.ts): the win-tier
+	# celebration ladder, the one-to-go anticipation drumroll and the near-miss sting. Absent on
+	# the offline mock, so every read falls back to the prior local behaviour.
+	var feel = outcome.get("feel", {})
+	if typeof(feel) != TYPE_DICTIONARY: feel = {}
+	var win_tier := str(feel.get("winTier", ""))
+	# inferno's trigger reveal is the FIREBALL credit balls dropping in left→right, so honour the
+	# server's fromReel; -1 keeps the board's self-count fallback for the mock.
+	var anticipate_from := -1
+	for a in feel.get("anticipation", []):
+		if typeof(a) == TYPE_DICTIONARY and a.get("fromReel", null) != null:
+			anticipate_from = int(a.get("fromReel"))
+			break
+
 	var fire_labels := {}
 	for f in outcome.get("baseFires", []):
 		fire_labels["%d,%d" % [int(f.reel), int(f.row)]] = _fire_label(f)
-	await board.spin_to(grid, fire_labels, 3)
+	await board.spin_to(grid, fire_labels, 3, anticipate_from)
 	_spin_whir(false)
 	play("reel_land")
 	if not fire_labels.is_empty():
 		play("fireball_land")
 
+	var hs = outcome.get("holdSpin", null)
+	var in_bonus := typeof(hs) == TYPE_DICTIONARY
+
+	# NEAR-MISS: the trigger teased but the feature never fired — deflating "so close" beat.
+	var near_list = feel.get("nearMiss", [])
+	if not in_bonus and typeof(near_list) == TYPE_ARRAY and not near_list.is_empty():
+		_play_near_miss()
+
 	# line wins
 	var line_list = outcome.get("lineWins", [])
+	var win_cells := []
 	for w in line_list:
 		var line := int(w.get("line", 0))
 		var count := int(w.get("count", 0))
-		board.flash_line(_line_cells(line, count), GOLD)
+		var lc := _line_cells(line, count)
+		board.flash_line(lc, GOLD)
+		for rc in lc:
+			if not win_cells.has(rc): win_cells.append(rc)
 	if not line_list.is_empty():
 		play("win_small")
 		await get_tree().create_timer(0.35).timeout
+		# keep the paying line symbols flashing until the next spin (base game only — the bonus
+		# transform clears the grid, so the hold-and-spin flashes its locked fireballs instead).
+		if not in_bonus:
+			board.start_win_flash(win_cells)
 
-	var hs = outcome.get("holdSpin", null)
-	var in_bonus := typeof(hs) == TYPE_DICTIONARY
 	if in_bonus:
 		await _run_hold_spin(hs)
+		# flash every locked fireball — the credit/jackpot cells that paid — through the count-up.
+		var fire_cells := []
+		for f in hs.get("locked", []):
+			fire_cells.append(Vector2i(int(f.reel), int(f.row)))
+		board.start_win_flash(fire_cells)
 
-	await _present_total(int(outcome.get("totalWinBps", 0)))
+	await _present_total(int(outcome.get("totalWinBps", 0)), win_tier)
 	if in_bonus:
 		await get_tree().create_timer(0.4).timeout
 		_duck_music(false)
+		board.stop_win_flash()   # clear before transforming back to the base reels
 		await _exit_bonus()   # transform back to the base reels after the total is shown
 	_update_hud()
 	busy = false
@@ -615,28 +650,62 @@ func _exit_bonus() -> void:
 	t2.tween_property(board, "modulate:a", 1.0, 0.22)
 	await t2.finished
 
-func _present_total(total_bps: int) -> void:
+## Present the win, escalating via the server's feel.winTier (NICE→JACKPOT). Falls back to a
+## bet-multiple derived tier when no feel is present (offline mock), matching the prior thresholds.
+func _present_total(total_bps: int, win_tier := "") -> void:
 	if total_bps <= 0:
 		_flash("No win — spin again")
 		return
 	var credits := float(total_bps) / 10000.0 * float(bet_minor) / 1000.0
 	var mult := float(total_bps) / 10000.0
-	if mult >= 100.0:
-		play("megawin_fanfare"); play("coin_shower"); _show_banner("MEGA WIN")
-	elif mult >= 20.0:
-		play("bigwin_fanfare"); play("coin_shower"); _show_banner("BIG WIN")
-	elif mult >= 5.0:
-		play("win_big")
-	else:
-		play("win_medium")
+	var tier := win_tier
+	if tier == "" or tier == "NONE":
+		tier = _tier_from_mult(mult)
+	await _celebrate_tier(tier, credits)
+
+## Map a bet-multiple to a win tier (mirrors SLOT_WIN_TIER_MIN_BPS: BIG 10×, MEGA 25×, EPIC 50×)
+## for the offline mock path; the live client always uses the engine-supplied feel.winTier.
+func _tier_from_mult(mult: float) -> String:
+	if mult <= 0.0: return "NONE"
+	if mult >= 50.0: return "EPIC"
+	if mult >= 25.0: return "MEGA"
+	if mult >= 10.0: return "BIG"
+	return "NICE"
+
+## The win-tier ladder: NICE coin tick → BIG/MEGA/EPIC progressively louder banner + screen shake
+## + coin shower + longer count-up → JACKPOT the biggest celebration. Reuses existing SFX players.
+func _celebrate_tier(tier: String, credits: float) -> void:
+	var step_delay := 0.03
+	var hold := 0.6
+	match tier:
+		"NICE":
+			play("coin_tick"); play("win_small")
+		"BIG":
+			play("bigwin_fanfare"); play("coin_shower"); _show_banner("BIG WIN"); _screen_shake(10.0, 0.4)
+			hold = 0.9
+		"MEGA":
+			play("megawin_fanfare"); play("coin_shower"); _show_banner("MEGA WIN", 1.15); _screen_shake(16.0, 0.55)
+			step_delay = 0.045; hold = 1.1
+		"EPIC":
+			play("megawin_fanfare"); play("coin_shower"); _show_banner("EPIC WIN", 1.3); _screen_shake(24.0, 0.7)
+			step_delay = 0.055; hold = 1.4
+		"JACKPOT":
+			play("grand_jackpot"); play("coin_shower"); _show_banner("JACKPOT", 1.4); _screen_shake(30.0, 0.9)
+			step_delay = 0.06; hold = 1.6
+		_:
+			play("win_medium")
+	var grand := tier == "MEGA" or tier == "EPIC" or tier == "JACKPOT"
 	var t := create_tween()
 	for i in range(1, 19):
 		var v := credits * float(i) / 18.0
-		t.tween_callback(func(): lbl_win.text = "WIN  %s" % _fmt(v)).set_delay(0.03)
-	await get_tree().create_timer(0.7).timeout
+		t.tween_callback(func(): lbl_win.text = "WIN  %s" % _fmt(v)).set_delay(step_delay)
+		if grand and i % 4 == 0:
+			t.tween_callback(func(): play("coin_tick"))
+	await get_tree().create_timer(hold).timeout
 
-func _show_banner(text: String) -> void:
+func _show_banner(text: String, scale_mult := 1.0) -> void:
 	banner.text = text; banner.visible = true
+	banner.add_theme_font_size_override("font_size", int(96.0 * scale_mult))
 	banner.modulate = Color(1, 1, 1, 0); banner.scale = Vector2(0.6, 0.6)
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	t.tween_property(banner, "modulate", Color(1, 1, 1, 1), 0.25)
@@ -644,6 +713,34 @@ func _show_banner(text: String) -> void:
 	t.tween_interval(1.0)
 	t.tween_property(banner, "modulate", Color(1, 1, 1, 0), 0.4)
 	t.tween_callback(func(): banner.visible = false)
+
+## Tension drumroll hook fired by the board as the one-to-go reels slow into suspense. The cue
+## may be absent (TODO: add res://audio/cues/anticipation.*), in which case play() is a no-op.
+func _on_anticipation() -> void:
+	play("anticipation")
+
+## Deflating "so close" beat: the feature teased but didn't trigger — short sting + a quick dim
+## pulse on the reel area. (TODO: add res://audio/cues/near_miss.*; play() no-ops if missing.)
+func _play_near_miss() -> void:
+	play("near_miss")
+	_flash("SO CLOSE")
+	var t := create_tween()
+	t.tween_property(board, "modulate", Color(0.72, 0.72, 0.78, 1.0), 0.12)
+	t.tween_property(board, "modulate", Color(1, 1, 1, 1), 0.32)
+
+## Lightweight reel-area shake for the bigger win tiers (no Camera2D in this scene): jitter the
+## board node and damp back to rest. board.position is otherwise static — only modulate animates
+## on bonus enter/exit — so capturing/restoring it here is safe.
+func _screen_shake(strength: float, duration: float) -> void:
+	if board == null: return
+	var base: Vector2 = board.position
+	var steps := int(max(duration / 0.04, 1.0))
+	var t := create_tween()
+	for i in range(steps):
+		var damp := 1.0 - float(i) / float(steps)
+		var off := Vector2(randf_range(-strength, strength), randf_range(-strength, strength)) * damp
+		t.tween_property(board, "position", base + off, 0.04)
+	t.tween_property(board, "position", base, 0.05)
 
 # --------------------------------------------------------------------- bridge
 func _connect_bridge() -> void:

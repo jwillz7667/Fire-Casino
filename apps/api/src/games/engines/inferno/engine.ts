@@ -3,11 +3,13 @@ import {
   type InfernoHoldSpin,
   type InfernoLineWin,
   type InfernoOutcome,
+  type SlotFeel,
   INFERNO_BONUS_ROWS,
   INFERNO_REELS,
   INFERNO_RESPINS,
   INFERNO_TRIGGER,
 } from "@aureus/shared";
+import { buildFeel, computeAnticipation } from "../shared/feel";
 import {
   BASE_REEL_WEIGHTS,
   FIRE_VALUE_WEIGHTS,
@@ -180,6 +182,16 @@ export function spin(rng: Rng): EngineResult {
   const scaledLines = Math.floor((linesBps * PAYOUT_SCALAR_BPS) / 10_000);
   const totalWinBps = Math.min(MAX_WIN_BPS, scaledLines + (holdSpin?.bonusBps ?? 0));
 
+  // Presentation-only suspense/celebration hints, derived from the BASE grid the player watches
+  // reel-by-reel. The FIREBALL credit balls trigger the hold-and-spin on INFERNO_TRIGGER+ and
+  // tease on the "one-to-go" reel; a full-board fill (GRAND) flags the JACKPOT tier. The
+  // hold-and-spin auto-plays after the trigger. Never affects totalWinBps.
+  const feel: SlotFeel = buildFeel({
+    totalWinBps,
+    jackpot: holdSpin?.filledAll ?? false,
+    anticipation: [computeAnticipation(grid, FIREBALL, INFERNO_TRIGGER)],
+  });
+
   return {
     totalWinBps,
     outcome: {
@@ -191,6 +203,7 @@ export function spin(rng: Rng): EngineResult {
       baseFireballCount,
       holdSpin,
       totalWinBps,
+      feel,
     },
   };
 }

@@ -18,6 +18,10 @@ var bonus_frame_tex: Texture2D
 var active_rows := ROWS_BASE
 var font: Font
 
+## Emitted as the not-yet-revealed reels slow into the one-to-go anticipation drumroll, so the
+## machine can fire its tension SFX/music duck without the board needing the audio players.
+signal anticipation_started
+
 # geometry
 var origin := Vector2.ZERO   # top-left of the grid window
 var cell := Vector2(180, 180)
@@ -28,6 +32,16 @@ var reel_bg: Panel           # dark reel layer BEHIND the symbols, shows through
 var clip: Control            # clip_contents window so symbols are masked while they drop in
 var fx                       # inferno_fx.gd — clipped ember/flame glows
 var cells := []              # cells[reel][row] = {root:Node2D, spr:Sprite2D, lbl:Label, slot, locked}
+
+# WIN FLASH: the cells that PAID (base payline symbols, or every locked fireball in the
+# hold-and-spin) pulse + brighten + bloom, cycling one-by-one then all together, looped until
+# the next spin clears it. Driven from _process (like inferno_fx) so a stop is a single flag
+# flip with no dangling tweens — and it stays on the reel layer, under the HUD/banner canvas.
+var _flash_cells := []       # Array[Vector2i] of paying cells (board-local reel,row)
+var _flashing := false
+var _flash_t := 0.0
+var _flash_last_idx := -1
+var _flash_all_glowed := false
 
 func _ready() -> void:
 	set_process(true)
@@ -179,16 +193,29 @@ func show_idle() -> void:
 ## the travel above the grid, so they read as reels falling from the top of the frame.
 ## Reveal the reels one column at a time, left→right (the credit balls drop in showing their
 ## values). `fire_labels` maps "reel,row" → the credit string to print on a FIREBALL cell.
-## ANTICIPATION: the moment `anticipate_at` credit balls have landed (one short of the
-## trigger), the reels still to come ENLARGE and pulse for dramatic suspense before they drop.
-func spin_to(grid: Array, fire_labels: Dictionary = {}, anticipate_at: int = 3) -> void:
+## ANTICIPATION: drive the one-to-go suspense from the server's feel hint when given
+## (`anticipate_from_reel` = feel.anticipation.fromReel), else self-count the credit balls one
+## short of the trigger (offline mock). Once anticipating, every remaining reel is held back into
+## a drumroll — longer stop delay, an ember pulse, an ENLARGE, and the `anticipation_started`
+## tension hook — before it finally drops.
+func spin_to(grid: Array, fire_labels: Dictionary = {}, anticipate_at: int = 3,
+		anticipate_from_reel: int = -1) -> void:
 	for reel in range(REELS):
 		for row in range(active_rows):
 			cells[reel][row].locked = false
 	var drop := cell.y * (MAX_ROWS + 1)
 	var balls := 0
 	var anticipating := false
+	# fromReel == 0 means anticipate from the very first reel, so arm it before the loop.
+	if anticipate_from_reel == 0:
+		anticipating = true
+		_set_anticipation(0, true)
 	for reel in range(REELS):
+		# DRUMROLL: hold each one-to-go reel back for suspense before it drops in.
+		if anticipating:
+			anticipation_started.emit()
+			if fx: fx.add(_cell_local(reel, active_rows / 2), EMBER, cell.x * 0.9)
+			await get_tree().create_timer(0.4).timeout
 		# drop this reel's column in together
 		var t := create_tween().set_parallel(true).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		for row in range(active_rows):
@@ -203,15 +230,19 @@ func spin_to(grid: Array, fire_labels: Dictionary = {}, anticipate_at: int = 3) 
 			if sym == "FIREBALL" and label != "":
 				if fx: fx.add(final_local, EMBER, cell.x * 0.5)
 		await t.finished
-		# count the credit balls that landed on this reel
-		for row in range(active_rows):
-			if grid[reel][row] == "FIREBALL":
-				balls += 1
-		# once we're one short of the trigger, enlarge the reels still to come
-		if not anticipating and balls >= anticipate_at and reel < REELS - 1:
-			anticipating = true
-			_set_anticipation(reel + 1, true)
-			await get_tree().create_timer(0.45).timeout
+		# decide whether the reels still to come should drumroll. Prefer the server's explicit
+		# fromReel; otherwise self-count the credit balls one short of the trigger.
+		if anticipate_from_reel >= 0:
+			if not anticipating and reel == anticipate_from_reel - 1 and anticipate_from_reel < REELS:
+				anticipating = true
+				_set_anticipation(anticipate_from_reel, true)
+		else:
+			for row in range(active_rows):
+				if grid[reel][row] == "FIREBALL":
+					balls += 1
+			if not anticipating and balls >= anticipate_at and reel < REELS - 1:
+				anticipating = true
+				_set_anticipation(reel + 1, true)
 	if anticipating:
 		_set_anticipation(0, false)  # restore all
 	await get_tree().create_timer(0.05).timeout
@@ -240,6 +271,83 @@ func flash_line(line_cells: Array, color: Color) -> void:
 		var t := create_tween()
 		t.tween_property(c.root, "scale", Vector2(1.12, 1.12), 0.12)
 		t.tween_property(c.root, "scale", Vector2.ONE, 0.18)
+
+## Looped paying-cell flash (see the _flash_* state above). Each frame it lights the cells in
+## sequence — a chasing pulse left-to-right through the win — then a unison flash of the whole
+## set, repeating. Glows reuse the fx ember bloom + _cell_local coord math; the cells animate
+## their own scale/modulate, so the effect always renders on the reel layer below the HUD.
+func _process(delta: float) -> void:
+	if not _flashing:
+		return
+	_flash_t += delta
+	var n := _flash_cells.size()
+	if n == 0:
+		return
+	# Chase one cell at a time, but bound the whole sweep so a big hold-and-spin board (up to 40
+	# paid cells) still reaches the "all together" climax inside the win-presentation window —
+	# small payline sets (3-5 cells) keep the original 0.15s per-cell beat.
+	var step: float = clampf(2.0 / float(n), 0.05, 0.15)
+	var indiv := float(n) * step
+	var all_dur := 0.55
+	var period := indiv + all_dur
+	var p: float = fmod(_flash_t, period)
+	var in_all := p >= indiv
+	# one-shot ember bloom as each cell, then the whole set, lights up
+	if in_all:
+		if not _flash_all_glowed:
+			_flash_all_glowed = true
+			_flash_last_idx = -1
+			for ac in _flash_cells:
+				if fx: fx.add(_cell_local(ac.x, ac.y), EMBER, cell.x * 0.7)
+	else:
+		_flash_all_glowed = false
+		var idx := int(p / step)
+		if idx != _flash_last_idx and idx >= 0 and idx < n:
+			_flash_last_idx = idx
+			var gc: Vector2i = _flash_cells[idx]
+			if fx: fx.add(_cell_local(gc.x, gc.y), GOLD, cell.x * 0.55)
+	for i in n:
+		var rc: Vector2i = _flash_cells[i]
+		if rc.x < 0 or rc.x >= REELS or rc.y < 0 or rc.y >= active_rows:
+			continue
+		var amt := 0.0
+		if in_all:
+			amt = sin(((p - indiv) / all_dur) * PI)
+		else:
+			var local := p - float(i) * step
+			if local >= 0.0 and local < step:
+				amt = sin((local / step) * PI)
+		var c = cells[rc.x][rc.y]
+		var sc := 1.0 + 0.22 * amt
+		c.root.scale = Vector2(sc, sc)
+		c.spr.modulate = Color(1, 1, 1, 1).lerp(Color(1.8, 1.45, 0.9, 1), amt)
+
+## Start (or restart) the looped win flash on the given paying cells. Dedupes + range-checks
+## against the active board so the same pool serves the 5×4 base grid and the 5×8 bonus board.
+func start_win_flash(win_cells: Array) -> void:
+	stop_win_flash()
+	_flash_cells = []
+	for rc in win_cells:
+		if rc.x >= 0 and rc.x < REELS and rc.y >= 0 and rc.y < active_rows and not _flash_cells.has(rc):
+			_flash_cells.append(rc)
+	if _flash_cells.is_empty():
+		return
+	_flash_t = 0.0
+	_flash_last_idx = -1
+	_flash_all_glowed = false
+	_flashing = true
+
+## Clear the flash (next spin / bonus exit): stop the loop and restore the flashed cells to rest.
+func stop_win_flash() -> void:
+	if not _flashing:
+		return
+	_flashing = false
+	for rc in _flash_cells:
+		if rc.x >= 0 and rc.x < REELS and rc.y >= 0 and rc.y < active_rows:
+			var c = cells[rc.x][rc.y]
+			c.root.scale = Vector2.ONE
+			c.spr.modulate = Color(1, 1, 1, 1)
+	_flash_cells = []
 
 ## A flaming ball DROPS in from the top of the frame and locks into its cell (the Fire Link
 ## feel). The clip masks the travel above the grid; it lands with a bounce + ember bloom.

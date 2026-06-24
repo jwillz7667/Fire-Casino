@@ -19,6 +19,7 @@ const SYMBOL_IDS := ["CREST","TALON","EGG","FEATHER","GOLD","EMBER","TEAL","VIOL
 const HIGH := ["CREST","TALON","EGG","FEATHER"]
 const SPIN_SPEED := 2600.0     # px/sec scroll while spinning
 const REEL_STOP_STAGGER := 0.16
+const ANTICIPATE_STOP_DELAY := 0.85   # longer "one-to-go" drumroll stop on anticipation reels
 
 var db
 var audio
@@ -40,6 +41,13 @@ var lbl_msg: Label
 var lbl_mult: Label
 var spin_btn: TextureButton
 var banner: TextureRect
+
+# Winning-line flash (243-ways): grouped, cycling, looping cell pulse + glow + connector.
+var win_glow_layer: Node2D     # halos + connector lines; above reels, below HUD CanvasLayer
+var win_flash_tween: Tween     # looping "director" that lights each group in turn
+var win_pulse_tweens := []     # short per-cell pulse/glow tweens; killed between steps + on spin
+var win_flash_groups := []     # [{ "sym": id, "cells": [Vector2i(col,row)], "line": Line2D }]
+var win_glow_by_cell := {}     # "col:row" -> Sprite2D additive halo
 
 # session state (from bridge)
 var balance_minor := 0
@@ -69,6 +77,9 @@ func _ready() -> void:
 	bg_layer = CanvasLayer.new(); bg_layer.layer = -10; add_child(bg_layer)
 	_set_bg(false)
 	fx_layer = Node2D.new(); fx_layer.name = "Fx"; fx_layer.z_index = 50; add_child(fx_layer)
+	# Win-flash glow/connectors sit above the reels (z 10) and frame, but below the HUD
+	# CanvasLayer (layer 30) so the win-tier banner/labels stay legible over the flash.
+	win_glow_layer = Node2D.new(); win_glow_layer.name = "WinGlow"; win_glow_layer.z_index = 20; add_child(win_glow_layer)
 	audio = load("res://scenes/audio_manager.tscn").instantiate(); add_child(audio)
 
 	_build_frame()
@@ -188,6 +199,7 @@ func request_spin() -> void:
 	spin_btn.disabled = true
 	lbl_win.text = ""
 	_flash_message("")
+	_clear_win_flash()
 	_reset_dim()
 	audio.play("spin_start")
 	spinning = true
@@ -217,10 +229,16 @@ func _on_bridge_result(args: Array) -> void:
 	_resolve(data.get("outcome", {}))
 
 func _resolve(outcome: Dictionary) -> void:
+	# Presentation-only "feel" hints (anticipation / win-tier / near-miss). Absent offline
+	# (the mock carries no feel), so each consumer below degrades to the old heuristics.
+	var feel = outcome.get("feel", {})
+	if typeof(feel) != TYPE_DICTIONARY: feel = {}
 	var base: Dictionary = outcome.get("base", {})
 	var grid: Array = base.get("grid", [])
-	await _stop_reels(grid)
+	await _stop_reels(grid, feel)
 	await _present_win(base, outcome)
+	# After _present_win so its no-win message reset can't wipe the "SO CLOSE" flash.
+	_play_near_miss(feel)
 	if outcome.get("freeSpins", null) != null:
 		await _run_free_spins(outcome.freeSpins)
 	_update_hud()
@@ -228,16 +246,64 @@ func _resolve(outcome: Dictionary) -> void:
 	spinning = false
 	spin_btn.disabled = false
 
-func _stop_reels(grid: Array) -> void:
+func _stop_reels(grid: Array, feel := {}) -> void:
+	# Server feel: the first reel from which we are "one symbol to go" on the SCATTER feature.
+	# −1 when nothing teased (offline mock / no feel), so we fall back to the live heuristic:
+	# 2 scatters already showing + a scatter landing on this reel = the suspense moment.
+	var anticipate_from := _anticipate_from_reel(feel)
+	var scatters_so_far := 0
 	for col in COLS:
 		var final_col: Array = grid[col] if col < grid.size() else [_rand_sym(),_rand_sym(),_rand_sym()]
-		await get_tree().create_timer(REEL_STOP_STAGGER).timeout
+		var anticipate := (col >= anticipate_from) if anticipate_from >= 0 else (scatters_so_far >= 2 and _col_has_scatter(final_col))
+		if anticipate:
+			# Hold the still-spinning reel in a glow-pulse drumroll under a rising tension cue.
+			audio.play("anticipation_riser")  # TODO cue: rising tension; play() no-ops if absent
+			_glow_reel(col)
+			await get_tree().create_timer(ANTICIPATE_STOP_DELAY).timeout
+		else:
+			await get_tree().create_timer(REEL_STOP_STAGGER).timeout
 		_land_reel(reels[col], final_col)
 		audio.play("reel_land")
+		scatters_so_far += _count_scatter(final_col)
 	await get_tree().create_timer(0.28).timeout
+
+## Earliest reel any feel.anticipation entry teased on (smallest non-null fromReel); −1 when
+## nothing teased, so the caller keeps the offline scatter heuristic.
+func _anticipate_from_reel(feel: Dictionary) -> int:
+	var from := -1
+	for a in feel.get("anticipation", []):
+		if typeof(a) != TYPE_DICTIONARY: continue
+		var fr = a.get("fromReel", null)
+		if fr == null: continue
+		var fri := int(fr)
+		if from < 0 or fri < from:
+			from = fri
+	return from
+
+## Suspense "hot reel" glow on a still-spinning column during a one-to-go anticipation: the
+## whole column pulses gold until it locks in. The tween is killed in _land_reel.
+func _glow_reel(col: int) -> void:
+	var window: Control = reels[col].window
+	var t := create_tween().set_loops(4).set_trans(Tween.TRANS_SINE)
+	t.tween_property(window, "modulate", Color(1.5, 1.25, 0.6), 0.12)
+	t.tween_property(window, "modulate", Color(1, 1, 1), 0.12)
+	reels[col]["glow"] = t
+
+func _col_has_scatter(col: Array) -> bool:
+	return col.has("SCATTER")
+
+func _count_scatter(col: Array) -> int:
+	var n := 0
+	for c in col:
+		if c == "SCATTER": n += 1
+	return n
 
 func _land_reel(reel: Dictionary, col: Array) -> void:
 	reel.state = "stopped"
+	# Clear any anticipation "hot reel" glow the instant the column locks in.
+	var glow = reel.get("glow", null)
+	if glow != null and glow.is_valid(): glow.kill()
+	reel.window.modulate = Color(1, 1, 1, 1)
 	# Place the authoritative column into the visible slots (idx 1,2,3) with buffers.
 	reel.symbols = [_rand_sym(), col[0], col[1], col[2], _rand_sym()]
 	reel.scroll = 0.0
@@ -267,73 +333,317 @@ func _reset_dim() -> void:
 			sp.modulate = Color(1, 1, 1, 1)
 			sp.scale = Vector2(CELL * 0.92 / 512.0, CELL * 0.92 / 512.0)
 
+# ------------------------------------------------------------- winning-line flash
+## Stops + clears the looping winning-line flash and frees its glow halos / connector lines.
+## Called on the next spin and before each (free-)spin's win present so flashes never stack.
+func _clear_win_flash() -> void:
+	if win_flash_tween != null and win_flash_tween.is_valid():
+		win_flash_tween.kill()
+	win_flash_tween = null
+	for t in win_pulse_tweens:
+		if t != null and t.is_valid(): t.kill()
+	win_pulse_tweens.clear()
+	win_flash_groups = []
+	win_glow_by_cell.clear()
+	if win_glow_layer != null:
+		for child in win_glow_layer.get_children():
+			child.queue_free()
+
+## Builds the per-cell glow halos + per-group connector lines, then runs a looping "director"
+## tween that lights each winning symbol group in turn (~0.6s) and finally all groups together,
+## repeating until the next spin. The cell pulse reuses the same scale+modulate feel as the
+## one-shot landing pop, and the reel-cell coordinate math (_cell_world / _reel_x).
+func _start_win_flash() -> void:
+	if win_flash_groups.is_empty(): return
+	_build_win_glows()
+	win_flash_tween = create_tween().set_loops()
+	if win_flash_groups.size() > 1:
+		for gi in win_flash_groups.size():
+			win_flash_tween.tween_callback(_pulse_win_group.bind(gi))
+			win_flash_tween.tween_interval(0.62)
+	win_flash_tween.tween_callback(_pulse_win_group.bind(-1))   # -1 = all groups together
+	win_flash_tween.tween_interval(0.72)
+
+func _build_win_glows() -> void:
+	if win_glow_layer == null: return
+	var s := CELL * 0.92 / 512.0
+	var add_mat := CanvasItemMaterial.new()
+	add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	for g in win_flash_groups:
+		for c in g.cells:
+			var key := "%d:%d" % [c.x, c.y]
+			if win_glow_by_cell.has(key): continue
+			var tex = textures.get(g.sym, null)
+			if tex == null: continue
+			var halo := Sprite2D.new()
+			halo.texture = tex
+			halo.material = add_mat          # additive bloom over the symbol = a soft glow
+			halo.centered = true
+			halo.scale = Vector2(s * 1.18, s * 1.18)
+			halo.position = _cell_world(c.x, c.y)
+			halo.modulate = Color(1.4, 1.1, 0.5, 0.0)   # gold, alpha pulsed by _pulse_win_group
+			win_glow_layer.add_child(halo)
+			win_glow_by_cell[key] = halo
+		var pts := _group_line_points(g.cells)
+		if pts.size() >= 2:
+			var line := Line2D.new()
+			line.points = pts
+			line.width = 7.0
+			line.default_color = Color(1.0, 0.82, 0.4, 0.55)
+			line.joint_mode = Line2D.LINE_JOINT_ROUND
+			line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+			line.end_cap_mode = Line2D.LINE_CAP_ROUND
+			line.z_index = 2                 # above the halos within the win-glow layer
+			line.visible = false
+			win_glow_layer.add_child(line)
+			g["line"] = line
+
+## A soft left→right connector through the matched columns. WAYS wins can stack several rows in a
+## reel, so each column contributes one point at its average matched row.
+func _group_line_points(cells: Array) -> PackedVector2Array:
+	var rows_by_col := {}
+	for c in cells:
+		if not rows_by_col.has(c.x): rows_by_col[c.x] = []
+		rows_by_col[c.x].append(c.y)
+	var cols := rows_by_col.keys()
+	cols.sort()
+	var pts := PackedVector2Array()
+	for col in cols:
+		var rows: Array = rows_by_col[col]
+		var avg := 0.0
+		for r in rows: avg += float(r)
+		avg /= float(rows.size())
+		pts.append(Vector2(_reel_x(col), GRID_TOP + avg * PITCH_Y))
+	return pts
+
+## One step of the cycle: the active group (or all, when gi < 0) pulses bright + glows and shows
+## its connector; every other winning cell rests dimmed. Prior pulse tweens are killed first so the
+## scale/glow never fight across steps or bleed into the next spin.
+func _pulse_win_group(gi: int) -> void:
+	for t in win_pulse_tweens:
+		if t != null and t.is_valid(): t.kill()
+	win_pulse_tweens.clear()
+	var base_s := CELL * 0.92 / 512.0
+	for idx in win_flash_groups.size():
+		var g: Dictionary = win_flash_groups[idx]
+		var is_active: bool = (gi < 0 or idx == gi)
+		var line = g.get("line", null)
+		if line != null: line.visible = is_active
+		for c in g.cells:
+			var key := "%d:%d" % [c.x, c.y]
+			var sp: Sprite2D = reels[c.x].sprites[c.y + 1]   # visible rows are sprite idx 1..3
+			var glow = win_glow_by_cell.get(key, null)
+			if is_active:
+				sp.modulate = Color(1, 1, 1, 1)
+				var pt := create_tween().set_trans(Tween.TRANS_SINE)
+				pt.tween_property(sp, "scale", Vector2(base_s * 1.16, base_s * 1.16), 0.3)
+				pt.tween_property(sp, "scale", Vector2(base_s, base_s), 0.3)
+				win_pulse_tweens.append(pt)
+				if glow != null:
+					var gt := create_tween().set_trans(Tween.TRANS_SINE)
+					gt.tween_property(glow, "modulate:a", 0.9, 0.3)
+					gt.tween_property(glow, "modulate:a", 0.2, 0.3)
+					win_pulse_tweens.append(gt)
+			else:
+				sp.modulate = Color(1, 1, 1, 0.5)
+				sp.scale = Vector2(base_s, base_s)
+				if glow != null: glow.modulate.a = 0.0
+
 func _present_win(base: Dictionary, outcome: Dictionary) -> void:
+	# Stop any flash still looping from the previous (free-)spin so they never stack.
+	_clear_win_flash()
 	var ways: Array = base.get("waysWins", [])
 	var scatter_count := int(base.get("scatterCount", 0))
+	var grid: Array = base.get("grid", [])
 	var win_cells := {}
+	var groups := []   # one entry per winning symbol — the cells it contributed left→right
 	for w in ways:
 		var sym: String = w.get("symbol", "")
 		var count := int(w.get("count", 0))
+		var cells := []
 		for col in min(count, COLS):
-			var column: Array = base.get("grid", [])[col] if col < base.get("grid", []).size() else []
+			var column: Array = grid[col] if col < grid.size() else []
 			for row in column.size():
 				if column[row] == sym:
 					win_cells["%d:%d" % [col, row]] = sym
+					cells.append(Vector2i(col, row))
+		if not cells.is_empty():
+			groups.append({"sym": sym, "cells": cells})
 	if scatter_count >= 3:
-		var grid2: Array = base.get("grid", [])
-		for col in grid2.size():
-			for row in (grid2[col] as Array).size():
-				if grid2[col][row] == "SCATTER":
+		var scatter_cells := []
+		for col in grid.size():
+			for row in (grid[col] as Array).size():
+				if grid[col][row] == "SCATTER":
 					win_cells["%d:%d" % [col, row]] = "SCATTER"
+					scatter_cells.append(Vector2i(col, row))
+		if not scatter_cells.is_empty():
+			groups.append({"sym": "SCATTER", "cells": scatter_cells})
 
 	var total_bps := int(outcome.get("totalWinBps", 0))
 	if win_cells.is_empty() and total_bps == 0:
 		_flash_message("")
 		return
 
-	# Dim losers, pop + glow winners, fire particles.
+	# Reset every cell to the resting (dim) state — also clears any stale scale left by a
+	# prior free-spin flash — then re-light winners and fire their landing particles.
+	var base_s := CELL * 0.92 / 512.0
 	for reel in reels:
 		for sp in reel.sprites:
 			sp.modulate = Color(1, 1, 1, 0.35)
+			sp.scale = Vector2(base_s, base_s)
 	var any_high := false
 	for key in win_cells.keys():
 		var parts: Array = key.split(":")
 		var col := int(parts[0]); var row := int(parts[1])
 		var sp: Sprite2D = reels[col].sprites[row + 1]   # visible rows are sprite idx 1..3
 		sp.modulate = Color(1, 1, 1, 1)
-		var base_s := CELL * 0.92 / 512.0
-		var t := create_tween().set_loops(3).set_trans(Tween.TRANS_SINE)
-		t.tween_property(sp, "scale", Vector2(base_s * 1.18, base_s * 1.18), 0.18)
-		t.tween_property(sp, "scale", Vector2(base_s, base_s), 0.18)
 		var sym: String = win_cells[key]
 		if sym in HIGH or sym == "SCATTER": any_high = true
 		_spawn_fx(db.win_high_fx if (sym in HIGH or sym == "SCATTER") else db.win_low_fx, _cell_world(col, row))
 
-	var mult: float = float(total_bps) / 10000.0
-	if mult >= 20.0:
-		await _big_win(total_bps)
-	else:
-		audio.play("win_big" if any_high else "win_small")
+	# Looping winning-line flash: pulse + glow each winning symbol group in turn, then all
+	# together, until the next spin clears it. Runs under the tier celebration below.
+	win_flash_groups = groups
+	_start_win_flash()
+
+	var tier := _win_tier(outcome, total_bps)
+	await _celebrate_tier(tier, total_bps, any_high)
 	_count_up_win(total_bps)
 	await get_tree().create_timer(0.5).timeout
 
-func _big_win(total_bps: int) -> void:
+## Win-celebration tier from the server's feel.winTier; falls back to the size-driven thresholds
+## (same bps cutoffs as @aureus/shared SLOT_WIN_TIER_MIN_BPS) for the offline mock + free spins.
+func _win_tier(outcome: Dictionary, total_bps: int) -> String:
+	var feel = outcome.get("feel", null)
+	if typeof(feel) == TYPE_DICTIONARY and feel.has("winTier"):
+		return str(feel.get("winTier"))
+	return _size_tier(total_bps)
+
+func _size_tier(total_bps: int) -> String:
+	if total_bps < 1: return "NONE"
+	if total_bps >= 500000: return "EPIC"
+	if total_bps >= 250000: return "MEGA"
+	if total_bps >= 100000: return "BIG"
+	return "NICE"
+
+## Win-tier ladder. NICE just plays the win chime; BIG→MEGA→EPIC escalate the banner scale,
+## screen shake and coin shower; JACKPOT is the biggest celebration. Reuses the existing banner,
+## bigwin fanfare and particle FX so the look matches the rest of the game.
+func _celebrate_tier(tier: String, total_bps: int, any_high: bool) -> void:
+	match tier:
+		"NONE":
+			pass
+		"NICE":
+			audio.play("win_big" if any_high else "win_small")
+		"BIG":
+			await _big_win(total_bps, "BIG WIN", 0.95, 8.0, 1, false)
+		"MEGA":
+			await _big_win(total_bps, "MEGA WIN", 1.08, 14.0, 2, false)
+		"EPIC":
+			await _big_win(total_bps, "EPIC WIN", 1.2, 20.0, 3, true)
+		"JACKPOT":
+			await _big_win(total_bps, "JACKPOT", 1.35, 28.0, 5, true)
+		_:
+			audio.play("win_small")
+
+func _big_win(total_bps: int, label: String, banner_peak: float, shake_mag: float, coin_bursts: int, gold: bool) -> void:
 	audio.play("bigwin_fanfare")
+	if coin_bursts >= 2:
+		audio.play("coin_shower")  # TODO cue: cascading coins; play() no-ops if absent
+	if gold:
+		_gold_flash()
+	_shake(shake_mag, 0.4 + 0.12 * float(coin_bursts))
+	_coin_shower(coin_bursts)
 	_spawn_fx(db.bigwin_fx, Vector2(VIEW.x * 0.5, GRID_TOP + PITCH_Y))
-	if banner:
-		banner.visible = true
-		banner.modulate = Color(1, 1, 1, 0)
-		var t := create_tween()
-		t.tween_property(banner, "modulate", Color(1, 1, 1, 1), 0.3)
-		await get_tree().create_timer(1.8).timeout
-		var t2 := create_tween()
-		t2.tween_property(banner, "modulate", Color(1, 1, 1, 0), 0.4)
-		await t2.finished
-		banner.visible = false
+	_show_tier_word(label)
+	await _show_banner(banner_peak, 1.2 + 0.25 * float(coin_bursts))
+
+func _show_banner(peak: float, hold: float) -> void:
+	if banner == null:
+		await get_tree().create_timer(hold).timeout
+		return
+	banner.visible = true
+	banner.pivot_offset = banner.size * 0.5
+	banner.modulate = Color(1, 1, 1, 0)
+	banner.scale = Vector2(0.6, 0.6) * peak
+	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(banner, "modulate", Color(1, 1, 1, 1), 0.3)
+	t.parallel().tween_property(banner, "scale", Vector2(1, 1) * peak, 0.35)
+	await get_tree().create_timer(hold).timeout
+	var t2 := create_tween()
+	t2.tween_property(banner, "modulate", Color(1, 1, 1, 0), 0.4)
+	await t2.finished
+	banner.visible = false
+	banner.scale = Vector2(1, 1)
+
+## The banner art is a single fixed image, so the tier name (BIG/MEGA/EPIC/JACKPOT) is drawn
+## through the existing styled message label. Pops in; cleared on the next spin.
+func _show_tier_word(label: String) -> void:
+	if lbl_msg == null: return
+	_flash_message(label)
+	lbl_msg.modulate = Color(1, 1, 1, 0)
+	var t := create_tween()
+	t.tween_property(lbl_msg, "modulate:a", 1.0, 0.25)
+
+## A single gold flash over the play field — blooms then fades. Sits below the HUD CanvasLayer.
+func _gold_flash() -> void:
+	var rect := ColorRect.new()
+	rect.color = Color(1.0, 0.85, 0.4, 0.0)
+	rect.position = Vector2.ZERO
+	rect.size = VIEW
+	rect.z_index = 70
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fx_layer.add_child(rect)
+	var t := create_tween().set_trans(Tween.TRANS_SINE)
+	t.tween_property(rect, "color:a", 0.45, 0.12)
+	t.tween_property(rect, "color:a", 0.0, 0.55)
+	t.tween_callback(rect.queue_free)
+
+## Coin shower: reuse the bigwin particle burst, spread across the top of the board. More
+## bursts for higher tiers = a denser shower.
+func _coin_shower(bursts: int) -> void:
+	if bursts <= 0: return
+	for i in bursts:
+		var x := VIEW.x * (0.2 + 0.6 * (float(i) + 0.5) / float(bursts))
+		_spawn_fx(db.bigwin_fx, Vector2(x, GRID_TOP - PITCH_Y * 0.5))
+
+## Screen shake on the play field. The reels, frame and FX are Node2D children of this scene,
+## so jolting our own transform shakes them while the bg/HUD CanvasLayers stay put.
+func _shake(mag: float, dur: float) -> void:
+	var steps := max(int(dur / 0.04), 1)
+	var t := create_tween()
+	for i in steps:
+		var m := mag * (1.0 - float(i) / float(steps))
+		t.tween_property(self, "position", Vector2(randf_range(-m, m), randf_range(-m, m)), 0.04)
+	t.tween_property(self, "position", Vector2.ZERO, 0.06)
 
 func _count_up_win(total_bps: int) -> void:
 	var credits := float(total_bps) / 10000.0 * float(bet_minor) / 1000.0
-	lbl_win.text = "WIN  %s" % _fmt_credits(credits)
+	if credits <= 0.0:
+		lbl_win.text = ""
+		return
+	audio.play("coin_tick")  # TODO cue: count-up tick; play() no-ops if absent
+	var t := create_tween()
+	var steps := 18
+	for i in range(1, steps + 1):
+		var v := credits * float(i) / float(steps)
+		t.tween_callback(func(): lbl_win.text = "WIN  %s" % _fmt_credits(v)).set_delay(0.03)
+
+## "So close": the SCATTER feature teased on the reels but did not land. feel.nearMiss is only
+## populated when anticipation fired without triggering — a short deflating sting + flash.
+func _play_near_miss(feel: Dictionary) -> void:
+	var nm = feel.get("nearMiss", [])
+	if typeof(nm) != TYPE_ARRAY or nm.is_empty():
+		return
+	audio.play("near_miss")  # TODO cue: deflating "so close" sting; play() no-ops if absent
+	_flash_message("SO CLOSE")
+	var t := create_tween()
+	t.tween_interval(1.3)
+	t.tween_callback(_clear_near_miss)
+
+func _clear_near_miss() -> void:
+	if lbl_msg and lbl_msg.text == "SO CLOSE":
+		_flash_message("")
 
 # --------------------------------------------------------------- free spins
 func _run_free_spins(fs: Dictionary) -> void:
@@ -346,6 +656,11 @@ func _run_free_spins(fs: Dictionary) -> void:
 	for i in spins.size():
 		var sp: Dictionary = spins[i]
 		_flash_message("FREE SPIN  %d / %d" % [i + 1, spins.size()])
+		# Clear the prior free-spin's looping win flash before the reels scroll again so its
+		# halos/connector + cell pulse don't linger over the next re-spin (base spins clear this
+		# in request_spin; free spins have no such entry point).
+		_clear_win_flash()
+		_reset_dim()
 		# quick re-spin
 		spinning = true
 		for reel in reels:

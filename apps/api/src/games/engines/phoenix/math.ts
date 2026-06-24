@@ -15,7 +15,10 @@ import { type PayingSymbol, type SymbolId } from "./symbols";
 export const REELS = 5;
 export const ROWS = 3;
 
-/** Relative draw weights per cell in the base game (no ORB lands in the base). */
+/** Relative draw weights per cell in the base game (no ORB lands in the base). The cheap
+ *  TEAL/VIOLET fillers are heaviest so 3+-of-a-kind lands constantly (high base hit
+ *  frequency) at low RTP cost; the SCATTER weight is lifted so the free-spins trigger and
+ *  its 2-scatter "one-to-go" tease fire more often. Re-measure after any change. */
 export const BASE_WEIGHTS: Record<SymbolId, number> = {
   CREST: 5,
   TALON: 7,
@@ -25,7 +28,7 @@ export const BASE_WEIGHTS: Record<SymbolId, number> = {
   EMBER: 16,
   TEAL: 19,
   VIOLET: 22,
-  SCATTER: 5,
+  SCATTER: 5.5,
   ORB: 0,
 };
 
@@ -101,7 +104,7 @@ export const MAX_ORB_MULTIPLIER = 100;
  * RTP; this scales every payout to land on the certified target. CALIBRATED by
  * engine.simulation.test.ts — see that test for the measured RTP this yields.
  */
-export const PAYOUT_SCALAR_BPS = 5648;
+export const PAYOUT_SCALAR_BPS = 4558;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

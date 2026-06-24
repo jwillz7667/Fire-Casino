@@ -46,7 +46,7 @@ const BASE_COMMON: Record<SymbolId, number> = {
   J: 20,
   TEN: 23,
   JOKER: 0,
-  CHEST: 3,
+  CHEST: 3.6,
 };
 
 /** Free-spins per-cell weights: richer highs, more wilds, rarer scatter. */
@@ -63,7 +63,7 @@ const FREE_COMMON: Record<SymbolId, number> = {
   CHEST: 3,
 };
 
-export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3);
+export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 4);
 export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 7);
 
 /** Pay per single way for k-of-a-kind from reel 1, in bps of total bet. The three
@@ -114,7 +114,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * this scales every payout onto the certified target. CALIBRATED by simulate.ts —
  * run it after any table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 9772;
+export const PAYOUT_SCALAR_BPS = 7230;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

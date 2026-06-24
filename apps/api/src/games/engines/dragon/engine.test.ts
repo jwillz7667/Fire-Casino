@@ -129,7 +129,7 @@ describe("Dragon's Hoard engine — wild & scatter rules", () => {
     const x1 = evaluateSpin(grid, 1);
     const x3 = evaluateSpin(grid, 3);
     expect(x1.scatterCount).toBe(3);
-    expect(x1.scatterPayBps).toBe(56000);
+    expect(x1.scatterPayBps).toBe(15000);
     expect(x1.spinWinBps).toBeGreaterThan(0);
     expect(x3.spinWinBps).toBe(x1.spinWinBps * 3);
   });

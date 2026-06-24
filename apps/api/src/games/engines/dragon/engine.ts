@@ -1,3 +1,5 @@
+import { type SlotFeel } from "@aureus/shared";
+import { buildFeel, computeAnticipation } from "../shared/feel";
 import {
   BASE_REEL_WEIGHTS,
   FREE_REEL_WEIGHTS,
@@ -56,6 +58,7 @@ export interface DragonOutcome extends Record<string, unknown> {
   base: SpinResult;
   freeSpins: FreeSpinsResult | null;
   totalWinBps: number; // final win in bps of total bet, AFTER global calibration
+  feel: SlotFeel;
 }
 
 export interface EngineResult {
@@ -198,6 +201,14 @@ export function spin(rng: Rng): EngineResult {
   // Hard 5000× cap — bounds per-round liability and is the game's headline max win.
   const totalWinBps = Math.min(MAX_WIN_BPS, scaled);
 
+  // Presentation-only suspense/celebration hints, derived from the BASE grid the player watches
+  // reel-by-reel (free spins auto-play). The COINS scatter triggers free spins on 3+ and teases
+  // on the "one-to-go" reel. Never affects totalWinBps.
+  const feel = buildFeel({
+    totalWinBps,
+    anticipation: [computeAnticipation(baseGrid, SCATTER, SCATTER_TRIGGER)],
+  });
+
   return {
     totalWinBps,
     outcome: {
@@ -206,6 +217,7 @@ export function spin(rng: Rng): EngineResult {
       base,
       freeSpins,
       totalWinBps,
+      feel,
     },
   };
 }

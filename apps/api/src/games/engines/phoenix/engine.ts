@@ -1,3 +1,5 @@
+import { type SlotFeel } from "@aureus/shared";
+import { buildFeel, computeAnticipation } from "../shared/feel";
 import {
   BASE_WEIGHTS,
   FREE_SPINS_AWARD,
@@ -13,7 +15,7 @@ import {
   SCATTER_PAY,
   SCATTER_TRIGGER,
 } from "./math";
-import { PAYING_SYMBOLS, type SymbolId } from "./symbols";
+import { PAYING_SYMBOLS, SCATTER, type SymbolId } from "./symbols";
 
 /** A uniform draw in [0, 1). The provider feeds the provable-fairness stream. */
 export type Rng = () => number;
@@ -53,6 +55,7 @@ export interface PhoenixOutcome extends Record<string, unknown> {
   base: SpinResult;
   freeSpins: FreeSpinsResult | null;
   totalWinBps: number; // final win in bps of total bet, AFTER global calibration
+  feel: SlotFeel;
 }
 
 export interface EngineResult {
@@ -198,6 +201,15 @@ export function spin(rng: Rng): EngineResult {
   const rawBps = base.spinWinBps + (freeSpins?.totalBps ?? 0);
   const totalWinBps = Math.floor((rawBps * PAYOUT_SCALAR_BPS) / 10_000);
 
+  // Presentation-only suspense/celebration hints, derived from the BASE grid the player watches
+  // reel-by-reel (free spins auto-play). The SCATTER triggers free spins on 3+ and teases on the
+  // "one-to-go" reel; the ORB is a free-spins collectible, not a base trigger. Never affects
+  // totalWinBps.
+  const feel = buildFeel({
+    totalWinBps,
+    anticipation: [computeAnticipation(baseGrid, SCATTER, SCATTER_TRIGGER)],
+  });
+
   return {
     totalWinBps,
     outcome: {
@@ -207,6 +219,7 @@ export function spin(rng: Rng): EngineResult {
       base,
       freeSpins,
       totalWinBps,
+      feel,
     },
   };
 }

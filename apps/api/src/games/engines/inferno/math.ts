@@ -54,9 +54,11 @@ export const PAYLINES: readonly (readonly [number, number, number, number, numbe
   [0, 3, 0, 3, 0],
 ] as const;
 
-/** Base "credit ball" weight — rare enough that 4+ on the 20-cell grid (the trigger) stays a
- *  ~1-in-180 event while singles/pairs still show on most spins. Re-measure with simulate.ts. */
-const FIREBALL_WEIGHT = 3.4;
+/** Base "credit ball" weight. Lifted so the hold-and-spin triggers (4+ on the 20-cell grid)
+ *  and its "one-to-go" 3-ball tease fire more often — the feature IS the game in this genre.
+ *  The feature pays VERBATIM, so a higher weight shifts RTP into the feature and the line
+ *  scalar funds a smaller (but still substantial) line slice. Re-measure with simulate.ts. */
+const FIREBALL_WEIGHT = 3.7;
 
 /** Base-game per-cell weights (WILD filled per-reel by perReel). */
 const BASE_COMMON: Record<SymbolId, number> = {
@@ -132,7 +134,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * `lineRtp(scalar) + featureRtp`. CALIBRATED by simulate.ts — run it after any table
  * change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 21_723;
+export const PAYOUT_SCALAR_BPS = 16_798;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

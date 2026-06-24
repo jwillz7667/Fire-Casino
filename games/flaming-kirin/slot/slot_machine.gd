@@ -80,6 +80,14 @@ const CRIMSON := Color(1.0, 0.34, 0.26)
 const AQUA := Color(0.42, 0.86, 1.0)
 const GREEN := Color(0.5, 1.0, 0.62)
 
+## Distinct bright colours cycled across the winning paylines (one per line as the flash steps
+## through them) so overlapping lines stay tellable apart.
+const LINE_COLORS := [
+	Color(1.0, 0.84, 0.28), Color(0.40, 0.86, 1.0), Color(0.55, 1.0, 0.55),
+	Color(1.0, 0.46, 0.85), Color(1.0, 0.55, 0.20), Color(0.72, 0.62, 1.0),
+	Color(0.40, 1.0, 0.82), Color(1.0, 0.40, 0.40),
+]
+
 ## Jackpot tiers: display seed (dollars, pure flavour — the award is a fixed bet-multiple), and
 ## plate art + accent. Seeded near the source mockup figures, climb slowly on screen.
 const JP_TIERS := ["GRAND", "MAJOR", "MINOR", "MINI"]
@@ -162,6 +170,13 @@ var _autospin := false
 var _autospin_left := 0
 var _zoomed := false
 var _t := 0.0   # global animation clock (breathing / drift)
+
+# winning-payline flash (a persistent line-trace cycle that loops until the next spin starts)
+var _win_nodes := []      # active Line2D traces / glows, freed between cycle steps
+var _win_flash_gen := 0   # bumped on clear to cancel the running cycle coroutine
+var _win_flashing := false # pauses idle breathing so it never fights the line-symbol pulses
+var _win_tweens := []     # infinite pulse tweens (trace blink + symbol throb); killed on clear
+var _win_cells := {}      # "col:row" -> symbol for the live win, relit on each cycle step
 
 var BET_STEPS := [50, 100, 250, 500, 1000, 2000, 5000, 10000]  # $0.05 .. $10.00
 
@@ -324,7 +339,7 @@ func _load_audio() -> void:
 		"spin_start", "spin_press", "reel_land", "reel_land_b", "reel_land_c",
 		"fireball_land", "holdspin_enter", "holdspin_respin", "grand_jackpot", "coin_shower",
 		"win_small", "win_medium", "win_big", "bigwin_fanfare", "megawin_fanfare",
-		"coin_tick", "button_tap", "bet_change", "error_blip",
+		"coin_tick", "button_tap", "bet_change", "error_blip", "near_miss",
 	]:
 		var st := _cue_stream(name)
 		if st == null: continue
@@ -526,7 +541,7 @@ func _process(dt: float) -> void:
 				reel.symbols.push_front(reel.symbols.pop_back())
 				reel.symbols[0] = _rand_sym(col)
 			_position_reel(reel, true)
-	elif not busy:
+	elif not busy and not _win_flashing:
 		_breathe()
 
 func _drift_bg() -> void:
@@ -569,6 +584,7 @@ func request_spin() -> void:
 	lbl_win.text = ""
 	_flash("")
 	_reset_dim()
+	_clear_win_flash()
 	play("spin_start")
 	_spin_whir(true)
 	spinning = true
@@ -595,11 +611,16 @@ func _on_bridge_result(args: Array) -> void:
 func _resolve(outcome: Dictionary) -> void:
 	var base: Dictionary = outcome.get("base", {})
 	var grid: Array = base.get("grid", [])
-	await _stop_reels(grid)
+	# Presentation-only "feel" hints from the server (slot-feel contract). Absent offline -> {}.
+	var feel = outcome.get("feel", {})
+	if typeof(feel) != TYPE_DICTIONARY:
+		feel = {}
+	await _stop_reels(grid, feel)
 	_spin_whir(false)
 	if _zoomed:
 		_zoom_board(1.0, 0.3)
-	await _present_win(base, int(base.get("spinWinBps", outcome.get("totalWinBps", 0))))
+	await _present_win(base, int(base.get("spinWinBps", outcome.get("totalWinBps", 0))), str(feel.get("winTier", "")))
+	await _play_near_miss(feel)
 	if outcome.get("bonus", null) != null:
 		await _present_bonus(outcome.bonus)
 	if outcome.get("jackpot", null) != null:
@@ -612,18 +633,25 @@ func _resolve(outcome: Dictionary) -> void:
 	spin_btn.disabled = false
 	_maybe_autospin()
 
-func _stop_reels(grid: Array) -> void:
+func _stop_reels(grid: Array, feel: Dictionary = {}) -> void:
 	var bonus_so_far := 0
 	var scatters_so_far := 0
 	var anticipating := false
+	# Server-authoritative anticipation: from this reel on, a trigger symbol is "one to go" and the
+	# remaining reels should slow into a drumroll. -1 (no hint) falls back to the local heuristic
+	# below so the offline mock / free spins still tease.
+	var antic_from := _feel_anticipate_from(feel)
 	for col in COLS:
 		var final_col: Array = grid[col] if col < grid.size() else _rand_col(col)
-		if not anticipating and bonus_so_far == 2:
+		var feel_trigger := antic_from >= 0 and col >= antic_from
+		var heur_trigger := antic_from < 0 and bonus_so_far == 2
+		if not anticipating and (feel_trigger or heur_trigger):
 			anticipating = true
 			_enter_anticipation()
-		var scatter_anticipate := not anticipating and scatters_so_far >= 2 and final_col.has(SCATTER)
+		var scatter_anticipate := not anticipating and antic_from < 0 and scatters_so_far >= 2 and final_col.has(SCATTER)
 		if anticipating:
 			play("holdspin_enter")
+			_anticipate_pulse(col)
 			await get_tree().create_timer(ANTICIPATE_STAGGER).timeout
 		elif scatter_anticipate:
 			play("holdspin_enter")
@@ -659,6 +687,29 @@ func _enter_anticipation() -> void:
 	_zoom_board(1.07, 0.35)
 	_flash("KIRIN HUNT…")
 	_shake(3.0, 0.25)
+
+## First reel index the server wants the client to start anticipating on (min fromReel across the
+## feel.anticipation entries that actually teased), or -1 when there is no hint this spin.
+func _feel_anticipate_from(feel: Dictionary) -> int:
+	var from := -1
+	for a in feel.get("anticipation", []):
+		if typeof(a) != TYPE_DICTIONARY:
+			continue
+		var fr = a.get("fromReel", null)
+		if fr == null:
+			continue
+		var i := int(fr)
+		if from < 0 or i < from:
+			from = i
+	return from
+
+## Suspense glow on a reel that stops while anticipating — a single hot pulse that settles back to
+## white before the reel lands (kept shorter than ANTICIPATE_STAGGER so it never fights _land_reel).
+func _anticipate_pulse(col: int) -> void:
+	var win: Control = reels[col].window
+	var t := create_tween().set_trans(Tween.TRANS_SINE)
+	t.tween_property(win, "modulate", Color(1.5, 1.28, 0.85, 1.0), 0.2)
+	t.tween_property(win, "modulate", Color(1, 1, 1, 1), 0.28)
 
 func _zoom_board(factor: float, dur: float) -> void:
 	_zoomed = factor != 1.0
@@ -725,12 +776,14 @@ func _land_reel(col: int, column: Array) -> void:
 	reel.scroll = 0.0
 	_position_reel(reel, false)
 	var win: Control = reel.window
+	win.modulate = Color(1, 1, 1, 1)
 	var base_y := grid_pos.y
 	win.position.y = base_y - 16.0
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	t.tween_property(win, "position:y", base_y, 0.26)
 
 func _force_stop() -> void:
+	_clear_win_flash()
 	for col in COLS:
 		reels[col].state = "stopped"
 		reels[col].scroll = 0.0
@@ -748,6 +801,7 @@ func _force_stop() -> void:
 # ----------------------------------------------------------------- win present
 func _reset_dim() -> void:
 	for col in COLS:
+		reels[col].window.modulate = Color(1, 1, 1, 1)
 		for sp in reels[col].sprites:
 			sp.modulate = Color(1, 1, 1, 1)
 
@@ -767,7 +821,7 @@ func _winning_cells(base: Dictionary) -> Dictionary:
 					cells["%d:%d" % [col, row]] = SCATTER
 	return cells
 
-func _present_win(base: Dictionary, total_bps: int) -> void:
+func _present_win(base: Dictionary, total_bps: int, tier := "") -> void:
 	var cells := _winning_cells(base)
 	if cells.is_empty() and total_bps == 0:
 		_flash(""); return
@@ -790,15 +844,22 @@ func _present_win(base: Dictionary, total_bps: int) -> void:
 		if sym in HIGH or sym == SCATTER: any_high = true
 		_glow_cell(col, row, sym, sym in HIGH or sym == SCATTER)
 
-	var mult := float(total_bps) / 10000.0
-	if mult >= 50.0:
-		await _mega_win()
-	elif mult >= 8.0:
-		await _big_win()
+	if tier != "" and tier != "NONE":
+		await _celebrate(tier, any_high)
 	else:
-		play("win_big" if any_high else ("win_medium" if mult >= 2.0 else "win_small"))
+		# No feel hint (offline mock / free-spin sub-results): legacy size-based ladder.
+		var mult := float(total_bps) / 10000.0
+		if mult >= 50.0:
+			await _mega_win()
+		elif mult >= 8.0:
+			await _big_win()
+		else:
+			play("win_big" if any_high else ("win_medium" if mult >= 2.0 else "win_small"))
 	_count_up(total_bps)
 	await get_tree().create_timer(0.5).timeout
+	# Hand the reveal off to the looping payline flash: trace + pulse each winning line until the
+	# next spin clears it. Scatter-only wins have no payline trace (handled by the glow above).
+	_start_win_flash(base)
 
 func _present_bonus(bonus: Dictionary) -> void:
 	var count := int(bonus.get("bonusCount", 3))
@@ -861,6 +922,138 @@ func _glow_cell(col: int, row: int, sym: String, strong: bool) -> void:
 	t.tween_property(g, "modulate:a", 0.0, 0.55)
 	t.tween_callback(g.queue_free)
 
+# --------------------------------------------------- winning-payline flash
+## After a paying spin, trace every winning payline through the CENTRES of its winning cells with a
+## bright additive Line2D (a distinct LINE_COLORS hue per line) and pulse that line's symbols. Steps
+## through the lines one at a time, then shows them all together, and loops until the next spin
+## (request_spin / a free-spin sub-spin / a force-stop) calls _clear_win_flash. The traces live in
+## fx_layer — above the reels + gold frame but below the HUD CanvasLayer — so win-tier banners stay
+## legible. Reuses the existing reel-cell math (_cell_world) and additive material.
+func _start_win_flash(base: Dictionary) -> void:
+	var lines := _line_traces(base)
+	if lines.is_empty():
+		return
+	_clear_win_flash()
+	_win_cells = _winning_cells(base)
+	_win_flash_gen += 1
+	_win_flashing = true
+	_win_flash_cycle(lines, _win_flash_gen)
+
+## Winning paylines reduced to {cells:[[col,row]…], color} — one entry per line win, in order, each
+## taking the next LINE_COLORS hue so overlapping lines stay tellable apart. Live play uses the
+## server's authoritative `cells`; the offline mock fills the same shape via _eval_lines.
+func _line_traces(base: Dictionary) -> Array:
+	var lines := []
+	var i := 0
+	for w in base.get("lineWins", []):
+		if typeof(w) != TYPE_DICTIONARY:
+			continue
+		var pts := []
+		for c in w.get("cells", []):
+			if typeof(c) == TYPE_ARRAY and c.size() >= 2:
+				var col := int(c[0]); var row := int(c[1])
+				if col < 0 or col >= COLS or row < 0 or row >= ROWS:
+					continue
+				pts.append([col, row])
+		if pts.size() >= 2:
+			lines.append({"cells": pts, "color": LINE_COLORS[i % LINE_COLORS.size()]})
+			i += 1
+	return lines
+
+## Background coroutine (started un-awaited): solo-flash each line in turn, then all together, then
+## loop. The captured `gen` is compared against _win_flash_gen so a clear/new flash kills it cleanly.
+func _win_flash_cycle(lines: Array, gen: int) -> void:
+	while gen == _win_flash_gen:
+		for entry in lines:
+			if gen != _win_flash_gen:
+				return
+			_show_line_trace(entry, true)
+			await get_tree().create_timer(0.62).timeout
+			if gen != _win_flash_gen:
+				return
+			_clear_trace_nodes()
+		if gen != _win_flash_gen:
+			return
+		for entry in lines:
+			_show_line_trace(entry, false)
+		await get_tree().create_timer(0.95).timeout
+		if gen != _win_flash_gen:
+			return
+		_clear_trace_nodes()
+
+## Draw one payline's trace through its cell centres; on a solo step also throb the symbols on it.
+func _show_line_trace(entry: Dictionary, solo: bool) -> void:
+	var color: Color = entry.color
+	var pts: Array = entry.cells
+	var ln := Line2D.new()
+	ln.width = cell_h * 0.085
+	ln.default_color = Color(color.r, color.g, color.b, 0.95)
+	ln.joint_mode = Line2D.LINE_JOINT_ROUND
+	ln.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	ln.end_cap_mode = Line2D.LINE_CAP_ROUND
+	ln.antialiased = true
+	ln.z_index = 56
+	ln.material = _additive_mat()
+	ln.modulate = Color(1, 1, 1, 1)
+	for c in pts:
+		ln.add_point(_cell_world(int(c[0]), int(c[1])))
+	fx_layer.add_child(ln)
+	_win_nodes.append(ln)
+	# blink the trace; loops until _clear_trace_nodes kills it
+	var tw := create_tween().set_loops().set_trans(Tween.TRANS_SINE)
+	tw.tween_property(ln, "modulate:a", 0.35, 0.18)
+	tw.tween_property(ln, "modulate:a", 1.0, 0.18)
+	_win_tweens.append(tw)
+	if solo:
+		for c in pts:
+			_pulse_win_symbol(int(c[0]), int(c[1]), color)
+
+## Pulse a winning symbol on the active line: brief brighten toward the line hue + a small scale
+## throb (looped; reset to its lit-white baseline when _clear_trace_nodes kills the tween).
+func _pulse_win_symbol(col: int, row: int, color: Color) -> void:
+	if col < 0 or col >= COLS or row < 0 or row >= ROWS:
+		return
+	var sp: Sprite2D = reels[col].sprites[row + 1]
+	if sp.texture == null:
+		return
+	var base_s := _sym_scale(sp.texture)
+	var bright := Color(min(1.0, color.r + 0.55), min(1.0, color.g + 0.55), min(1.0, color.b + 0.55), 1.0)
+	var t := create_tween().set_loops().set_trans(Tween.TRANS_SINE)
+	t.tween_property(sp, "scale", base_s * 1.12, 0.18)
+	t.parallel().tween_property(sp, "modulate", bright, 0.18)
+	t.tween_property(sp, "scale", base_s, 0.18)
+	t.parallel().tween_property(sp, "modulate", Color(1, 1, 1, 1), 0.18)
+	_win_tweens.append(t)
+
+## Free this step's trace lines + pulse tweens and relight the winning symbols to their lit-white
+## baseline (non-winning cells stay dimmed from _present_win).
+func _clear_trace_nodes() -> void:
+	for t in _win_tweens:
+		if t and t.is_valid():
+			t.kill()
+	_win_tweens.clear()
+	for n in _win_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_win_nodes.clear()
+	for key in _win_cells.keys():
+		var parts: Array = key.split(":")
+		var col := int(parts[0]); var row := int(parts[1])
+		if col < 0 or col >= COLS or row < 0 or row >= ROWS:
+			continue
+		var sp: Sprite2D = reels[col].sprites[row + 1]
+		sp.modulate = Color(1, 1, 1, 1)
+		if sp.texture:
+			sp.scale = _sym_scale(sp.texture)
+
+## Cancel the running flash cycle, free its nodes/tweens and forget the win cells. Called on every
+## new spin (request_spin), each free-spin sub-spin, and force-stop.
+func _clear_win_flash() -> void:
+	_win_flash_gen += 1
+	_win_flashing = false
+	_clear_trace_nodes()
+	_win_cells = {}
+
 func _big_win() -> void:
 	play("bigwin_fanfare")
 	_shake(7.0, 0.4)
@@ -872,6 +1065,83 @@ func _mega_win() -> void:
 	_shake(13.0, 0.7)
 	_show_banner("MEGA WIN")
 	await get_tree().create_timer(2.0).timeout
+
+func _epic_win() -> void:
+	play("megawin_fanfare")
+	play("grand_jackpot")
+	_shake(18.0, 0.9)
+	_show_banner("EPIC WIN")
+	await get_tree().create_timer(2.3).timeout
+
+## feel.winTier → escalating celebration. Reuses the BIG/MEGA fanfares, adds an EPIC tier, and
+## layers a coin shower from BIG up. JACKPOT builds the siren + shower here and lets
+## _present_jackpot own the tier banner/plate so the two read as one climax (no duplicate banner).
+func _celebrate(tier: String, any_high: bool) -> void:
+	match tier:
+		"BIG":
+			_coin_shower(1.0)
+			await _big_win()
+		"MEGA":
+			_coin_shower(1.6)
+			await _mega_win()
+		"EPIC":
+			_coin_shower(2.2)
+			await _epic_win()
+		"JACKPOT":
+			_coin_shower(2.6)
+			play("grand_jackpot")
+			_shake(20.0, 1.0)
+			await get_tree().create_timer(1.2).timeout
+		_:  # NICE (or any other winning tier): a small coin tick, meatier on a premium symbol.
+			play("win_medium" if any_high else "win_small")
+
+## Gold coins raining from the top across the full screen width; intensity scales the count + size.
+## Sits in fx_layer (below the HUD CanvasLayer) so the win banner stays readable above the shower.
+func _coin_shower(intensity: float) -> void:
+	play("coin_shower")
+	var p := CPUParticles2D.new()
+	p.z_index = 59
+	p.one_shot = true
+	p.explosiveness = 0.18
+	p.amount = int(60.0 * intensity)
+	p.lifetime = 1.6
+	p.position = Vector2(view.x * 0.5, -20.0)
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	p.emission_rect_extents = Vector2(view.x * 0.5, 6.0)
+	p.direction = Vector2(0, 1)
+	p.spread = 16.0
+	p.gravity = Vector2(0, 520.0)
+	p.initial_velocity_min = 120.0
+	p.initial_velocity_max = 320.0
+	p.angular_velocity_min = -220.0
+	p.angular_velocity_max = 220.0
+	p.scale_amount_min = 3.0
+	p.scale_amount_max = 7.0 * intensity
+	p.color = GOLD
+	p.material = _additive_mat()
+	fx_layer.add_child(p)
+	p.emitting = true
+	get_tree().create_timer(p.lifetime + 0.6).timeout.connect(p.queue_free)
+
+## "So close" beat: anticipation teased but the feature did not land. Short deflating sting + a
+## quick board dim. Server-authoritative — only fires when feel.nearMiss is populated.
+func _play_near_miss(feel: Dictionary) -> void:
+	var nm = feel.get("nearMiss", [])
+	if typeof(nm) != TYPE_ARRAY or nm.is_empty():
+		return
+	_sting_near_miss()
+	_flash("SO CLOSE…")
+	var t := create_tween().set_trans(Tween.TRANS_SINE)
+	t.tween_property(board, "modulate", Color(0.62, 0.64, 0.72, 1.0), 0.14)
+	t.tween_property(board, "modulate", Color(1, 1, 1, 1), 0.55)
+	await get_tree().create_timer(0.8).timeout
+
+func _sting_near_miss() -> void:
+	# Prefer a dedicated near-miss cue if the asset is present; otherwise the deflating error blip.
+	if _audio.has("near_miss"):
+		play("near_miss")
+	else:
+		play("error_blip")
 
 func _show_banner(text: String) -> void:
 	banner.text = text
@@ -917,6 +1187,7 @@ func _run_free_spins(fs: Dictionary) -> void:
 		var mult := int(sp.get("multiplier", 1))
 		lbl_mult.text = "KIRIN FIRE  x%d" % mult
 		_pulse(lbl_mult)
+		_clear_win_flash()
 		_spin_whir(true)
 		spinning = true
 		for col in COLS:

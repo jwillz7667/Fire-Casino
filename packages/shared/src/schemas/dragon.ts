@@ -15,6 +15,8 @@
  * line table.
  */
 
+import { type SlotFeel } from "./slot-feel";
+
 /** Catalog code + engine key for the game (server dispatch + client renderer). */
 export const DRAGON_GAME_CODE = "dragon-hoard";
 
@@ -82,6 +84,7 @@ export interface DragonOutcome {
   base: DragonSpinResult;
   freeSpins: DragonFreeSpins | null;
   totalWinBps: number; // final win in bps of total bet, AFTER calibration
+  feel: SlotFeel; // presentation-only suspense + win-tier hints (never affects the money figure)
 }
 
 /** Narrow an opaque round outcome JSON to the Dragon payload. */

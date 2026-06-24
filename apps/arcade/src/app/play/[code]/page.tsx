@@ -11,6 +11,7 @@ import {
   DRAGON_GAME_CODE,
   INFERNO_GAME_CODE,
   KIRIN_GAME_CODE,
+  LEVIATHAN_GAME_CODE,
   PHOENIX_GAME_CODE,
   PLINKO_GAME_CODE,
   ROYAL_GAME_CODE,
@@ -30,6 +31,7 @@ import { WheelGodot, WHEEL_GAME_URL } from "@/components/game/WheelGodot";
 import { PlinkoGodot, PLINKO_GAME_URL } from "@/components/game/PlinkoGodot";
 import { InfernoGodot, INFERNO_GAME_URL } from "@/components/game/InfernoGodot";
 import { FlamingKirinGodot, KIRIN_GAME_URL } from "@/components/game/FlamingKirinGodot";
+import { LeviathanGodot, LEVIATHAN_GAME_URL } from "@/components/game/LeviathanGodot";
 import { FairnessDrawer } from "@/components/game/FairnessDrawer";
 import { gameTypeLabel } from "@/components/game/game-meta";
 import { useAuth } from "@/lib/auth-context";
@@ -198,8 +200,17 @@ function GameScreen(): React.ReactElement {
   const usePlinko = game.code === PLINKO_GAME_CODE && PLINKO_GAME_URL !== "" && playable;
   const useInferno = game.code === INFERNO_GAME_CODE && INFERNO_GAME_URL !== "" && playable;
   const useKirin = game.code === KIRIN_GAME_CODE && KIRIN_GAME_URL !== "" && playable;
+  const useLeviathan = game.code === LEVIATHAN_GAME_CODE && LEVIATHAN_GAME_URL !== "" && playable;
   const useAnyGodot =
-    useGodot || useRoyal || useDragon || useCosmic || useWheel || usePlinko || useInferno || useKirin;
+    useGodot ||
+    useRoyal ||
+    useDragon ||
+    useCosmic ||
+    useWheel ||
+    usePlinko ||
+    useInferno ||
+    useKirin ||
+    useLeviathan;
 
   return (
     <div className="flex flex-col gap-4">
@@ -228,6 +239,8 @@ function GameScreen(): React.ReactElement {
         <InfernoGodot game={game} currency={currency} />
       ) : useKirin ? (
         <FlamingKirinGodot game={game} currency={currency} />
+      ) : useLeviathan ? (
+        <LeviathanGodot game={game} currency={currency} />
       ) : game.code === PHOENIX_GAME_CODE ? (
         <PhoenixSlot result={lastResult} currency={currency} spinning={playing} />
       ) : (

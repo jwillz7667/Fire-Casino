@@ -1,3 +1,5 @@
+import { type SlotFeel } from "@aureus/shared";
+import { buildFeel, computeAnticipation } from "../shared/feel";
 import {
   BASE_REEL_WEIGHTS,
   BONUS_AWARD,
@@ -67,6 +69,7 @@ export interface CosmicOutcome extends Record<string, unknown> {
   freeSpins: FreeSpinsResult | null;
   bonus: BonusResult | null;
   totalWinBps: number; // final win in bps of total bet, AFTER calibration (+ exact bonus)
+  feel: SlotFeel;
 }
 
 export interface EngineResult {
@@ -231,6 +234,17 @@ export function spin(rng: Rng): EngineResult {
   // The instant bonus prize rides on top of the scaled slice, unscaled.
   const totalWinBps = Math.min(MAX_WIN_BPS, scaled + (bonus?.awardBps ?? 0));
 
+  // Presentation-only suspense/celebration hints, derived from the BASE grid the player watches
+  // reel-by-reel (free spins auto-play). SCATTER → free spins, BONUS → instant prize; both tease
+  // on the "one-to-go" reel. Never affects totalWinBps.
+  const feel = buildFeel({
+    totalWinBps,
+    anticipation: [
+      computeAnticipation(baseGrid, SCATTER, SCATTER_TRIGGER),
+      computeAnticipation(baseGrid, BONUS, BONUS_TRIGGER),
+    ],
+  });
+
   return {
     totalWinBps,
     outcome: {
@@ -240,6 +254,7 @@ export function spin(rng: Rng): EngineResult {
       freeSpins,
       bonus,
       totalWinBps,
+      feel,
     },
   };
 }

@@ -68,40 +68,45 @@ function perReel(
 }
 
 /** Base-game per-cell weights (WILD filled per-reel by perReel). Low royals are heavy
- *  filler so wins skew toward the dragons and the feature. */
+ *  filler so the grid lands frequent cheap line wins (high hit frequency) at low RTP cost
+ *  — the cheap pays are small, so a fuller paytable still calibrates to the certified RTP
+ *  via the scalar. The dragons and the COINS feature carry the volatility. */
 const BASE_COMMON: Record<SymbolId, number> = {
-  GOLD_DRAGON: 4,
+  GOLD_DRAGON: 3,
+  RED_DRAGON: 4,
+  BLUE_DRAGON: 5,
+  RED_GEM: 7,
+  GREEN_GEM: 9,
+  BLUE_GEM: 11,
+  A: 13,
+  K: 15,
+  Q: 17,
+  J: 19,
+  WILD: 0,
+  COINS: 4.6,
+};
+
+/** Free-spins per-cell weights: richer dragons, more wilds. Royals match base while the
+ *  dragons + gems + wild edge it, so free spins win MORE OFTEN and pay MORE per spin than
+ *  base (the bonus-winrate invariant); the rising multiplier then amplifies on top, so the
+ *  free weights only need to EDGE base — over-inflating them crashes the calibration scalar. */
+const FREE_COMMON: Record<SymbolId, number> = {
+  GOLD_DRAGON: 5,
   RED_DRAGON: 6,
   BLUE_DRAGON: 7,
   RED_GEM: 9,
-  GREEN_GEM: 10,
-  BLUE_GEM: 11,
-  A: 12,
-  K: 13,
-  Q: 14,
-  J: 15,
-  WILD: 0,
-  COINS: 4,
-};
-
-/** Free-spins per-cell weights: richer dragons, more wilds, rarer scatter. */
-const FREE_COMMON: Record<SymbolId, number> = {
-  GOLD_DRAGON: 6,
-  RED_DRAGON: 8,
-  BLUE_DRAGON: 9,
-  RED_GEM: 10,
   GREEN_GEM: 11,
-  BLUE_GEM: 11,
-  A: 11,
-  K: 12,
-  Q: 13,
-  J: 14,
+  BLUE_GEM: 13,
+  A: 13,
+  K: 15,
+  Q: 17,
+  J: 19,
   WILD: 0,
   COINS: 3,
 };
 
 export const BASE_REEL_WEIGHTS = perReel(BASE_COMMON, 3);
-export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 6);
+export const FREE_REEL_WEIGHTS = perReel(FREE_COMMON, 6.5);
 
 /** Pay per line for k-of-a-kind from reel 1, in bps of total bet. The cheapest royals
  *  pay little at 3 (keeps the sub-1x loss-disguised-as-win flood in check). */
@@ -118,11 +123,14 @@ export const PAYTABLE: Record<PayingSymbol, Record<3 | 4 | 5, number>> = {
   J: { 3: 1900, 4: 7500, 5: 28000 },
 };
 
-/** Scatter (COINS) pays anywhere on the grid by count, in bps of total bet. */
+/** Scatter (COINS) pays anywhere on the grid by count, in bps of total bet. Kept MODEST:
+ *  the scatter's value is the FREE-SPINS trigger, not the anywhere-pay — a small direct pay
+ *  frees RTP budget for frequent line wins (a higher PAYOUT_SCALAR_BPS, fewer hollow sub-1×
+ *  wins) and lets the COINS weight rise for more frequent triggers + 2-symbol teases. */
 export const SCATTER_PAY: Record<number, number> = {
-  3: 56000,
-  4: 280000,
-  5: 1400000,
+  3: 15000,
+  4: 60000,
+  5: 300000,
 };
 
 /** Minimum scatters to award free spins, and the spins granted per count. */
@@ -153,7 +161,7 @@ export const MAX_WIN_BPS = 50_000_000;
  * scales every payout onto the certified target. CALIBRATED by simulate.ts — run it
  * after any table change and paste the suggested value here.
  */
-export const PAYOUT_SCALAR_BPS = 10000;
+export const PAYOUT_SCALAR_BPS = 10885;
 
 /** The certified RTP this model targets, in bps — must match the catalog game. */
 export const CERTIFIED_RTP_BPS = 9600;

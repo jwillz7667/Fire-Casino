@@ -3,6 +3,7 @@ import { COSMIC_ENGINE, CosmicSpinsProvider } from "../engines/cosmic/cosmic.pro
 import { DRAGON_ENGINE, DragonHoardProvider } from "../engines/dragon/dragon.provider";
 import { INFERNO_ENGINE, InfernoLinkProvider } from "../engines/inferno/inferno.provider";
 import { KIRIN_ENGINE, FlamingKirinProvider } from "../engines/kirin/kirin.provider";
+import { LEVIATHAN_ENGINE, LeviathanProvider } from "../engines/leviathan/leviathan.provider";
 import { PHOENIX_ENGINE, PhoenixAscendantProvider } from "../engines/phoenix/phoenix.provider";
 import { PLINKO_ENGINE, PlinkoProvider } from "../engines/plinko/plinko.provider";
 import { ROYAL_ENGINE, RoyalAscendantProvider } from "../engines/royal/royal.provider";
@@ -30,6 +31,7 @@ export class CompositeGameProvider implements GameProvider {
     plinko: PlinkoProvider,
     inferno: InfernoLinkProvider,
     kirin: FlamingKirinProvider,
+    leviathan: LeviathanProvider,
   ) {
     this.engines = {
       [PHOENIX_ENGINE]: phoenix,
@@ -40,6 +42,7 @@ export class CompositeGameProvider implements GameProvider {
       [PLINKO_ENGINE]: plinko,
       [INFERNO_ENGINE]: inferno,
       [KIRIN_ENGINE]: kirin,
+      [LEVIATHAN_ENGINE]: leviathan,
     };
   }
 
