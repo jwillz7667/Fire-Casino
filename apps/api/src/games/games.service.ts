@@ -42,6 +42,9 @@ interface RoundRow {
   nonce: number;
   betMinor: bigint;
   winMinor: bigint;
+  grossWinMinor: bigint | null;
+  effectiveRtpBps: number | null;
+  baseRtpBps: number | null;
   outcome: Prisma.JsonValue;
   betTxId: string | null;
   winTxId: string | null;
@@ -73,6 +76,12 @@ export class GamesService {
   }
 
   async createGame(caller: OperatorPrincipal, input: CreateGameInput) {
+    // RGS-3: bind the certified base RTP to the engine's band on create too (updateGame
+    // already does). baseRtpBps is the divisor in the win scale, so a tiny base would
+    // inflate every payout — never allow one below the floor.
+    if (input.rtpBps < RTP_MIN_BPS || input.rtpBps > RTP_MAX_BPS) {
+      throw new ValidationError(undefined, `RTP must be between ${RTP_MIN_BPS} and ${RTP_MAX_BPS} bps`);
+    }
     const game = await this.prisma.game.create({
       data: {
         code: input.code,
@@ -514,12 +523,22 @@ export class GamesService {
           betTxId: betResult.transactionId,
           winTxId,
           winMinor,
+          // RGS-1: persist the override provenance so the paid win is verifiable
+          // end-to-end. grossWinMinor recomputes from the seed; baseRtpBps snapshots
+          // the round-time certified RTP (game.rtpBps is mutable) so winMinor ===
+          // floor(grossWinMinor * effectiveRtpBps / baseRtpBps) holds for all time
+          // (truncating BigInt division — see scaleWinForRtp).
+          grossWinMinor: result.winMinor,
+          effectiveRtpBps,
+          baseRtpBps: session.game.rtpBps,
           outcome: result.outcome as Prisma.InputJsonObject,
         },
       });
       await tx.gameSession.update({
         where: { id: round.sessionId },
-        data: { totalBetMinor: { increment: round.betMinor }, totalWinMinor: { increment: result.winMinor } },
+        // MONEY-2: session totals must track the SCALED win actually credited to the
+        // ledger (winMinor), not the gross engine win (result.winMinor).
+        data: { totalBetMinor: { increment: round.betMinor }, totalWinMinor: { increment: winMinor } },
       });
       return r;
     });
@@ -538,6 +557,13 @@ export class GamesService {
       nonce: round.nonce,
       betMinor: round.betMinor.toString(),
       winMinor: round.winMinor.toString(),
+      // RGS-1: expose the override provenance so the fairness panel/verifier can
+      // confirm winMinor === floor(grossWinMinor * effectiveRtpBps / baseRtpBps),
+      // fully self-contained (baseRtpBps is the round-time snapshot, not the mutable
+      // catalog value).
+      grossWinMinor: round.grossWinMinor?.toString() ?? null,
+      effectiveRtpBps: round.effectiveRtpBps ?? null,
+      baseRtpBps: round.baseRtpBps ?? null,
       outcome: round.outcome,
     };
   }

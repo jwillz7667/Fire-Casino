@@ -435,6 +435,17 @@ model GameRound {
   nonce          Int
   betMinor       BigInt
   winMinor       BigInt
+  // RGS-1: provable-fairness provenance for the per-player/agent RTP override.
+  // grossWinMinor = the engine's raw win (recomputable from serverSeed + clientSeed
+  // + nonce); effectiveRtpBps = the RTP actually applied; baseRtpBps = the game's
+  // certified RTP snapshotted AT ROUND TIME (game.rtpBps is mutable). With all three
+  // on the round, winMinor == floor(grossWinMinor * effectiveRtpBps / baseRtpBps) is
+  // (truncating BigInt division; the operator keeps sub-minor-unit fractions)
+  // verifiable end-to-end and any tuning is disclosed — independent of later catalog
+  // changes. Nullable: rounds predating these columns carry no provenance.
+  grossWinMinor   BigInt?
+  effectiveRtpBps Int?
+  baseRtpBps      Int?
   outcome        Json
   betTxId        String?
   winTxId        String?
