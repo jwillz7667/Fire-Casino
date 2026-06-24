@@ -26,7 +26,7 @@ rm -f "$HERE"/build/*.import   # Godot import metadata — not needed by the web
 # --- upload to public R2 -----------------------------------------------------------
 set -a; eval "$(grep -E '^R2_(ACCOUNT_ID|ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET_ASSETS)=' "$REPO/.env.production")"; set +a
 export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION=auto
-aws configure set default.s3.multipart_threshold 128MB
+aws configure set default.s3.multipart_threshold 512MB
 ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 DEST="s3://${R2_BUCKET_ASSETS}/flaming-kirin/${VER}"
 ct() { case "$1" in
