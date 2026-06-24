@@ -50,8 +50,8 @@ export interface SpinResult {
   cascades: CascadeStep[];
   spinWinBps: number; // summed, multiplier-applied win across all steps (pre calibration)
   endMultiplier: number; // highest cascade/tide multiplier reached this spin
-  scatterCount: number; // SCATTERs on the INITIAL grid (the trigger count)
-  bonusCount: number; // BONUS symbols on the INITIAL grid (the awaken count)
+  scatterCount: number; // max SCATTERs on any cascade step (accumulated trigger count)
+  bonusCount: number; // max BONUS on any cascade step (accumulated Kraken-awaken count)
 }
 
 export interface FreeSpinsResult {
@@ -185,13 +185,19 @@ function tumble(grid: Grid, cleared: Set<number>, rng: Rng, weights: Record<Symb
 function runBaseSpin(rng: Rng): SpinResult {
   const cascades: CascadeStep[] = [];
   let grid = drawGrid(rng, BASE_REEL_WEIGHTS);
-  const scatterCount = countSymbol(grid, SCATTER);
-  const bonusCount = countSymbol(grid, BONUS);
+  // BONUS/SCATTER are non-paying: they survive every tumble (only winning cells clear) and fresh
+  // ones drop in on the refill, so a trigger symbol that arrives on a LATER cascade still counts.
+  // Track the most on the board across the whole sequence — counting the initial grid alone would
+  // miss a 3rd BONUS / 4th SCATTER that dropped in after a cascade.
+  let scatterCount = 0;
+  let bonusCount = 0;
   let spinWinBps = 0;
   let endMultiplier = 1;
   let depth = 0;
 
   for (;;) {
+    scatterCount = Math.max(scatterCount, countSymbol(grid, SCATTER));
+    bonusCount = Math.max(bonusCount, countSymbol(grid, BONUS));
     const wins = evaluateWays(grid);
     const multiplier =
       BASE_CASCADE_MULTIPLIERS[Math.min(depth, BASE_CASCADE_MULTIPLIERS.length - 1)]!;
@@ -220,12 +226,15 @@ function runBaseSpin(rng: Rng): SpinResult {
 function runFreeSpin(rng: Rng, tideStart: number): { result: SpinResult; tideEnd: number } {
   const cascades: CascadeStep[] = [];
   let grid = drawGrid(rng, FREE_REEL_WEIGHTS);
-  const scatterCount = countSymbol(grid, SCATTER);
+  // Accumulate scatters across the tumble sequence (same rule as the base game) so a retrigger
+  // can be completed by a scatter that drops in on a later cascade, not just the initial grid.
+  let scatterCount = 0;
   let tide = tideStart;
   let spinWinBps = 0;
   let depth = 0;
 
   for (;;) {
+    scatterCount = Math.max(scatterCount, countSymbol(grid, SCATTER));
     const orbCells: Cell[] = [];
     for (let reel = 0; reel < REELS; reel++) {
       for (let row = 0; row < ROWS; row++) {

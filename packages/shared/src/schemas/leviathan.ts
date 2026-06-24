@@ -101,8 +101,8 @@ export interface LeviathanSpinResult {
   cascades: LeviathanCascadeStep[];
   spinWinBps: number;
   endMultiplier: number;
-  scatterCount: number; // SCATTERs on the INITIAL grid (the trigger count)
-  bonusCount: number; // BONUS symbols on the INITIAL grid (the awaken count)
+  scatterCount: number; // max SCATTERs on any cascade step — accumulated across tumbles (trigger count)
+  bonusCount: number; // max BONUS on any cascade step — accumulated across tumbles (Kraken-awaken count)
 }
 
 /**
