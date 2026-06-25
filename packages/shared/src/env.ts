@@ -70,11 +70,19 @@ export const envSchema = z.object({
   // compliance
   KYC_PROVIDER: z.string().default("stub"),
   GEO_PROVIDER: z.string().default("stub"),
-  // GEO-1: shared secret the trusted CDN/edge injects as `x-edge-proof`. When set,
-  // the strip-untrusted-geo middleware drops client-supplied CF-IPCountry/
-  // X-Vercel-IP-Country headers on any request lacking the matching proof, so a
-  // forged region header can't defeat the geo gate. MUST be set in production when
-  // GEO_ENFORCED is on (the edge config injects it); unset in dev = no stripping.
+  // Master on/off switch for geo enforcement, DEFAULT "off" (safe-by-default). Geo
+  // region rules are only applied when this is "on" AND the platform GEO_ENFORCED
+  // setting is on AND GEO_EDGE_HEADER_SECRET is configured. Defaulting off means a
+  // deploy can never silently lock players out behind a forgeable/absent geo header;
+  // flip to "on" only once the trusted edge + secret are in place.
+  GEO_ENFORCEMENT: z.enum(["on", "off"]).default("off"),
+  // GEO-1: shared secret the trusted CDN/edge injects as `x-edge-proof`. It is the
+  // MASTER SWITCH for geo enforcement (compliance.service only enforces region rules
+  // when this is set) and drives the strip-untrusted-geo middleware (which drops
+  // client-supplied CF-IPCountry/X-Vercel-IP-Country unless the matching proof is
+  // present). OPTIONAL and safe-by-default: unset => geo is advisory/off and nothing
+  // can lock players out; set it (and configure the edge to inject the same value as
+  // x-edge-proof) to turn on forgery-proof geo blocking. No infra dependency to boot.
   GEO_EDGE_HEADER_SECRET: z.string().optional(),
   AML_ENABLED: z
     .string()
@@ -108,17 +116,9 @@ export const envSchema = z.object({
     if (val.R2_BUCKET_KYC.trim() === val.R2_BUCKET_ASSETS.trim()) {
       add("R2_BUCKET_KYC", "must differ from R2_BUCKET_ASSETS (KYC PII must not share the public assets bucket)");
     }
-    // GEO-1: the geo gate fails closed and defaults ENFORCED in production, so the
-    // edge-proof secret that authenticates the (otherwise forgeable) region headers is
-    // MANDATORY in production — without it a client hitting the origin directly could
-    // spoof CF-IPCountry to defeat a region BLOCK. Deploy it ATOMICALLY with the edge's
-    // x-edge-proof injection (else legitimate geo traffic fails closed until both agree).
-    if (!val.GEO_EDGE_HEADER_SECRET?.trim()) {
-      add(
-        "GEO_EDGE_HEADER_SECRET",
-        "required in production (authenticates the geo region headers; the trusted edge must inject x-edge-proof with this value)",
-      );
-    }
+    // GEO_EDGE_HEADER_SECRET is intentionally NOT required: it is the opt-in master
+    // switch for geo enforcement (see its declaration). Leaving it unset is the safe
+    // default (geo advisory/off), so production boots without an edge dependency.
   });
 
 export type Env = z.infer<typeof envSchema>;

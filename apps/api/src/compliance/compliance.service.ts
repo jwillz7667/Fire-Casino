@@ -201,7 +201,18 @@ export class ComplianceService {
     // them AND the strip-untrusted-geo middleware drops client-forged copies (gated by
     // GEO_EDGE_HEADER_SECRET); `trust proxy` does NOT secure custom headers. The rule
     // promise is AWAITED so a BLOCK actually throws.
+    // Master switch (env, DEFAULT "off"): geo is never enforced unless explicitly
+    // turned on, so no deploy can silently lock players out behind a forgeable/absent
+    // region header. Flip GEO_ENFORCEMENT to "on" only once the edge + secret are set.
+    if (this.env.GEO_ENFORCEMENT !== "on") return;
     if (!(await this.settings.geoEnforced())) return;
+    // Geo can only be ENFORCED when a trusted edge is configured to authenticate the
+    // region headers — signalled by GEO_EDGE_HEADER_SECRET (the same secret the edge
+    // injects as x-edge-proof, see strip-untrusted-geo). Without it the region headers
+    // are forgeable, so enforcing would be either bypassable or a lockout; we therefore
+    // treat geo as advisory (off) until the operator sets up the edge + this secret.
+    // Safe-by-default: no edge config => no geo blocking, no player lockout.
+    if (!this.env.GEO_EDGE_HEADER_SECRET) return;
     if (!region) {
       if (requireResolved) throw new RegionBlockedError();
       return;

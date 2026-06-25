@@ -10,12 +10,12 @@ const base = {
   JWT_REFRESH_SECRET: "b".repeat(32),
 } satisfies NodeJS.ProcessEnv;
 
-/** The extra vars production requires (R2 storage + the geo edge-proof secret). */
+/** The extra vars production requires (R2 storage). GEO_EDGE_HEADER_SECRET is an
+ *  optional opt-in switch, not required to boot. */
 const prodCreds = {
   R2_ACCOUNT_ID: "acct",
   R2_ACCESS_KEY_ID: "key",
   R2_SECRET_ACCESS_KEY: "secret",
-  GEO_EDGE_HEADER_SECRET: "edge-proof-secret",
 } satisfies NodeJS.ProcessEnv;
 
 describe("env schema", () => {
@@ -26,6 +26,11 @@ describe("env schema", () => {
 
   it("defaults TRUST_PROXY_HOPS to 1 (INFRA-1)", () => {
     expect(loadEnv({ ...base }).TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it("defaults GEO_ENFORCEMENT to off (safe-by-default; no silent geo lockout)", () => {
+    expect(loadEnv({ ...base }).GEO_ENFORCEMENT).toBe("off");
+    expect(loadEnv({ ...base, GEO_ENFORCEMENT: "on" }).GEO_ENFORCEMENT).toBe("on");
   });
 
   it("coerces an explicit TRUST_PROXY_HOPS and caps it", () => {
@@ -56,17 +61,14 @@ describe("env schema", () => {
     );
   });
 
-  it("requires GEO_EDGE_HEADER_SECRET in production (GEO-1 forgery guard)", () => {
-    const { GEO_EDGE_HEADER_SECRET: _drop, ...credsNoGeo } = prodCreds;
-    expect(() => loadEnv({ ...base, ...credsNoGeo, NODE_ENV: "production" })).toThrow(
-      /GEO_EDGE_HEADER_SECRET/,
-    );
+  it("treats GEO_EDGE_HEADER_SECRET as optional — production boots without it (geo off, safe-by-default)", () => {
+    const env = loadEnv({ ...base, ...prodCreds, NODE_ENV: "production" });
+    expect(env.GEO_EDGE_HEADER_SECRET).toBeUndefined();
   });
 
-  it("accepts production once all required prod vars are present", () => {
+  it("accepts production once the required prod vars are present", () => {
     const env = loadEnv({ ...base, ...prodCreds, NODE_ENV: "production" });
     expect(env.NODE_ENV).toBe("production");
     expect(env.R2_BUCKET_KYC.length).toBeGreaterThan(0);
-    expect(env.GEO_EDGE_HEADER_SECRET).toBe("edge-proof-secret");
   });
 });
