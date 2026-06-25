@@ -38,6 +38,15 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="en" data-theme="arcade">
       <body className="min-h-[100dvh] bg-abyss text-text-hi antialiased">
         <Providers>{children}</Providers>
+        {/* Portrait lock: shown only on touch devices held in landscape (pure CSS
+            in globals.css). Keeps the mobile-first layout from rendering sideways. */}
+        <div id="rotate-guard">
+          <div className="rotate-guard__icon">📱</div>
+          <div className="rotate-guard__title">Please rotate your device</div>
+          <div className="rotate-guard__sub">
+            Goldwave is designed for portrait. Turn your phone upright to keep playing.
+          </div>
+        </div>
       </body>
     </html>
   );

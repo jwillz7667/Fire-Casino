@@ -10,3 +10,64 @@ body {
   color: var(--color-text-hi);
   font-family: var(--font-body);
 }
+
+/* ------------------------------------------------------------------ *
+ * Portrait lock. The player PWA is mobile-first portrait; the manifest
+ * requests portrait for INSTALLED apps, and this guard covers the
+ * in-browser case (notably iOS Safari, which ignores manifest orientation
+ * and cannot lock orientation): on a TOUCH device held in landscape, a
+ * full-screen prompt covers the app so the portrait layout never renders
+ * sideways/broken. `hover: none` + `pointer: coarse` scopes it to phones/
+ * tablets, so desktop (always "landscape") is never affected.
+ * ------------------------------------------------------------------ */
+#rotate-guard {
+  display: none;
+}
+
+@media (orientation: landscape) and (hover: none) and (pointer: coarse) {
+  #rotate-guard {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+    padding: 2rem;
+    text-align: center;
+    background-color: var(--color-canvas, #0a0e1a);
+    color: var(--color-text-hi, #f5f7fa);
+    /* respect notch / home-indicator insets */
+    padding-top: max(2rem, env(safe-area-inset-top));
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  }
+  body {
+    overflow: hidden; /* no rubber-band scroll behind the cover */
+  }
+}
+
+#rotate-guard .rotate-guard__icon {
+  font-size: 3rem;
+  line-height: 1;
+  animation: rotate-guard-tip 1.8s ease-in-out infinite;
+}
+#rotate-guard .rotate-guard__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+#rotate-guard .rotate-guard__sub {
+  font-size: 0.95rem;
+  opacity: 0.75;
+  max-width: 22rem;
+}
+
+@keyframes rotate-guard-tip {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-90deg);
+  }
+}
