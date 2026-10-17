@@ -14,7 +14,7 @@ Verified locally on 2026-10-17. These results apply to the implementation in thi
 
 ## Validation
 
-- API: all 316 tests in 41 files pass against dedicated local PostgreSQL and Redis. This includes money invariants, concurrency, rollback, authorization, refresh replay, MFA, private-document scope, readiness, worker recovery, and game simulations. Plinko retains its original statistical sample and tolerances with an explicit 120-second budget.
+- API: the complete 316-test suite in 41 files passes against dedicated local PostgreSQL and Redis. The final fractional-transfer correction also passes 35 focused integration tests, including new fractional-price and overflow cases. This includes money invariants, concurrency, rollback, authorization, refresh replay, MFA, private-document scope, readiness, worker recovery, and game simulations. Plinko retains its original statistical sample and tolerances with an explicit 120-second budget.
 - Shared contracts: 47 tests pass. Frontends: 40 tests pass, including direct and proxied HTTP configuration. Bootstrap: all 11 tests pass against a separate disposable database. Supervisor: all eight subprocess tests pass.
 - API, worker, database package, shared package, and both Next.js production builds pass. Workspace lint and typechecks pass. The Node 22 Docker image builds and starts both backend processes as UID 1000, applies all migrations to a separate fresh test database, and returns healthy PostgreSQL/Redis readiness.
 - All 19 database migrations apply on fresh local PostgreSQL 16. Restricted-role verification confirms immutable history cannot be updated/deleted, and the runtime role cannot truncate tables, change triggers, create schema objects, or access migration bookkeeping.

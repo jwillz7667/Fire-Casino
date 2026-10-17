@@ -9,7 +9,7 @@ import {
   type TransferCreditsInput,
 } from "@aureus/shared";
 import { type OperatorPrincipal } from "../common/auth/principal";
-import { ForbiddenError, NotFoundError } from "../common/errors/domain-error";
+import { ForbiddenError, NotFoundError, ValidationError } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
@@ -54,19 +54,34 @@ export class CreditsService {
         ref: { type: "CreditIssue", id: input.operatorId },
         memo: input.memo,
         legs: [
-          { account: { kind: "system", systemKey: "MINT", currency }, direction: "DEBIT", amountMinor: input.quantityMinor },
-          { account: { kind: "operator", operatorId: input.operatorId, currency }, direction: "CREDIT", amountMinor: input.quantityMinor },
+          {
+            account: { kind: "system", systemKey: "MINT", currency },
+            direction: "DEBIT",
+            amountMinor: input.quantityMinor,
+          },
+          {
+            account: { kind: "operator", operatorId: input.operatorId, currency },
+            direction: "CREDIT",
+            amountMinor: input.quantityMinor,
+          },
         ],
       });
       if (result.replayed) return result;
-      await this.audit.record({
-        ...auditActor(caller),
-        action: "ledger.issue",
-        targetType: "Operator",
-        targetId: input.operatorId,
-        after: { quantityMinor: input.quantityMinor.toString(), currency, transactionId: result.transactionId },
-        ...ctx,
-      }, tx);
+      await this.audit.record(
+        {
+          ...auditActor(caller),
+          action: "ledger.issue",
+          targetType: "Operator",
+          targetId: input.operatorId,
+          after: {
+            quantityMinor: input.quantityMinor.toString(),
+            currency,
+            transactionId: result.transactionId,
+          },
+          ...ctx,
+        },
+        tx,
+      );
       return result;
     });
   }
@@ -82,6 +97,17 @@ export class CreditsService {
       const buyer = await this.loadDirectChild(caller, input.toOperatorId, tx);
       await this.operators.assertOperatorActionable(buyer.id, tx);
 
+      // Convert the full fractional credit quantity to cents in BigInt before
+      // dividing. Settlement.netCents is a PostgreSQL Int, so reject overflow
+      // before creating any ledger entries or balance events.
+      const totalCentsBig =
+        input.unitPriceCents === undefined
+          ? undefined
+          : (input.quantityMinor * BigInt(input.unitPriceCents)) / MINOR;
+      if (totalCentsBig !== undefined && totalCentsBig > 2_147_483_647n) {
+        throw new ValidationError(undefined, "Transfer cash total exceeds the supported range");
+      }
+      const totalCents = totalCentsBig === undefined ? undefined : Number(totalCentsBig);
       const currency = this.currency;
       const result = await this.ledger.postInTransaction(tx, {
         type: "TRANSFER",
@@ -91,8 +117,16 @@ export class CreditsService {
         ref: { type: "CreditTransfer", id: buyer.id },
         memo: input.memo,
         legs: [
-          { account: { kind: "operator", operatorId: caller.operatorId, currency }, direction: "DEBIT", amountMinor: input.quantityMinor },
-          { account: { kind: "operator", operatorId: buyer.id, currency }, direction: "CREDIT", amountMinor: input.quantityMinor },
+          {
+            account: { kind: "operator", operatorId: caller.operatorId, currency },
+            direction: "DEBIT",
+            amountMinor: input.quantityMinor,
+          },
+          {
+            account: { kind: "operator", operatorId: buyer.id, currency },
+            direction: "CREDIT",
+            amountMinor: input.quantityMinor,
+          },
         ],
       });
 
@@ -100,9 +134,7 @@ export class CreditsService {
 
       // Record the agreed cash the buyer owes the seller — margin/reporting only,
       // never the ledger (docs/03 §3). Positive netCents = counterparty owes operator.
-      if (input.unitPriceCents !== undefined) {
-        const credits = input.quantityMinor / MINOR;
-        const totalCents = Number(credits) * input.unitPriceCents;
+      if (totalCents !== undefined) {
         await tx.settlement.upsert({
           where: {
             operatorId_counterpartyId_currency: {
@@ -112,23 +144,31 @@ export class CreditsService {
             },
           },
           update: { netCents: { increment: totalCents }, lastEventAt: new Date() },
-          create: { operatorId: caller.operatorId, counterpartyId: buyer.id, currency, netCents: totalCents },
+          create: {
+            operatorId: caller.operatorId,
+            counterpartyId: buyer.id,
+            currency,
+            netCents: totalCents,
+          },
         });
       }
 
-      await this.audit.record({
-        ...auditActor(caller),
-        action: "ledger.transfer",
-        targetType: "Operator",
-        targetId: buyer.id,
-        after: {
-          quantityMinor: input.quantityMinor.toString(),
-          currency,
-          unitPriceCents: input.unitPriceCents,
-          transactionId: result.transactionId,
+      await this.audit.record(
+        {
+          ...auditActor(caller),
+          action: "ledger.transfer",
+          targetType: "Operator",
+          targetId: buyer.id,
+          after: {
+            quantityMinor: input.quantityMinor.toString(),
+            currency,
+            unitPriceCents: input.unitPriceCents,
+            transactionId: result.transactionId,
+          },
+          ...ctx,
         },
-        ...ctx,
-      }, tx);
+        tx,
+      );
       return result;
     });
   }

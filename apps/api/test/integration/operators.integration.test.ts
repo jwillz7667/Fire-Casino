@@ -23,7 +23,11 @@ const operators = new OperatorsService(scoped, testPrisma, env, passwords, audit
 const credits = new CreditsService(testPrisma, env, ledger, operators, audit);
 
 const ctx = { ip: "127.0.0.1", userAgent: "vitest" };
-const op = (operatorId: string): AccountSelector => ({ kind: "operator", operatorId, currency: "CREDIT" });
+const op = (operatorId: string): AccountSelector => ({
+  kind: "operator",
+  operatorId,
+  currency: "CREDIT",
+});
 
 function principal(
   node: { id?: string; operatorId?: string; userId: string; path: string; depth: number },
@@ -101,7 +105,13 @@ describe("OperatorsService.createChild — tier & scope rules (docs/04)", () => 
     await expect(
       operators.createChild(
         distBP,
-        { tier: "STORE", displayName: "S", username: "s", tempPassword: "Passw0rd!", parentId: distA.operator.id },
+        {
+          tier: "STORE",
+          displayName: "S",
+          username: "s",
+          tempPassword: "Passw0rd!",
+          parentId: distA.operator.id,
+        },
         ctx,
       ),
     ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "OUT_OF_SCOPE");
@@ -115,7 +125,12 @@ describe("Credits — issue and transfer down the chain (docs/03 §4.1–4.2)", 
       { tier: "DISTRIBUTOR", displayName: "Dist", username: "dist", tempPassword: "Passw0rd!" },
       ctx,
     );
-    const distNode = { operatorId: dist.operator.id, userId: (await userIdOf(dist.operator.id)), path: dist.operator.path, depth: dist.operator.depth };
+    const distNode = {
+      operatorId: dist.operator.id,
+      userId: await userIdOf(dist.operator.id),
+      path: dist.operator.path,
+      depth: dist.operator.depth,
+    };
     const distP = principal(distNode, "DISTRIBUTOR");
     const store = await operators.createChild(
       distP,
@@ -123,17 +138,29 @@ describe("Credits — issue and transfer down the chain (docs/03 §4.1–4.2)", 
       ctx,
     );
 
-    await credits.issue(rootP, { operatorId: dist.operator.id, quantityMinor: 1_000_000n }, randomUUID(), ctx);
+    await credits.issue(
+      rootP,
+      { operatorId: dist.operator.id, quantityMinor: 1_000_000n },
+      randomUUID(),
+      ctx,
+    );
     expect(await ledger.getBalance(op(dist.operator.id))).toBe(1_000_000n);
 
-    await credits.transfer(distP, { toOperatorId: store.operator.id, quantityMinor: 400_000n, unitPriceCents: 1 }, randomUUID(), ctx);
+    await credits.transfer(
+      distP,
+      { toOperatorId: store.operator.id, quantityMinor: 400_000n, unitPriceCents: 1 },
+      randomUUID(),
+      ctx,
+    );
     expect(await ledger.getBalance(op(dist.operator.id))).toBe(600_000n);
     expect(await ledger.getBalance(op(store.operator.id))).toBe(400_000n);
 
     await assertLedgerIntegrity(testPrisma);
 
     // a settlement row records the off-ledger cash owed (margin/reporting only)
-    const settlement = await testPrisma.settlement.findFirst({ where: { counterpartyId: store.operator.id } });
+    const settlement = await testPrisma.settlement.findFirst({
+      where: { counterpartyId: store.operator.id },
+    });
     expect(settlement?.netCents).toBe(400); // 400 credits * 1 cent
   });
 
@@ -143,16 +170,34 @@ describe("Credits — issue and transfer down the chain (docs/03 §4.1–4.2)", 
       { tier: "DISTRIBUTOR", displayName: "Dist", username: "dist", tempPassword: "Passw0rd!" },
       ctx,
     );
-    const distP = principal({ operatorId: dist.operator.id, userId: await userIdOf(dist.operator.id), path: dist.operator.path, depth: dist.operator.depth }, "DISTRIBUTOR");
+    const distP = principal(
+      {
+        operatorId: dist.operator.id,
+        userId: await userIdOf(dist.operator.id),
+        path: dist.operator.path,
+        depth: dist.operator.depth,
+      },
+      "DISTRIBUTOR",
+    );
     const store = await operators.createChild(
       distP,
       { tier: "STORE", displayName: "Store", username: "store", tempPassword: "Passw0rd!" },
       ctx,
     );
-    await credits.issue(rootP, { operatorId: dist.operator.id, quantityMinor: 1_000_000n }, randomUUID(), ctx);
+    await credits.issue(
+      rootP,
+      { operatorId: dist.operator.id, quantityMinor: 1_000_000n },
+      randomUUID(),
+      ctx,
+    );
     // root -> store is a grandchild, not a direct child of root
     await expect(
-      credits.transfer(rootP, { toOperatorId: store.operator.id, quantityMinor: 100_000n }, randomUUID(), ctx),
+      credits.transfer(
+        rootP,
+        { toOperatorId: store.operator.id, quantityMinor: 100_000n },
+        randomUUID(),
+        ctx,
+      ),
     ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "FORBIDDEN");
   });
 });
@@ -164,7 +209,15 @@ describe("Suspend cascade & close (docs/04 §4)", () => {
       { tier: "DISTRIBUTOR", displayName: "Dist", username: "dist", tempPassword: "Passw0rd!" },
       ctx,
     );
-    const distP = principal({ operatorId: dist.operator.id, userId: await userIdOf(dist.operator.id), path: dist.operator.path, depth: dist.operator.depth }, "DISTRIBUTOR");
+    const distP = principal(
+      {
+        operatorId: dist.operator.id,
+        userId: await userIdOf(dist.operator.id),
+        path: dist.operator.path,
+        depth: dist.operator.depth,
+      },
+      "DISTRIBUTOR",
+    );
     const store = await operators.createChild(
       distP,
       { tier: "STORE", displayName: "Store", username: "store", tempPassword: "Passw0rd!" },
@@ -173,7 +226,15 @@ describe("Suspend cascade & close (docs/04 §4)", () => {
     // root suspends the distributor
     await operators.suspend(rootP, dist.operator.id, ctx);
     // creating under the (frozen) store now fails
-    const storeP = principal({ operatorId: store.operator.id, userId: await userIdOf(store.operator.id), path: store.operator.path, depth: store.operator.depth }, "STORE");
+    const storeP = principal(
+      {
+        operatorId: store.operator.id,
+        userId: await userIdOf(store.operator.id),
+        path: store.operator.path,
+        depth: store.operator.depth,
+      },
+      "STORE",
+    );
     await expect(
       operators.createChild(
         storeP,
@@ -183,7 +244,12 @@ describe("Suspend cascade & close (docs/04 §4)", () => {
     ).rejects.toBeInstanceOf(AppError);
     // issuing to the frozen distributor also fails
     await expect(
-      credits.issue(rootP, { operatorId: dist.operator.id, quantityMinor: 1_000n }, randomUUID(), ctx),
+      credits.issue(
+        rootP,
+        { operatorId: dist.operator.id, quantityMinor: 1_000n },
+        randomUUID(),
+        ctx,
+      ),
     ).rejects.toBeInstanceOf(AppError);
   });
 
@@ -193,7 +259,15 @@ describe("Suspend cascade & close (docs/04 §4)", () => {
       { tier: "DISTRIBUTOR", displayName: "Dist", username: "dist", tempPassword: "Passw0rd!" },
       ctx,
     );
-    const distP = principal({ operatorId: dist.operator.id, userId: await userIdOf(dist.operator.id), path: dist.operator.path, depth: dist.operator.depth }, "DISTRIBUTOR");
+    const distP = principal(
+      {
+        operatorId: dist.operator.id,
+        userId: await userIdOf(dist.operator.id),
+        path: dist.operator.path,
+        depth: dist.operator.depth,
+      },
+      "DISTRIBUTOR",
+    );
     const store = await operators.createChild(
       distP,
       { tier: "STORE", displayName: "Store", username: "store", tempPassword: "Passw0rd!" },
@@ -204,8 +278,18 @@ describe("Suspend cascade & close (docs/04 §4)", () => {
       (e: unknown) => e instanceof AppError && e.code === "CONFLICT",
     );
     // fund the store -> cannot close (non-zero balance)
-    await credits.issue(rootP, { operatorId: dist.operator.id, quantityMinor: 1_000n }, randomUUID(), ctx);
-    await credits.transfer(distP, { toOperatorId: store.operator.id, quantityMinor: 1_000n }, randomUUID(), ctx);
+    await credits.issue(
+      rootP,
+      { operatorId: dist.operator.id, quantityMinor: 1_000n },
+      randomUUID(),
+      ctx,
+    );
+    await credits.transfer(
+      distP,
+      { toOperatorId: store.operator.id, quantityMinor: 1_000n },
+      randomUUID(),
+      ctx,
+    );
     await expect(operators.close(rootP, store.operator.id, ctx)).rejects.toSatisfy(
       (e: unknown) => e instanceof AppError && e.code === "CONFLICT",
     );
@@ -228,7 +312,12 @@ describe("Permission grants — no self-escalation (docs/04 §3, security B1)", 
       ctx,
     );
     return principal(
-      { operatorId: dist.operator.id, userId: await userIdOf(dist.operator.id), path: dist.operator.path, depth: dist.operator.depth },
+      {
+        operatorId: dist.operator.id,
+        userId: await userIdOf(dist.operator.id),
+        path: dist.operator.path,
+        depth: dist.operator.depth,
+      },
       "DISTRIBUTOR",
     );
   }
@@ -298,35 +387,68 @@ describe("Permission grants — no self-escalation (docs/04 §3, security B1)", 
 });
 
 async function userIdOf(operatorId: string): Promise<string> {
-  const o = await testPrisma.operator.findUniqueOrThrow({ where: { id: operatorId }, select: { userId: true } });
+  const o = await testPrisma.operator.findUniqueOrThrow({
+    where: { id: operatorId },
+    select: { userId: true },
+  });
   return o.userId;
 }
 
 describe("Credits — atomic reporting and audit", () => {
   async function makeTransferTree() {
-    const dist = await createOperator({ username: "atomic-dist", tier: "DISTRIBUTOR", parent: { id: rootP.operatorId, path: rootP.path, depth: rootP.depth }, pathSegment: 1 });
-    const store = await createOperator({ username: "atomic-store", tier: "STORE", parent: dist, pathSegment: 1 });
+    const dist = await createOperator({
+      username: "atomic-dist",
+      tier: "DISTRIBUTOR",
+      parent: { id: rootP.operatorId, path: rootP.path, depth: rootP.depth },
+      pathSegment: 1,
+    });
+    const store = await createOperator({
+      username: "atomic-store",
+      tier: "STORE",
+      parent: dist,
+      pathSegment: 1,
+    });
     const seller = principal(dist, "DISTRIBUTOR");
-    await credits.issue(rootP, { operatorId: dist.id, quantityMinor: 1_000_000n }, randomUUID(), ctx);
+    await credits.issue(
+      rootP,
+      { operatorId: dist.id, quantityMinor: 1_000_000n },
+      randomUUID(),
+      ctx,
+    );
     return { dist, store, seller };
   }
 
   it("rolls back an issue if its audit fails, then retries without losing or duplicating credits", async () => {
-    const target = await createOperator({ username: "target", tier: "DISTRIBUTOR", parent: { id: rootP.operatorId, path: rootP.path, depth: rootP.depth }, pathSegment: 1 });
+    const target = await createOperator({
+      username: "target",
+      tier: "DISTRIBUTOR",
+      parent: { id: rootP.operatorId, path: rootP.path, depth: rootP.depth },
+      pathSegment: 1,
+    });
     const key = randomUUID();
-    const auditFailure = vi.spyOn(audit, "record").mockRejectedValueOnce(new Error("audit unavailable"));
+    const auditFailure = vi
+      .spyOn(audit, "record")
+      .mockRejectedValueOnce(new Error("audit unavailable"));
     try {
-      await expect(credits.issue(rootP, { operatorId: target.id, quantityMinor: 100_000n }, key, ctx)).rejects.toThrow("audit unavailable");
+      await expect(
+        credits.issue(rootP, { operatorId: target.id, quantityMinor: 100_000n }, key, ctx),
+      ).rejects.toThrow("audit unavailable");
     } finally {
       auditFailure.mockRestore();
     }
     expect(await ledger.getBalance(op(target.id))).toBe(0n);
-    expect(await testPrisma.ledgerTransaction.count({ where: { idempotencyKey: `issue:${rootP.operatorId}:${key}` } })).toBe(0);
+    expect(
+      await testPrisma.ledgerTransaction.count({
+        where: { idempotencyKey: `issue:${rootP.operatorId}:${key}` },
+      }),
+    ).toBe(0);
     expect(await testPrisma.outboxEvent.count({ where: { type: "balance.changed" } })).toBe(0);
     await credits.issue(rootP, { operatorId: target.id, quantityMinor: 100_000n }, key, ctx);
     await credits.issue(rootP, { operatorId: target.id, quantityMinor: 100_000n }, key, ctx);
     expect(await ledger.getBalance(op(target.id))).toBe(100_000n);
-    expect(await testPrisma.auditLog.count({ where: { action: "ledger.issue", targetId: target.id } })).toBe(1);
+    expect(
+      await testPrisma.auditLog.count({ where: { action: "ledger.issue", targetId: target.id } }),
+    ).toBe(1);
     await assertLedgerIntegrity(testPrisma);
   });
 
@@ -334,39 +456,143 @@ describe("Credits — atomic reporting and audit", () => {
     const { dist, store, seller } = await makeTransferTree();
     const key = randomUUID();
     const eventsBefore = await testPrisma.outboxEvent.count();
-    const auditFailure = vi.spyOn(audit, "record").mockRejectedValueOnce(new Error("audit unavailable"));
+    const auditFailure = vi
+      .spyOn(audit, "record")
+      .mockRejectedValueOnce(new Error("audit unavailable"));
     try {
-      await expect(credits.transfer(seller, { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: 7 }, key, ctx)).rejects.toThrow("audit unavailable");
+      await expect(
+        credits.transfer(
+          seller,
+          { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: 7 },
+          key,
+          ctx,
+        ),
+      ).rejects.toThrow("audit unavailable");
     } finally {
       auditFailure.mockRestore();
     }
     expect(await ledger.getBalance(op(dist.id))).toBe(1_000_000n);
     expect(await ledger.getBalance(op(store.id))).toBe(0n);
-    expect(await testPrisma.settlement.count({ where: { operatorId: dist.id, counterpartyId: store.id } })).toBe(0);
-    expect(await testPrisma.ledgerTransaction.count({ where: { idempotencyKey: `transfer:${dist.id}:${key}` } })).toBe(0);
+    expect(
+      await testPrisma.settlement.count({
+        where: { operatorId: dist.id, counterpartyId: store.id },
+      }),
+    ).toBe(0);
+    expect(
+      await testPrisma.ledgerTransaction.count({
+        where: { idempotencyKey: `transfer:${dist.id}:${key}` },
+      }),
+    ).toBe(0);
     expect(await testPrisma.outboxEvent.count()).toBe(eventsBefore);
-    const retry = await credits.transfer(seller, { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: 7 }, key, ctx);
+    const retry = await credits.transfer(
+      seller,
+      { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: 7 },
+      key,
+      ctx,
+    );
     expect(retry.replayed).toBe(false);
     expect(await ledger.getBalance(op(store.id))).toBe(100_000n);
-    expect(await testPrisma.settlement.findFirst({ where: { operatorId: dist.id, counterpartyId: store.id } })).toMatchObject({ netCents: 700 });
-    expect(await testPrisma.auditLog.count({ where: { action: "ledger.transfer", targetId: store.id } })).toBe(1);
+    expect(
+      await testPrisma.settlement.findFirst({
+        where: { operatorId: dist.id, counterpartyId: store.id },
+      }),
+    ).toMatchObject({ netCents: 700 });
+    expect(
+      await testPrisma.auditLog.count({ where: { action: "ledger.transfer", targetId: store.id } }),
+    ).toBe(1);
     await assertLedgerIntegrity(testPrisma);
   });
 
   it("concurrent same-key transfers keep the first committed price and one cash position", async () => {
     const { dist, store, seller } = await makeTransferTree();
     const key = randomUUID();
-    const results = await Promise.all(Array.from({ length: 12 }, (_, i) => credits.transfer(seller, { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: i + 1 }, key, ctx)));
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        credits.transfer(
+          seller,
+          { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: i + 1 },
+          key,
+          ctx,
+        ),
+      ),
+    );
     expect(results.filter((result) => !result.replayed)).toHaveLength(1);
     expect(new Set(results.map((result) => result.transactionId)).size).toBe(1);
-    const audits = await testPrisma.auditLog.findMany({ where: { action: "ledger.transfer", targetId: store.id } });
+    const audits = await testPrisma.auditLog.findMany({
+      where: { action: "ledger.transfer", targetId: store.id },
+    });
     expect(audits).toHaveLength(1);
     const agreedPrice = (audits[0]?.after as { unitPriceCents: number }).unitPriceCents;
     expect(agreedPrice).toBeGreaterThanOrEqual(1);
     expect(agreedPrice).toBeLessThanOrEqual(12);
-    expect(await testPrisma.settlement.findFirst({ where: { operatorId: dist.id, counterpartyId: store.id } })).toMatchObject({ netCents: 100 * agreedPrice });
+    expect(
+      await testPrisma.settlement.findFirst({
+        where: { operatorId: dist.id, counterpartyId: store.id },
+      }),
+    ).toMatchObject({ netCents: 100 * agreedPrice });
     expect(await ledger.getBalance(op(dist.id))).toBe(900_000n);
     expect(await ledger.getBalance(op(store.id))).toBe(100_000n);
+    await assertLedgerIntegrity(testPrisma);
+  });
+});
+
+describe("Credits — fractional cash precision and supported range", () => {
+  it("records 150 cents for 1500 minor units at 100 cents per credit", async () => {
+    const buyer = await createOperator({
+      username: "fractional-buyer",
+      tier: "DISTRIBUTOR",
+      parent: { id: rootP.operatorId, path: rootP.path, depth: rootP.depth },
+      pathSegment: 1,
+    });
+    await credits.issue(
+      rootP,
+      { operatorId: rootP.operatorId, quantityMinor: 10_000n },
+      randomUUID(),
+      ctx,
+    );
+    await credits.transfer(
+      rootP,
+      { toOperatorId: buyer.id, quantityMinor: 1500n, unitPriceCents: 100 },
+      randomUUID(),
+      ctx,
+    );
+    expect(
+      await testPrisma.settlement.findFirst({
+        where: { operatorId: rootP.operatorId, counterpartyId: buyer.id },
+      }),
+    ).toMatchObject({ netCents: 150 });
+    expect(await ledger.getBalance(op(buyer.id))).toBe(1500n);
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("rejects cash totals beyond PostgreSQL Int range before any ledger or event write", async () => {
+    const buyer = await createOperator({
+      username: "large-buyer",
+      tier: "DISTRIBUTOR",
+      parent: { id: rootP.operatorId, path: rootP.path, depth: rootP.depth },
+      pathSegment: 1,
+    });
+    const key = randomUUID();
+    const outboxBefore = await testPrisma.outboxEvent.count();
+    await expect(
+      credits.transfer(
+        rootP,
+        { toOperatorId: buyer.id, quantityMinor: 2_147_483_648_000n, unitPriceCents: 1 },
+        key,
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(
+      await testPrisma.ledgerTransaction.count({
+        where: { idempotencyKey: `transfer:${rootP.operatorId}:${key}` },
+      }),
+    ).toBe(0);
+    expect(
+      await testPrisma.auditLog.count({ where: { action: "ledger.transfer", targetId: buyer.id } }),
+    ).toBe(0);
+    expect(await testPrisma.settlement.count()).toBe(0);
+    expect(await testPrisma.outboxEvent.count()).toBe(outboxBefore);
+    expect(await ledger.getBalance(op(buyer.id))).toBe(0n);
     await assertLedgerIntegrity(testPrisma);
   });
 });
