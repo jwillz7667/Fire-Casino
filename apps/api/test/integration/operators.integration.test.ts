@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createScopedPrisma, type ScopedPrismaClient } from "@aureus/db";
 import { can, loadEnv, type OperatorTier, type ScopeContext } from "@aureus/shared";
 import { AuditService } from "../../src/audit/audit.service";
@@ -301,3 +301,72 @@ async function userIdOf(operatorId: string): Promise<string> {
   const o = await testPrisma.operator.findUniqueOrThrow({ where: { id: operatorId }, select: { userId: true } });
   return o.userId;
 }
+
+describe("Credits — atomic reporting and audit", () => {
+  async function makeTransferTree() {
+    const dist = await createOperator({ username: "atomic-dist", tier: "DISTRIBUTOR", parent: { id: rootP.operatorId, path: rootP.path, depth: rootP.depth }, pathSegment: 1 });
+    const store = await createOperator({ username: "atomic-store", tier: "STORE", parent: dist, pathSegment: 1 });
+    const seller = principal(dist, "DISTRIBUTOR");
+    await credits.issue(rootP, { operatorId: dist.id, quantityMinor: 1_000_000n }, randomUUID(), ctx);
+    return { dist, store, seller };
+  }
+
+  it("rolls back an issue if its audit fails, then retries without losing or duplicating credits", async () => {
+    const target = await createOperator({ username: "target", tier: "DISTRIBUTOR", parent: { id: rootP.operatorId, path: rootP.path, depth: rootP.depth }, pathSegment: 1 });
+    const key = randomUUID();
+    const auditFailure = vi.spyOn(audit, "record").mockRejectedValueOnce(new Error("audit unavailable"));
+    try {
+      await expect(credits.issue(rootP, { operatorId: target.id, quantityMinor: 100_000n }, key, ctx)).rejects.toThrow("audit unavailable");
+    } finally {
+      auditFailure.mockRestore();
+    }
+    expect(await ledger.getBalance(op(target.id))).toBe(0n);
+    expect(await testPrisma.ledgerTransaction.count({ where: { idempotencyKey: `issue:${rootP.operatorId}:${key}` } })).toBe(0);
+    expect(await testPrisma.outboxEvent.count({ where: { type: "balance.changed" } })).toBe(0);
+    await credits.issue(rootP, { operatorId: target.id, quantityMinor: 100_000n }, key, ctx);
+    await credits.issue(rootP, { operatorId: target.id, quantityMinor: 100_000n }, key, ctx);
+    expect(await ledger.getBalance(op(target.id))).toBe(100_000n);
+    expect(await testPrisma.auditLog.count({ where: { action: "ledger.issue", targetId: target.id } })).toBe(1);
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("rolls back transfer, cash position, and balance events if the audit write fails", async () => {
+    const { dist, store, seller } = await makeTransferTree();
+    const key = randomUUID();
+    const eventsBefore = await testPrisma.outboxEvent.count();
+    const auditFailure = vi.spyOn(audit, "record").mockRejectedValueOnce(new Error("audit unavailable"));
+    try {
+      await expect(credits.transfer(seller, { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: 7 }, key, ctx)).rejects.toThrow("audit unavailable");
+    } finally {
+      auditFailure.mockRestore();
+    }
+    expect(await ledger.getBalance(op(dist.id))).toBe(1_000_000n);
+    expect(await ledger.getBalance(op(store.id))).toBe(0n);
+    expect(await testPrisma.settlement.count({ where: { operatorId: dist.id, counterpartyId: store.id } })).toBe(0);
+    expect(await testPrisma.ledgerTransaction.count({ where: { idempotencyKey: `transfer:${dist.id}:${key}` } })).toBe(0);
+    expect(await testPrisma.outboxEvent.count()).toBe(eventsBefore);
+    const retry = await credits.transfer(seller, { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: 7 }, key, ctx);
+    expect(retry.replayed).toBe(false);
+    expect(await ledger.getBalance(op(store.id))).toBe(100_000n);
+    expect(await testPrisma.settlement.findFirst({ where: { operatorId: dist.id, counterpartyId: store.id } })).toMatchObject({ netCents: 700 });
+    expect(await testPrisma.auditLog.count({ where: { action: "ledger.transfer", targetId: store.id } })).toBe(1);
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("concurrent same-key transfers keep the first committed price and one cash position", async () => {
+    const { dist, store, seller } = await makeTransferTree();
+    const key = randomUUID();
+    const results = await Promise.all(Array.from({ length: 12 }, (_, i) => credits.transfer(seller, { toOperatorId: store.id, quantityMinor: 100_000n, unitPriceCents: i + 1 }, key, ctx)));
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+    expect(new Set(results.map((result) => result.transactionId)).size).toBe(1);
+    const audits = await testPrisma.auditLog.findMany({ where: { action: "ledger.transfer", targetId: store.id } });
+    expect(audits).toHaveLength(1);
+    const agreedPrice = (audits[0]?.after as { unitPriceCents: number }).unitPriceCents;
+    expect(agreedPrice).toBeGreaterThanOrEqual(1);
+    expect(agreedPrice).toBeLessThanOrEqual(12);
+    expect(await testPrisma.settlement.findFirst({ where: { operatorId: dist.id, counterpartyId: store.id } })).toMatchObject({ netCents: 100 * agreedPrice });
+    expect(await ledger.getBalance(op(dist.id))).toBe(900_000n);
+    expect(await ledger.getBalance(op(store.id))).toBe(100_000n);
+    await assertLedgerIntegrity(testPrisma);
+  });
+});

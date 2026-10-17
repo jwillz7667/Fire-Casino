@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import { z } from "zod";
 import { type Env } from "@aureus/shared";
 import { type Audience } from "../common/auth/principal";
 import { ENV } from "../config/config.module";
@@ -14,6 +15,16 @@ export interface AccessClaims {
   exp?: number; // standard JWT expiry (seconds since epoch), set by signing
   iat?: number;
 }
+
+const accessClaimsSchema = z.object({
+  sub: z.string().min(1),
+  aud: z.enum(["operator", "player"]),
+  sessionId: z.string().min(1),
+  operatorId: z.string().min(1),
+  tier: z.string().optional(),
+  exp: z.number().int().positive(),
+  iat: z.number().int().nonnegative(),
+});
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -36,12 +47,17 @@ export class TokenService {
       secret: this.env.JWT_ACCESS_SECRET,
       expiresIn: this.env.JWT_ACCESS_TTL,
       keyid: this.env.JWT_KID,
+      algorithm: "HS256",
     });
     return { token, expiresIn: this.env.JWT_ACCESS_TTL };
   }
 
-  verifyAccess(token: string): Promise<AccessClaims> {
-    return this.jwt.verifyAsync<AccessClaims>(token, { secret: this.env.JWT_ACCESS_SECRET });
+  async verifyAccess(token: string): Promise<AccessClaims> {
+    const claims: unknown = await this.jwt.verifyAsync(token, {
+      secret: this.env.JWT_ACCESS_SECRET,
+      algorithms: ["HS256"],
+    });
+    return accessClaimsSchema.parse(claims);
   }
 
   /** A fresh opaque refresh token and its storage hash. */

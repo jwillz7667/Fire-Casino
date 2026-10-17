@@ -129,7 +129,11 @@ export function PhoenixGodot({
         );
         void queryClient.invalidateQueries({ queryKey: qk.wallet });
         void queryClient.invalidateQueries({ queryKey: qk.walletHistory });
-        post("betResult", { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor }, reqId);
+        post(
+          "betResult",
+          { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor },
+          reqId,
+        );
       } catch (err) {
         post("betError", { message: messageForError(err) }, reqId);
       }
@@ -139,8 +143,19 @@ export function PhoenixGodot({
 
   useEffect(() => {
     function onMessage(e: MessageEvent): void {
-      if (GAME_ORIGIN !== "*" && e.origin !== GAME_ORIGIN) return;
-      const m = e.data as { source?: string; type?: string; reqId?: string; payload?: { betMinor?: number } };
+      if (
+        !iframeRef.current?.contentWindow ||
+        e.source !== iframeRef.current.contentWindow ||
+        GAME_ORIGIN === "*" ||
+        e.origin !== GAME_ORIGIN
+      )
+        return;
+      const m = e.data as {
+        source?: string;
+        type?: string;
+        reqId?: string;
+        payload?: { betMinor?: number };
+      };
       if (!m || m.source !== "phoenix-game") return;
       if (m.type === "requestInit") {
         sendInit();
@@ -165,5 +180,7 @@ export function PhoenixGodot({
   // Full-screen overlay: the Godot canvas fills the viewport and its stretch system
   // letterboxes the 720x1280 design to fit. This avoids fragile aspect-box sizing
   // inside the app's flex layout (which mis-sized the canvas + put controls off-screen).
-  return <GameViewport ref={iframeRef} src={GAME_URL} title="Phoenix Ascendant" onLoad={sendInit} />;
+  return (
+    <GameViewport ref={iframeRef} src={GAME_URL} title="Phoenix Ascendant" onLoad={sendInit} />
+  );
 }

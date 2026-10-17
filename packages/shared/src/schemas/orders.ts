@@ -2,19 +2,34 @@ import { z } from "zod";
 import { creditOrderStatusSchema } from "../enums";
 import { zMinorPositive } from "../money";
 
+// These URLs are rendered as links in the privileged console. A syntactically
+// valid URL may still be an executable javascript: or data: payload.
+export const proofUrlSchema = z
+  .string()
+  .url()
+  .max(500)
+  .refine((value) => {
+    try {
+      const protocol = new URL(value).protocol;
+      return protocol === "https:" || protocol === "http:";
+    } catch {
+      return false;
+    }
+  }, "Proof URL must use http(s)");
+
 export const createOrderSchema = z.object({
   quantityMinor: zMinorPositive,
   note: z.string().max(280).optional(),
   paymentMethod: z.string().max(40).optional(),
   paymentRef: z.string().max(120).optional(),
-  proofUrl: z.string().url().max(500).optional(),
+  proofUrl: proofUrlSchema.optional(),
 });
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 
 export const markOrderPaidSchema = z.object({
   paymentMethod: z.string().min(1).max(40),
   paymentRef: z.string().max(120).optional(),
-  proofUrl: z.string().url().max(500).optional(),
+  proofUrl: proofUrlSchema.optional(),
 });
 export type MarkOrderPaidInput = z.infer<typeof markOrderPaidSchema>;
 

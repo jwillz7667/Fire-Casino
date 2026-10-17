@@ -34,6 +34,8 @@ export const GameViewport = forwardRef<
           onLoad={onLoad}
           title={title}
           allow="autoplay; fullscreen"
+          sandbox="allow-scripts allow-same-origin"
+          referrerPolicy="no-referrer"
           className="h-full w-full border-0"
         />
       </div>

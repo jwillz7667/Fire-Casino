@@ -24,6 +24,7 @@ import { REDEEMABLE_CURRENCY } from "@/lib/platform";
 import { errorMessage } from "@/lib/errors";
 import { useIdempotencyKey } from "@/lib/use-idempotency-key";
 import { PageHeader } from "@/components/page-header";
+import { SignedDocumentButton } from "@/components/signed-document-button";
 import { QueryBoundary } from "@/components/query-boundary";
 import { SettleDialog } from "@/components/redemptions/settle-dialog";
 import { formatDateTime, humanize } from "@/lib/format";
@@ -59,7 +60,10 @@ export default function RedemptionDetailPage(): ReactElement {
   }
 
   const approve = useMutation({
-    mutationFn: () => api.post<RedemptionDetail>(`/redemptions/${id}/approve`, undefined, { idempotencyKey: approveKey }),
+    mutationFn: () =>
+      api.post<RedemptionDetail>(`/redemptions/${id}/approve`, undefined, {
+        idempotencyKey: approveKey,
+      }),
     onSuccess: () => {
       toast.push({ title: "Redemption approved", intent: "success" });
       invalidate();
@@ -71,29 +75,36 @@ export default function RedemptionDetailPage(): ReactElement {
     },
   });
   const reject = useMutation({
-    mutationFn: (reason: string) => api.post<RedemptionDetail>(`/redemptions/${id}/reject`, { reason }),
+    mutationFn: (reason: string) =>
+      api.post<RedemptionDetail>(`/redemptions/${id}/reject`, { reason }),
     onSuccess: () => {
       toast.push({ title: "Redemption rejected", intent: "info" });
       invalidate();
       setDialog("none");
     },
-    onError: (err) => { toast.push({ title: "Failed", description: errorMessage(err), intent: "danger" }); },
+    onError: (err) => {
+      toast.push({ title: "Failed", description: errorMessage(err), intent: "danger" });
+    },
   });
   const cancel = useMutation({
-    mutationFn: (reason: string) => api.post<RedemptionDetail>(`/redemptions/${id}/cancel`, { reason }),
+    mutationFn: (reason: string) =>
+      api.post<RedemptionDetail>(`/redemptions/${id}/cancel`, { reason }),
     onSuccess: () => {
       toast.push({ title: "Redemption cancelled", intent: "info" });
       invalidate();
       setDialog("none");
     },
-    onError: (err) => { toast.push({ title: "Failed", description: errorMessage(err), intent: "danger" }); },
+    onError: (err) => {
+      toast.push({ title: "Failed", description: errorMessage(err), intent: "danger" });
+    },
   });
 
   const canApprove = hasPermission(principal, "redemption.approve");
   const canSettle = hasPermission(principal, "redemption.settle");
 
   const redeemBefore = BigInt(
-    playerWallets.data?.wallets.find((w) => w.currency === REDEEMABLE_CURRENCY)?.balanceMinor ?? "0",
+    playerWallets.data?.wallets.find((w) => w.currency === REDEEMABLE_CURRENCY)?.balanceMinor ??
+      "0",
   );
   const amount = BigInt(data?.amountMinor ?? "0");
 
@@ -103,7 +114,13 @@ export default function RedemptionDetailPage(): ReactElement {
         ← Redemption queue
       </Link>
 
-      <QueryBoundary isLoading={redemption.isLoading} error={redemption.error} onRetry={() => { void redemption.refetch(); }}>
+      <QueryBoundary
+        isLoading={redemption.isLoading}
+        error={redemption.error}
+        onRetry={() => {
+          void redemption.refetch();
+        }}
+      >
         {data ? (
           <>
             <PageHeader
@@ -118,21 +135,41 @@ export default function RedemptionDetailPage(): ReactElement {
                 <div className="flex flex-wrap gap-2">
                   {canApprove && data.status === "PENDING" ? (
                     <>
-                      <Button onClick={() => { setDialog("approve"); }}>
+                      <Button
+                        onClick={() => {
+                          setDialog("approve");
+                        }}
+                      >
                         <Check className="h-4 w-4" />
                         Approve
                       </Button>
-                      <Button variant="ghost" onClick={() => { setDialog("reject"); }}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setDialog("reject");
+                        }}
+                      >
                         <X className="h-4 w-4" />
                         Reject
                       </Button>
                     </>
                   ) : null}
                   {canSettle && data.status === "APPROVED" ? (
-                    <Button onClick={() => { setDialog("settle"); }}>Mark paid</Button>
+                    <Button
+                      onClick={() => {
+                        setDialog("settle");
+                      }}
+                    >
+                      Mark paid
+                    </Button>
                   ) : null}
                   {canApprove && (data.status === "PENDING" || data.status === "APPROVED") ? (
-                    <Button variant="ghost" onClick={() => { setDialog("cancel"); }}>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setDialog("cancel");
+                      }}
+                    >
                       Cancel
                     </Button>
                   ) : null}
@@ -153,10 +190,21 @@ export default function RedemptionDetailPage(): ReactElement {
                   <Row label="Decided" value={formatDateTime(data.decidedAt)} />
                   <Row label="Settled" value={formatDateTime(data.settledAt)} />
                   <Row label="Payout ref" value={data.payoutRef ?? "—"} />
-                  {data.rejectionReason ? <Row label="Reason" value={data.rejectionReason} /> : null}
+                  {data.rejectionReason ? (
+                    <Row label="Reason" value={data.rejectionReason} />
+                  ) : null}
                 </dl>
+                {data.hasProof ? (
+                  <SignedDocumentButton
+                    endpoint={`/redemptions/${id}/proof`}
+                    label="View payout receipt"
+                  />
+                ) : null}
                 {data.playerId ? (
-                  <Link href={`/players/${data.playerId}`} className="text-sm text-lumen hover:underline">
+                  <Link
+                    href={`/players/${data.playerId}`}
+                    className="text-sm text-lumen hover:underline"
+                  >
                     View player →
                   </Link>
                 ) : null}
@@ -167,7 +215,9 @@ export default function RedemptionDetailPage(): ReactElement {
                 <div className="flex flex-col gap-2 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-text-lo">KYC</span>
-                    <Badge intent={data.compliance.kycStatus === "VERIFIED" ? "success" : "warning"}>
+                    <Badge
+                      intent={data.compliance.kycStatus === "VERIFIED" ? "success" : "warning"}
+                    >
                       {humanize(data.compliance.kycStatus)}
                     </Badge>
                   </div>
@@ -194,8 +244,12 @@ export default function RedemptionDetailPage(): ReactElement {
 
             <ConfirmMoneyDialog
               open={dialog === "approve"}
-              onClose={() => { setDialog("none"); }}
-              onConfirm={() => { approve.mutate(); }}
+              onClose={() => {
+                setDialog("none");
+              }}
+              onConfirm={() => {
+                approve.mutate();
+              }}
               title="Approve redemption"
               description="Burns the player's redeemable balance into the clearing account."
               loading={approve.isPending}
@@ -211,8 +265,12 @@ export default function RedemptionDetailPage(): ReactElement {
             />
             <ReasonDialog
               open={dialog === "reject"}
-              onClose={() => { setDialog("none"); }}
-              onConfirm={(reason) => { reject.mutate(reason); }}
+              onClose={() => {
+                setDialog("none");
+              }}
+              onConfirm={(reason) => {
+                reject.mutate(reason);
+              }}
               title="Reject redemption"
               confirmLabel="Reject"
               loading={reject.isPending}
@@ -220,14 +278,24 @@ export default function RedemptionDetailPage(): ReactElement {
             />
             <ReasonDialog
               open={dialog === "cancel"}
-              onClose={() => { setDialog("none"); }}
-              onConfirm={(reason) => { cancel.mutate(reason); }}
+              onClose={() => {
+                setDialog("none");
+              }}
+              onConfirm={(reason) => {
+                cancel.mutate(reason);
+              }}
               title="Cancel redemption"
               confirmLabel="Cancel redemption"
               loading={cancel.isPending}
               danger
             />
-            <SettleDialog open={dialog === "settle"} onClose={() => { setDialog("none"); }} redemptionId={id} />
+            <SettleDialog
+              open={dialog === "settle"}
+              onClose={() => {
+                setDialog("none");
+              }}
+              redemptionId={id}
+            />
           </>
         ) : null}
       </QueryBoundary>

@@ -41,26 +41,14 @@ const SYSTEM_ACCOUNTS: SystemAccount[] = [
 
 const DEV_SEED_PASSWORD = "ChangeMe!Dev123";
 
-/**
- * Resolve the seed password. In production the committed dev default is refused
- * and a strong SEED_PASSWORD is mandatory — never ship/seed admin accounts on a
- * source-controlled credential (security audit S1). Dev/test fall back to the
- * default for convenience.
- */
+/** Demo data is never suitable for a production database. */
 function resolveSeedPassword(): string {
-  const provided = process.env.SEED_PASSWORD;
   if (process.env.NODE_ENV === "production") {
-    if (!provided || provided === DEV_SEED_PASSWORD) {
-      throw new Error(
-        "Refusing to seed production with the default password. Set a strong SEED_PASSWORD (>=12 chars).",
-      );
-    }
-    if (provided.length < 12) {
-      throw new Error("SEED_PASSWORD must be at least 12 characters in production.");
-    }
-    return provided;
+    throw new Error(
+      "Refusing demo db:seed in production. Use pnpm --filter @aureus/db db:bootstrap-admin for a fresh database.",
+    );
   }
-  return provided ?? DEV_SEED_PASSWORD;
+  return process.env.SEED_PASSWORD ?? DEV_SEED_PASSWORD;
 }
 
 const SEED_PASSWORD = resolveSeedPassword();
@@ -122,7 +110,9 @@ interface OperatorSeed {
 }
 
 /** Create User + Operator + a zero-balance CREDIT account if missing. */
-async function ensureOperator(seed: OperatorSeed): Promise<{ id: string; path: string; depth: number }> {
+async function ensureOperator(
+  seed: OperatorSeed,
+): Promise<{ id: string; path: string; depth: number }> {
   const existing = await prisma.operator.findFirst({
     where: { user: { username: seed.username } },
     select: { id: true, path: true, depth: true },
@@ -130,7 +120,9 @@ async function ensureOperator(seed: OperatorSeed): Promise<{ id: string; path: s
   if (existing) return existing;
 
   const passwordHash = await hashPassword(SEED_PASSWORD);
-  const path = seed.parent ? `${seed.parent.path}.${String(seed.pathSegment)}` : String(seed.pathSegment);
+  const path = seed.parent
+    ? `${seed.parent.path}.${String(seed.pathSegment)}`
+    : String(seed.pathSegment);
   const depth = seed.parent ? seed.parent.depth + 1 : 0;
 
   const operator = await prisma.operator.create({
@@ -159,7 +151,11 @@ async function ensureOperator(seed: OperatorSeed): Promise<{ id: string; path: s
   return operator;
 }
 
-async function ensurePlayer(operatorId: string, username: string, displayName: string): Promise<void> {
+async function ensurePlayer(
+  operatorId: string,
+  username: string,
+  displayName: string,
+): Promise<void> {
   const existing = await prisma.player.findUnique({ where: { username }, select: { id: true } });
   if (existing) return;
 
@@ -437,7 +433,10 @@ async function seedPromotions(): Promise<void> {
 }
 
 async function seedAnnouncements(): Promise<void> {
-  const existing = await prisma.announcement.findFirst({ where: { title: "Welcome to Aureus" }, select: { id: true } });
+  const existing = await prisma.announcement.findFirst({
+    where: { title: "Welcome to Aureus" },
+    select: { id: true },
+  });
   if (existing) return;
   await prisma.announcement.create({
     data: {
@@ -468,15 +467,10 @@ async function main(): Promise<void> {
     prisma.promotion.count(),
   ]);
 
-  // Never print the actual password in production logs (security audit S1).
-  const passwordNote =
-    process.env.NODE_ENV === "production"
-      ? "Login password: set via SEED_PASSWORD (not logged)."
-      : `Default login password: "${SEED_PASSWORD}".`;
   console.warn(
     `Seed complete: ${String(settings)} settings, ${String(sysAccounts)} system accounts, ` +
       `${String(operators)} operators, ${String(players)} players, ${String(games)} games, ` +
-      `${String(geo)} geo rules, ${String(promos)} promotions. ${passwordNote}`,
+      `${String(geo)} geo rules, ${String(promos)} promotions. Login password is not logged.`,
   );
 }
 

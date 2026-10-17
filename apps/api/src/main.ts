@@ -2,6 +2,7 @@ import "@aureus/shared/bigint";
 
 import { NestFactory } from "@nestjs/core";
 import cookieParser from "cookie-parser";
+import type { Express } from "express";
 import { Logger } from "nestjs-pino";
 import { loadEnv } from "@aureus/shared";
 import { loadDotenv } from "@aureus/shared/dotenv";
@@ -9,6 +10,7 @@ import { AppModule } from "./app.module";
 import { RedisIoAdapter } from "./realtime/redis-io.adapter";
 import { securityHeaders } from "./common/http/security-headers";
 import { stripUntrustedGeoHeaders } from "./common/http/strip-untrusted-geo";
+import { authOriginProtection } from "./common/http/auth-origin";
 
 async function bootstrap(): Promise<void> {
   loadDotenv();
@@ -22,7 +24,8 @@ async function bootstrap(): Promise<void> {
   // truthful audit/AML IPs. Pin the count: NEVER use trust-all ('true'), or a client
   // could spoof X-Forwarded-For to evade throttling and poison the audit trail.
   if (env.TRUST_PROXY_HOPS > 0) {
-    app.getHttpAdapter().getInstance().set("trust proxy", env.TRUST_PROXY_HOPS);
+    const expressApp = app.getHttpAdapter().getInstance() as Express;
+    expressApp.set("trust proxy", env.TRUST_PROXY_HOPS);
   }
 
   // Versioned REST surface; health probes stay at the root for load balancers.
@@ -30,6 +33,7 @@ async function bootstrap(): Promise<void> {
 
   app.use(securityHeaders);
   app.use(cookieParser());
+  app.use("/api/v1/auth", authOriginProtection(env.ALLOWED_ORIGINS));
   // GEO-1: drop client-forged CF-IPCountry/X-Vercel-IP-Country unless the request
   // carries the edge's x-edge-proof secret (no-op when GEO_EDGE_HEADER_SECRET unset).
   app.use(stripUntrustedGeoHeaders(env.GEO_EDGE_HEADER_SECRET));
@@ -37,6 +41,13 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: env.ALLOWED_ORIGINS,
     credentials: true,
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Idempotency-Key",
+      "X-Auth-Audience",
+      "X-Request-ID",
+    ],
   });
 
   app.enableShutdownHooks();

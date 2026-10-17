@@ -169,6 +169,67 @@ describe("Credit orders — proof upload presign (R2 stub)", () => {
   it("returns an upload + file URL", () => {
     const result = orders.presignProof(distP, { filename: "receipt.png" });
     expect(result.uploadUrl).toContain("stub-upload=true");
-    expect(result.fileUrl).toContain(env.R2_BUCKET_ASSETS);
+    expect(result.fileUrl).toContain(env.R2_BUCKET_KYC);
+  });
+});
+
+describe("Credit orders — concurrent decisions are atomic", () => {
+  it("concurrent issue retries post one transfer, settlement, audit, and status event", async () => {
+    await fullCycle(distP, rootP, 1_000_000n);
+    const order = await orders.request(storeP, { quantityMinor: 100_000n }, ctx);
+    await orders.markPaid(distP, order.id, { paymentMethod: "cash" }, ctx);
+    const results = await Promise.all(Array.from({ length: 12 }, () => orders.issue(distP, order.id, ctx)));
+    expect(new Set(results.map((r) => r.issuedTxId)).size).toBe(1);
+    expect(await ledger.getBalance(op(storeId))).toBe(100_000n);
+    expect(await testPrisma.settlement.findFirst({ where: { operatorId: distId, counterpartyId: storeId } })).toMatchObject({ netCents: 1000 });
+    expect(await testPrisma.auditLog.count({ where: { action: "order.issue", targetId: order.id } })).toBe(1);
+    const events = await testPrisma.outboxEvent.findMany({ where: { type: "order.updated" } });
+    expect(events.filter((e) => (e.payload as { orderId: string; status: string }).orderId === order.id && (e.payload as { status: string }).status === "ISSUED")).toHaveLength(1);
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("issue and cancel cannot leave an issued balance behind a cancelled order", async () => {
+    const order = await orders.request(distP, { quantityMinor: 100_000n }, ctx);
+    await orders.markPaid(rootP, order.id, { paymentMethod: "cash" }, ctx);
+    const results = await Promise.allSettled([
+      orders.issue(rootP, order.id, ctx),
+      orders.cancel(distP, order.id, ctx),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const final = await testPrisma.creditOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(["ISSUED", "CANCELLED"]).toContain(final.status);
+    expect(await ledger.getBalance(op(distId))).toBe(final.status === "ISSUED" ? 100_000n : 0n);
+    expect(final.issuedTxId !== null).toBe(final.status === "ISSUED");
+    await assertLedgerIntegrity(testPrisma);
+  });
+});
+
+describe("Credit orders — private receipt access", () => {
+  it("accepts the uploader's private folder and returns an audited signed preview", async () => {
+    const upload = orders.presignProof(distP, { filename: "bank-receipt.png" });
+    const order = await orders.request(distP, { quantityMinor: 100_000n, proofUrl: upload.fileUrl }, ctx);
+    const preview = await orders.proofDocument(rootP, order.id, ctx);
+    expect(preview.url).toContain("stub-download=true");
+    expect(preview.url).toContain(env.R2_BUCKET_KYC);
+    expect(preview.expiresInSeconds).toBe(300);
+    expect(await testPrisma.auditLog.count({ where: { action: "order.proof_view", targetId: order.id } })).toBe(1);
+  });
+
+  it("rejects external, public, and another operator's receipt URLs", async () => {
+    const publicUpload = storage.presignUpload("assets", `proofs/${distId}`, "public.png");
+    const otherUpload = orders.presignProof(storeP, { filename: "other.png" });
+    for (const proofUrl of ["https://attacker.example/receipt.png", publicUpload.fileUrl, otherUpload.fileUrl]) {
+      await expect(orders.request(distP, { quantityMinor: 100_000n, proofUrl }, ctx)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    }
+    const order = await orders.request(storeP, { quantityMinor: 100_000n }, ctx);
+    await expect(orders.markPaid(distP, order.id, { paymentMethod: "cash", proofUrl: otherUpload.fileUrl }, ctx)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("denies a receipt preview to an operator outside its subtree", async () => {
+    const upload = orders.presignProof(distP, { filename: "receipt.png" });
+    const order = await orders.request(distP, { quantityMinor: 100_000n, proofUrl: upload.fileUrl }, ctx);
+    const unrelated = await createOperator({ username: "outsider", tier: "STORE", pathSegment: 9 });
+    await expect(orders.proofDocument(principal(unrelated, "STORE"), order.id, ctx)).rejects.toMatchObject({ code: "OUT_OF_SCOPE" });
+    expect(await testPrisma.auditLog.count({ where: { action: "order.proof_view", targetId: order.id } })).toBe(0);
   });
 });

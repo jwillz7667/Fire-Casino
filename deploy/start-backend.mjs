@@ -23,6 +23,13 @@ function deploymentCommands() {
 
 /** Run both backend processes on hosts that provide only one free service. */
 export async function runBackend({ migration, services, graceMs = 25_000 }) {
+  // Only the migration subprocess receives owner credentials. Keep the API and
+  // worker on DATABASE_URL and do not pass the migrator secret to either one.
+  const { MIGRATION_DATABASE_URL, ...runtimeEnvironment } = process.env;
+  const migrationEnvironment = {
+    ...runtimeEnvironment,
+    DATABASE_URL: MIGRATION_DATABASE_URL || runtimeEnvironment.DATABASE_URL,
+  };
   const children = new Set();
   let stopping = false;
   let exitCode = 0;
@@ -78,7 +85,7 @@ export async function runBackend({ migration, services, graceMs = 25_000 }) {
   function launch(command, service = false) {
     const child = spawn(process.execPath, command.args, {
       cwd: command.cwd,
-      env: process.env,
+      env: service ? runtimeEnvironment : migrationEnvironment,
       stdio: "inherit",
       detached: process.platform !== "win32",
     });

@@ -42,6 +42,8 @@ RUN pnpm --filter @aureus/db db:generate \
 # worker.js (see railway.toml and railway.worker.toml).
 FROM base AS runtime
 ENV NODE_ENV=production
-COPY --from=build /app ./
+COPY --from=build --chown=node:node /app ./
+# The API, worker, and migration engine do not need root privileges.
+USER node
 EXPOSE 4000
 CMD ["node", "deploy/start-backend.mjs"]

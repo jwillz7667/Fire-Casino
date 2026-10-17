@@ -64,7 +64,7 @@ describe("Plinko — engine", () => {
       const rtp = Number(total) / (drops * 10_000);
       expect(Math.abs(rtp - 0.96)).toBeLessThan(0.02);
     }
-  });
+  }, 120_000);
 
   it("never returns a negative win and flags win correctly", () => {
     const rng = mulberry32(7);

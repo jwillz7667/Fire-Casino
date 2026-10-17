@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { type PrismaClient } from "@aureus/db";
+import { type Prisma, type PrismaClient } from "@aureus/db";
 import { type Env, type RgLimitType, type RgPeriod } from "@aureus/shared";
 import {
   ForbiddenError,
@@ -46,11 +46,16 @@ export interface PlayerComplianceState {
 @Injectable()
 export class ComplianceService {
   constructor(
-    @Inject(PRISMA_SYSTEM) private readonly prisma: PrismaClient,
+    @Inject(PRISMA_SYSTEM) private readonly prisma: PrismaClient | Prisma.TransactionClient,
     @Inject(ENV) private readonly env: Env,
     private readonly settings: PlatformSettingsProvider,
     private readonly aml: AmlService,
   ) {}
+
+  /** Reuse every compliance gate on the money workflow's connection. */
+  forTransaction(tx: Prisma.TransactionClient): ComplianceService {
+    return new ComplianceService(tx, this.env, this.settings.forTransaction(tx), this.aml);
+  }
 
   /** Run AML detection rules for a redemption request (CR2). Never throws. */
   async screenRedemption(playerId: string, amountMinor: bigint): Promise<void> {

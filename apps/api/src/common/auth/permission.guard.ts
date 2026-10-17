@@ -2,7 +2,7 @@ import { type CanActivate, type ExecutionContext, Injectable } from "@nestjs/com
 import { Reflector } from "@nestjs/core";
 import { can, type Permission } from "@aureus/shared";
 import { ForbiddenError } from "../errors/domain-error";
-import { PERMISSIONS_KEY } from "./auth.decorators";
+import { ANY_PERMISSIONS_KEY, PERMISSIONS_KEY } from "./auth.decorators";
 import { type Principal } from "./principal";
 
 /**
@@ -19,7 +19,11 @@ export class PermissionGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (!required || required.length === 0) return true;
+    const anyRequired = this.reflector.getAllAndOverride<Permission[]>(ANY_PERMISSIONS_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!required?.length && !anyRequired?.length) return true;
 
     const req = context.switchToHttp().getRequest<{ principal?: Principal }>();
     const principal = req.principal;
@@ -27,7 +31,10 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenError("Operator privileges required");
     }
 
-    const ok = required.every((perm) => can(principal.tier, principal.settings, perm));
+    const hasPermission = (perm: Permission) => can(principal.tier, principal.settings, perm);
+    const ok =
+      (!required?.length || required.every(hasPermission)) &&
+      (!anyRequired?.length || anyRequired.some(hasPermission));
     if (!ok) throw new ForbiddenError("Missing required permission");
     return true;
   }

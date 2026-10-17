@@ -19,8 +19,7 @@ import { useGameSession } from "@/lib/use-game-session";
  * NEXT_PUBLIC_PLINKO_GAME_URL overrides it. Re-upload with the game's web/build.sh (bump the
  * version prefix per rebuild).
  */
-const R2_GAME_URL =
-  "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/plinko/v6/index.html";
+const R2_GAME_URL = "https://pub-a2458a29274f4f5ba61f429adf2fcf8f.r2.dev/plinko/v6/index.html";
 export const PLINKO_GAME_URL = process.env.NEXT_PUBLIC_PLINKO_GAME_URL ?? R2_GAME_URL;
 
 const GAME_URL = PLINKO_GAME_URL;
@@ -126,7 +125,11 @@ export function PlinkoGodot({
         );
         void queryClient.invalidateQueries({ queryKey: qk.wallet });
         void queryClient.invalidateQueries({ queryKey: qk.walletHistory });
-        post("betResult", { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor }, reqId);
+        post(
+          "betResult",
+          { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor },
+          reqId,
+        );
       } catch (err) {
         post("betError", { message: messageForError(err) }, reqId);
       }
@@ -136,7 +139,13 @@ export function PlinkoGodot({
 
   useEffect(() => {
     function onMessage(e: MessageEvent): void {
-      if (GAME_ORIGIN !== "*" && e.origin !== GAME_ORIGIN) return;
+      if (
+        !iframeRef.current?.contentWindow ||
+        e.source !== iframeRef.current.contentWindow ||
+        GAME_ORIGIN === "*" ||
+        e.origin !== GAME_ORIGIN
+      )
+        return;
       const m = e.data as {
         source?: string;
         type?: string;

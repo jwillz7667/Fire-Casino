@@ -18,8 +18,8 @@ catalog:
   "@types/node": ^22.10.5
 
   # --- test ---
-  vitest: ^3.0.2
-  "@vitest/coverage-v8": ^3.0.2
+  vitest: ^4.1.12
+  "@vitest/coverage-v8": ^4.1.12
   unplugin-swc: ^1.5.1
   "@swc/core": ^1.10.7
   fast-check: ^3.23.2
@@ -32,17 +32,17 @@ catalog:
   dotenv: ^16.4.7
 
   # --- backend (NestJS) ---
-  "@nestjs/common": ^11.0.1
-  "@nestjs/core": ^11.0.1
-  "@nestjs/platform-express": ^11.0.1
-  "@nestjs/platform-socket.io": ^11.0.1
-  "@nestjs/websockets": ^11.0.1
+  "@nestjs/common": ^11.2.7
+  "@nestjs/core": ^11.2.7
+  "@nestjs/platform-express": ^11.2.7
+  "@nestjs/platform-socket.io": ^11.2.7
+  "@nestjs/websockets": ^11.2.7
   "@nestjs/config": ^4.0.0
   "@nestjs/jwt": ^11.0.0
   "@nestjs/throttler": ^6.4.0
   "@nest-lab/throttler-storage-redis": ^1.1.0
   "@nestjs/bullmq": ^11.0.1
-  "@nestjs/testing": ^11.0.1
+  "@nestjs/testing": ^11.2.7
   "@nestjs/cli": ^11.0.0
   "reflect-metadata": ^0.2.2
   "rxjs": ^7.8.1
@@ -62,7 +62,7 @@ catalog:
   uuid: ^11.0.5
   bullmq: ^5.34.10
   ioredis: ^5.4.2
-  "socket.io": ^4.8.1
+  "socket.io": ^4.8.4
   "@socket.io/redis-adapter": ^8.3.0
   "@socket.io/redis-emitter": ^5.1.0
 
@@ -71,16 +71,16 @@ catalog:
   "@prisma/client": ^6.2.1
 
   # --- frontends (Next.js) ---
-  next: ^15.1.4
+  next: ^15.5.28
   react: ^19.0.0
   react-dom: ^19.0.0
   "@types/react": ^19.0.4
   "@types/react-dom": ^19.0.2
   "@tanstack/react-query": ^5.64.1
-  "socket.io-client": ^4.8.1
+  "socket.io-client": ^4.8.4
   tailwindcss: ^4.0.0
   "@tailwindcss/postcss": ^4.0.0
-  postcss: ^8.5.1
+  postcss: ^8.5.30
   "lucide-react": ^0.469.0
   clsx: ^2.1.1
 
@@ -93,3 +93,15 @@ allowBuilds:
   msgpackr-extract: false
   prisma: true
   sharp: true
+
+# Next 15 still pins an older PostCSS; keep its compatible 8.x parser patched.
+# Prisma 6 uses only deepmerge's record merge API. Version 8 preserves that API
+# and fixes recursive graph exhaustion; its breaking custom-type/Map changes
+# are not used by Prisma's configuration loader.
+overrides:
+  "next@^15.0.0>postcss": 8.5.30
+  "@prisma/config@6.19.3>deepmerge-ts": 8.0.2
+  # Build-time parser fixes stay within the upstream dependency major ranges.
+  "fast-uri@^3.0.0": 3.1.8
+  "browserslist@^4.0.0": 4.28.7
+  "baseline-browser-mapping@^2.0.0": 2.11.0

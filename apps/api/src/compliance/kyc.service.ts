@@ -9,7 +9,7 @@ import {
   type PresignKycDocInput,
 } from "@aureus/shared";
 import { type OperatorPrincipal, type Principal } from "../common/auth/principal";
-import { NotFoundError, OutOfScopeError } from "../common/errors/domain-error";
+import { NotFoundError, OutOfScopeError, ValidationError } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
@@ -40,6 +40,10 @@ export class KycService {
   /** Player self-submit or agent-on-behalf: record the document and move to PENDING. */
   async submit(actor: Principal, playerId: string, input: KycSubmitInput, ctx: ActionContext) {
     await this.assertActorScope(actor, playerId);
+    const key = this.storage.keyFromFileUrl("kyc", input.documentUrl);
+    if (!key || !key.startsWith(`players/${playerId}/`)) {
+      throw new ValidationError("Upload a KYC document for this player before submitting");
+    }
     const record = await this.prisma.kycRecord.upsert({
       where: { playerId },
       update: {
@@ -72,7 +76,12 @@ export class KycService {
   }
 
   /** Operator decision: verify (stamp verifiedAt) or reject (store the reason). */
-  async decision(caller: OperatorPrincipal, playerId: string, input: KycDecisionInput, ctx: ActionContext) {
+  async decision(
+    caller: OperatorPrincipal,
+    playerId: string,
+    input: KycDecisionInput,
+    ctx: ActionContext,
+  ) {
     await this.assertPlayerInSubtree(caller, playerId);
     const existing = await this.prisma.kycRecord.findUnique({ where: { playerId } });
     if (!existing) throw new NotFoundError("No KYC record to decide on");

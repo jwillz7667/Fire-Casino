@@ -44,6 +44,7 @@ export default function LoginPage(): ReactElement {
   });
 
   function submit(): void {
+    if (status === "loading" || mutation.isPending) return;
     setError(undefined);
     const parsed = operatorLoginSchema.safeParse({
       identifier,
@@ -113,7 +114,13 @@ export default function LoginPage(): ReactElement {
 
             {error ? <p className="text-sm text-danger">{error}</p> : null}
 
-            <Button type="submit" size="lg" loading={mutation.isPending} className="w-full">
+            <Button
+              type="submit"
+              size="lg"
+              loading={mutation.isPending}
+              disabled={status === "loading"}
+              className="w-full"
+            >
               Sign in
             </Button>
           </form>

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createScopedPrisma, type ScopedPrismaClient } from "@aureus/db";
 import { type Currency, type Env, loadEnv, type OperatorTier, type ScopeContext } from "@aureus/shared";
 import { AuditService } from "../../src/audit/audit.service";
@@ -239,5 +239,93 @@ describe("Wallet — recharge request and compliance gate", () => {
     await expect(
       walletOperator.recharge(storeP, { playerId, amountMinor: 10_000n }, randomUUID(), ctx),
     ).rejects.toSatisfy((e: unknown) => e instanceof AppError && e.code === "SELF_EXCLUDED");
+  });
+});
+
+describe("Wallet — atomic limits, currency pairs, and audit", () => {
+  it.each(["OPERATOR", "COMPLIANCE"] as const)("serializes distinct %s recharges against the daily deposit limit", async (mode) => {
+    const service = mode === "COMPLIANCE" ? walletCompliance : walletOperator;
+    const currency = mode === "COMPLIANCE" ? "PLAY" : "CREDIT";
+    await fund(storeId, currency, 1_000_000n);
+    await testPrisma.responsibleGamingLimit.create({ data: { playerId, type: "DEPOSIT", period: "DAILY", valueMinor: 150_000n } });
+    const results = await Promise.allSettled([
+      service.recharge(storeP, { playerId, amountMinor: 100_000n }, randomUUID(), ctx),
+      service.recharge(storeP, { playerId, amountMinor: 100_000n }, randomUUID(), ctx),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((result) => result.status === "rejected")).toMatchObject({ reason: { code: "RG_LIMIT_EXCEEDED" } });
+    expect(await ledger.getBalance(sel("operator", storeId, currency))).toBe(900_000n);
+    expect(await ledger.getBalance(sel("player", playerId, currency))).toBe(100_000n);
+    if (mode === "COMPLIANCE") expect(await ledger.getBalance(sel("player", playerId, "PRIZE"))).toBe(100_000n);
+    expect(await testPrisma.auditLog.count({ where: { action: "wallet.recharge", targetId: playerId } })).toBe(1);
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("rolls back PLAY, PRIZE, and all new balance events when recharge audit fails", async () => {
+    await fund(storeId, "PLAY", 1_000_000n);
+    const eventsBefore = await testPrisma.outboxEvent.count();
+    const key = randomUUID();
+    const failure = vi.spyOn(audit, "record").mockRejectedValueOnce(new Error("audit unavailable"));
+    try {
+      await expect(walletCompliance.recharge(storeP, { playerId, amountMinor: 100_000n }, key, ctx)).rejects.toThrow("audit unavailable");
+    } finally {
+      failure.mockRestore();
+    }
+    expect(await ledger.getBalance(sel("operator", storeId, "PLAY"))).toBe(1_000_000n);
+    expect(await ledger.getBalance(sel("player", playerId, "PLAY"))).toBe(0n);
+    expect(await ledger.getBalance(sel("player", playerId, "PRIZE"))).toBe(0n);
+    expect(await ledger.getBalance({ kind: "system", systemKey: "PROMO", currency: "PRIZE" })).toBe(0n);
+    expect(await testPrisma.outboxEvent.count()).toBe(eventsBefore);
+    expect(await testPrisma.ledgerTransaction.count({ where: { idempotencyKey: { startsWith: `recharge:${storeId}:${key}` } } })).toBe(0);
+    await walletCompliance.recharge(storeP, { playerId, amountMinor: 100_000n }, key, ctx);
+    expect(await ledger.getBalance(sel("player", playerId, "PLAY"))).toBe(100_000n);
+    expect(await ledger.getBalance(sel("player", playerId, "PRIZE"))).toBe(100_000n);
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("returns the original paired result when retries hit a deposit limit or changed bonus settings", async () => {
+    await fund(storeId, "PLAY", 1_000_000n);
+    await testPrisma.responsibleGamingLimit.create({ data: { playerId, type: "DEPOSIT", period: "DAILY", valueMinor: 100_000n } });
+    const key = randomUUID();
+    const original = await walletCompliance.recharge(storeP, { playerId, amountMinor: 100_000n }, key, ctx);
+    const changedCaller = { ...storeP, settings: { prizeBonusBps: 0 } };
+    const retries = await Promise.all(Array.from({ length: 12 }, () => walletCompliance.recharge(changedCaller, { playerId, amountMinor: 100_000n }, key, ctx)));
+    expect(retries.every((result) => JSON.stringify(result) === JSON.stringify(original))).toBe(true);
+    expect(await ledger.getBalance(sel("player", playerId, "PRIZE"))).toBe(100_000n);
+    expect(await ledger.getBalance(sel("player", playerId, "PLAY"))).toBe(100_000n);
+    expect(await testPrisma.auditLog.count({ where: { action: "wallet.recharge", targetId: playerId } })).toBe(1);
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("does not create a new bonus when retrying a recharge originally made with zero bonus", async () => {
+    await fund(storeId, "PLAY", 1_000_000n);
+    const key = randomUUID();
+    const original = await walletCompliance.recharge({ ...storeP, settings: { prizeBonusBps: 0 } }, { playerId, amountMinor: 100_000n }, key, ctx);
+    const replay = await walletCompliance.recharge(storeP, { playerId, amountMinor: 100_000n }, key, ctx);
+    expect(original.prizeBonusMinor).toBe("0");
+    expect(replay).toEqual(original);
+    expect(await ledger.getBalance(sel("player", playerId, "PRIZE"))).toBe(0n);
+    expect(await testPrisma.auditLog.count({ where: { action: "wallet.recharge", targetId: playerId } })).toBe(1);
+    await assertLedgerIntegrity(testPrisma);
+  });
+
+  it("rolls back removal if its audit fails and records concurrent retries once", async () => {
+    await fund(storeId, "CREDIT", 1_000_000n);
+    await walletOperator.recharge(storeP, { playerId, amountMinor: 100_000n }, randomUUID(), ctx);
+    const key = randomUUID();
+    const eventsBefore = await testPrisma.outboxEvent.count();
+    const failure = vi.spyOn(audit, "record").mockRejectedValueOnce(new Error("audit unavailable"));
+    try {
+      await expect(walletOperator.removeCredits(storeP, { playerId, amountMinor: 50_000n, reason: "reverse" }, key, ctx)).rejects.toThrow("audit unavailable");
+    } finally {
+      failure.mockRestore();
+    }
+    expect(await ledger.getBalance(sel("player", playerId, "CREDIT"))).toBe(100_000n);
+    expect(await ledger.getBalance({ kind: "system", systemKey: "SINK", currency: "CREDIT" })).toBe(0n);
+    expect(await testPrisma.outboxEvent.count()).toBe(eventsBefore);
+    await Promise.all(Array.from({ length: 12 }, () => walletOperator.removeCredits(storeP, { playerId, amountMinor: 50_000n, reason: "reverse" }, key, ctx)));
+    expect(await ledger.getBalance(sel("player", playerId, "CREDIT"))).toBe(50_000n);
+    expect(await testPrisma.auditLog.count({ where: { action: "wallet.remove", targetId: playerId } })).toBe(1);
+    await assertLedgerIntegrity(testPrisma);
   });
 });

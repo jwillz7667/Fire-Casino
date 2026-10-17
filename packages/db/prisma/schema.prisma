@@ -471,7 +471,13 @@ model RedemptionRequest {
   status           RedemptionStatus @default(PENDING)
   method           String?
   payoutRef        String?
+  proofUrl         String?
+  proofOperatorId  String?
   holdTxId         String?
+  // Original off-ledger payable: cancellation must reverse the approval price,
+  // never today's mutable price. Null denotes a pre-snapshot historical hold.
+  approvedPayableCents      Int?
+  approvedPayableOperatorId String?
   settleTxId       String?
   reviewedByUserId String?
   rejectionReason  String?

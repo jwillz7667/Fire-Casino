@@ -1,8 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { type PrismaClient } from "@aureus/db";
-import { type RealtimeTokenResponse } from "@aureus/shared";
+import { type RealtimeTokenResponse, tierRequiresMfa } from "@aureus/shared";
 import { type AccessClaims, TokenService } from "../auth/token.service";
-import { UnauthorizedError } from "../common/errors/domain-error";
+import { MfaEnrollmentRequiredError, UnauthorizedError } from "../common/errors/domain-error";
 import { type Principal } from "../common/auth/principal";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { allowedRoomsFor } from "./room-access";
@@ -59,7 +59,9 @@ export class RealtimeService {
    * principal reload also fails for a deactivated account, so re-handshake is
    * the deactivation kill-switch.
    */
-  async loadConnection(token: string): Promise<{ principal: Principal; expSeconds: number | null }> {
+  async loadConnection(
+    token: string,
+  ): Promise<{ principal: Principal; expSeconds: number | null }> {
     const claims = await this.tokens.verifyAccess(token);
     const principal = await this.loadPrincipal(claims);
     return { principal, expSeconds: typeof claims.exp === "number" ? claims.exp : null };
@@ -73,6 +75,11 @@ export class RealtimeService {
       });
       if (!operator || operator.status !== "ACTIVE" || operator.user.status !== "ACTIVE") {
         throw new UnauthorizedError("Account is not active");
+      }
+      // Direct Socket.io handshakes bypass the HTTP MFA enrollment guard. An
+      // unenrolled privileged account must not receive admin-room events.
+      if (tierRequiresMfa(operator.tier) && !operator.user.mfaEnabled) {
+        throw new MfaEnrollmentRequiredError();
       }
       return {
         kind: "operator",

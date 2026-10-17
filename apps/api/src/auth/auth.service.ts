@@ -18,6 +18,7 @@ import {
   UnauthorizedError,
 } from "../common/errors/domain-error";
 import {
+  type Audience,
   type OperatorPrincipal,
   type Principal,
   type PlayerPrincipal,
@@ -91,7 +92,7 @@ export class AuthService {
       where: { OR: [{ username: input.identifier }, { email: input.identifier }] },
       include: { operator: true },
     });
-    if (!user || user.status !== "ACTIVE" || !user.operator) {
+    if (!user || user.status !== "ACTIVE" || !user.operator || user.operator.status !== "ACTIVE") {
       await this.loginThrottle.recordFailure("operator", input.identifier);
       await this.auditLoginFailure(input.identifier, "operator", "unknown_or_inactive", ctx);
       throw new InvalidCredentialsError();
@@ -104,7 +105,10 @@ export class AuthService {
     if (user.mfaEnabled) {
       // A missing code is a prompt for the second factor, not a failed attempt.
       if (!input.totp) throw new MfaRequiredError();
-      if (!user.mfaSecret || !authenticator.check(input.totp, this.mfaCrypto.decrypt(user.mfaSecret))) {
+      if (
+        !user.mfaSecret ||
+        !authenticator.check(input.totp, this.mfaCrypto.decrypt(user.mfaSecret))
+      ) {
         await this.loginThrottle.recordFailure("operator", input.identifier);
         await this.auditLoginFailure(input.identifier, "operator", "bad_mfa", ctx);
         throw new InvalidCredentialsError("Invalid MFA code");
@@ -162,7 +166,10 @@ export class AuthService {
     await this.loginThrottle.clear("player", input.username);
 
     const session = await this.issuePlayerSession(player.id, player.operatorId, ctx);
-    await this.prisma.player.update({ where: { id: player.id }, data: { lastLoginAt: new Date() } });
+    await this.prisma.player.update({
+      where: { id: player.id },
+      data: { lastLoginAt: new Date() },
+    });
     await this.audit.record({
       actorType: "PLAYER",
       actorId: player.id,
@@ -191,53 +198,70 @@ export class AuthService {
 
   // ---- refresh / logout ------------------------------------------------------
 
-  async refresh(refreshToken: string, ctx: AuthContext): Promise<IssuedSession> {
+  async refresh(
+    refreshToken: string,
+    ctx: AuthContext,
+    expectedAudience: Audience,
+  ): Promise<IssuedSession> {
     const tokenHash = this.tokens.hashRefreshToken(refreshToken);
     const existing = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
     if (!existing) throw new UnauthorizedError("Invalid session");
-
-    // Reuse detection: a presented-but-revoked token means the family is
-    // compromised — revoke the whole family (docs/01 §4).
-    if (existing.revokedAt) {
-      await this.prisma.refreshToken.updateMany({
-        where: { familyId: existing.familyId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      throw new UnauthorizedError("Session reuse detected");
+    if (existing.audience !== expectedAudience.toUpperCase()) {
+      throw new UnauthorizedError("Session not valid for this surface");
     }
-    if (existing.expiresAt.getTime() < Date.now()) {
-      throw new UnauthorizedError("Session expired");
-    }
-
     const rotated = this.tokens.newRefreshToken();
-    const next = await this.prisma.refreshToken.create({
-      data: {
-        userId: existing.userId,
-        playerId: existing.playerId,
-        tokenHash: rotated.tokenHash,
-        familyId: existing.familyId,
-        audience: existing.audience,
-        expiresAt: new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000),
-        ip: ctx.ip,
-        userAgent: ctx.userAgent,
-      },
+    const error = await this.prisma.$transaction(async (tx) => {
+      // Serialize all rotation/revocation for this family, including logout.
+      // A read followed by two independent writes lets concurrent replays mint
+      // multiple live descendants, defeating single-use refresh tokens.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${existing.familyId}, 0))`;
+      const current = await tx.refreshToken.findUnique({ where: { tokenHash } });
+      if (!current) return "Invalid session";
+      if (current.revokedAt) {
+        await tx.refreshToken.updateMany({
+          where: { familyId: current.familyId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        // Return the error so revocation commits before we reject the replay.
+        return "Session reuse detected";
+      }
+      if (current.expiresAt.getTime() <= Date.now()) return "Session expired";
+      const next = await tx.refreshToken.create({
+        data: {
+          userId: current.userId,
+          playerId: current.playerId,
+          tokenHash: rotated.tokenHash,
+          familyId: current.familyId,
+          audience: current.audience,
+          expiresAt: new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000),
+          ip: ctx.ip,
+          userAgent: ctx.userAgent,
+        },
+      });
+      await tx.refreshToken.update({
+        where: { id: current.id },
+        data: { revokedAt: new Date(), replacedBy: next.id },
+      });
+      return null;
     });
-    await this.prisma.refreshToken.update({
-      where: { id: existing.id },
-      data: { revokedAt: new Date(), replacedBy: next.id },
-    });
-
+    if (error) throw new UnauthorizedError(error);
     const access = await this.signForFamily(existing, existing.familyId);
     return { ...access, refreshToken: rotated.token };
   }
 
-  async logout(refreshToken: string): Promise<void> {
+  async logout(refreshToken: string, expectedAudience: Audience): Promise<void> {
     const tokenHash = this.tokens.hashRefreshToken(refreshToken);
     const existing = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
     if (!existing) return;
-    await this.prisma.refreshToken.updateMany({
-      where: { familyId: existing.familyId, revokedAt: null },
-      data: { revokedAt: new Date() },
+    if (existing.audience !== expectedAudience.toUpperCase()) {
+      throw new UnauthorizedError("Session not valid for this surface");
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${existing.familyId}, 0))`;
+      await tx.refreshToken.updateMany({
+        where: { familyId: existing.familyId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
     });
     await this.audit.record({
       actorType: existing.userId ? "USER" : "PLAYER",
@@ -315,10 +339,11 @@ export class AuthService {
     const secret = authenticator.generateSecret();
     const otpauthUrl = authenticator.keyuri(principal.username, MFA_ISSUER, secret);
     // Store the (unconfirmed) secret ENCRYPTED at rest; mfaEnabled flips on confirm.
-    await this.prisma.user.update({
-      where: { id: principal.userId },
+    const updated = await this.prisma.user.updateMany({
+      where: { id: principal.userId, mfaEnabled: false },
       data: { mfaSecret: this.mfaCrypto.encrypt(secret) },
     });
+    if (updated.count !== 1) throw new ConflictError("MFA is already enabled");
     await this.audit.record({
       ...auditActor(principal),
       action: "auth.mfa_enable",
@@ -331,10 +356,15 @@ export class AuthService {
   async mfaConfirm(principal: OperatorPrincipal, totp: string): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { id: principal.userId } });
     if (!user?.mfaSecret) throw new ConflictError("MFA not initialized");
+    if (user.mfaEnabled) throw new ConflictError("MFA is already enabled");
     if (!authenticator.check(totp, this.mfaCrypto.decrypt(user.mfaSecret))) {
       throw new InvalidCredentialsError("Invalid MFA code");
     }
-    await this.prisma.user.update({ where: { id: user.id }, data: { mfaEnabled: true } });
+    const updated = await this.prisma.user.updateMany({
+      where: { id: user.id, mfaEnabled: false, mfaSecret: user.mfaSecret },
+      data: { mfaEnabled: true },
+    });
+    if (updated.count !== 1) throw new ConflictError("MFA enrollment changed; please retry");
     await this.audit.record({
       ...auditActor(principal),
       action: "auth.mfa_confirm",
@@ -410,8 +440,11 @@ export class AuthService {
     if (existing.userId) {
       const operator = await this.prisma.operator.findUnique({
         where: { userId: existing.userId },
+        include: { user: { select: { status: true } } },
       });
-      if (!operator) throw new UnauthorizedError("Invalid session");
+      if (!operator || operator.status !== "ACTIVE" || operator.user.status !== "ACTIVE") {
+        throw new UnauthorizedError("Account is not active");
+      }
       const access = await this.tokens.signAccess({
         sub: existing.userId,
         aud: "operator",
@@ -423,7 +456,8 @@ export class AuthService {
     }
     if (existing.playerId) {
       const player = await this.prisma.player.findUnique({ where: { id: existing.playerId } });
-      if (!player) throw new UnauthorizedError("Invalid session");
+      if (!player || player.status !== "ACTIVE")
+        throw new UnauthorizedError("Account is not active");
       const access = await this.tokens.signAccess({
         sub: player.id,
         aud: "player",
@@ -439,10 +473,20 @@ export class AuthService {
     owner: { userId?: string; playerId?: string },
     keepFamilyId: string,
   ): Promise<void> {
-    await this.prisma.refreshToken.updateMany({
+    const families = await this.prisma.refreshToken.findMany({
       where: { ...owner, familyId: { not: keepFamilyId }, revokedAt: null },
-      data: { revokedAt: new Date() },
+      distinct: ["familyId"],
+      select: { familyId: true },
     });
+    for (const { familyId } of families) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${familyId}, 0))`;
+        await tx.refreshToken.updateMany({
+          where: { familyId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      });
+    }
   }
 
   private buildOperatorSummary(args: {

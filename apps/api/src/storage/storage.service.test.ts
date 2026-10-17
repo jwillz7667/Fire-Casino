@@ -16,7 +16,10 @@ function service(withCreds: boolean): StorageService {
 describe("StorageService.keyFromFileUrl — only presign objects we own", () => {
   it("recovers the key from a stub URL in the named bucket", () => {
     const svc = service(false);
-    const key = svc.keyFromFileUrl("kyc", "https://r2.stub.local/aureus-kyc/players/p1/abc-doc.png");
+    const key = svc.keyFromFileUrl(
+      "kyc",
+      "https://r2.stub.local/aureus-kyc/players/p1/abc-doc.png",
+    );
     expect(key).toBe("players/p1/abc-doc.png");
   });
 
@@ -34,10 +37,36 @@ describe("StorageService.keyFromFileUrl — only presign objects we own", () => 
     expect(svc.keyFromFileUrl("kyc", "https://evil.com/aureus-kyc/players/p1/x.png")).toBeNull();
   });
 
+  it("rejects other R2 accounts and the development stub with real credentials", () => {
+    const svc = service(true);
+    expect(
+      svc.keyFromFileUrl(
+        "kyc",
+        "https://attacker.r2.cloudflarestorage.com/aureus-kyc/players/p1/x.png",
+      ),
+    ).toBeNull();
+    expect(
+      svc.keyFromFileUrl("kyc", "https://r2.stub.local/aureus-kyc/players/p1/x.png"),
+    ).toBeNull();
+  });
+
+  it.each([
+    "http://acct123.r2.cloudflarestorage.com/aureus-kyc/players/p1/x.png",
+    "https://user:pass@acct123.r2.cloudflarestorage.com/aureus-kyc/players/p1/x.png",
+    "https://acct123.r2.cloudflarestorage.com/aureus-kyc/players/p1/x.png?foreign=true",
+    "https://acct123.r2.cloudflarestorage.com/aureus-kyc/players/p1/%ZZ.png",
+    "https://acct123.r2.cloudflarestorage.com/aureus-kyc/players/p1/%2e%2e%2fother.png",
+  ])("rejects unsafe canonical URLs without throwing: %s", (url) => {
+    expect(service(true).keyFromFileUrl("kyc", url)).toBeNull();
+  });
+
   it("rejects a URL pointed at a different bucket", () => {
     const svc = service(true);
     expect(
-      svc.keyFromFileUrl("kyc", "https://acct123.r2.cloudflarestorage.com/aureus-assets/players/p1/x.png"),
+      svc.keyFromFileUrl(
+        "kyc",
+        "https://acct123.r2.cloudflarestorage.com/aureus-assets/players/p1/x.png",
+      ),
     ).toBeNull();
   });
 

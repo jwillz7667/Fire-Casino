@@ -9,7 +9,14 @@ const supervisorUrl = new URL("./start-backend.mjs", import.meta.url).href;
 
 async function startFixture(
   t,
-  { migration = "success", worker = "hold", api = "hold", graceMs = 250 } = {},
+  {
+    migration = "success",
+    worker = "hold",
+    api = "hold",
+    graceMs = 250,
+    environment = {},
+    captureEnvironment = false,
+  } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "backend-supervisor-"));
   const eventsPath = join(directory, "events.jsonl");
@@ -19,8 +26,12 @@ async function startFixture(
     `
     import { appendFileSync } from "node:fs";
     const [path, name, mode] = process.argv.slice(2);
-    const record = (event) => appendFileSync(path, JSON.stringify({ name, event }) + "\\n");
+    const record = (event, extra = {}) => appendFileSync(path, JSON.stringify({ name, event, ...extra }) + "\\n");
     record("started");
+    if (${JSON.stringify(captureEnvironment)}) record("environment", {
+      databaseUrl: process.env.DATABASE_URL,
+      migrationUrlPresent: Object.hasOwn(process.env, "MIGRATION_DATABASE_URL"),
+    });
     for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => {
       record(signal);
       if (mode !== "ignore") process.exit(0);
@@ -50,7 +61,10 @@ async function startFixture(
     })});
   `,
   );
-  const child = spawn(process.execPath, [wrapperPath], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [wrapperPath], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...environment },
+  });
   let output = "";
   child.stdout.on("data", (data) => {
     output += data;
@@ -154,3 +168,34 @@ test(
     assert.match(fixture.output(), /exceeded its grace period/);
   },
 );
+
+for (const migrationUrl of ["postgresql://migrator.invalid/test", ""]) {
+  test(
+    migrationUrl
+      ? "owner credentials are passed only to migrations, never API or worker"
+      : "migrations fall back to the runtime URL when no override is configured",
+    { timeout: 10_000 },
+    async (t) => {
+      const runtimeUrl = "postgresql://runtime.invalid/test";
+      const fixture = await startFixture(t, {
+        captureEnvironment: true,
+        environment: { DATABASE_URL: runtimeUrl, MIGRATION_DATABASE_URL: migrationUrl },
+      });
+      await fixture.waitFor("api", "environment");
+      await fixture.waitFor("worker", "environment");
+      const environment = (await fixture.events()).filter((row) => row.event === "environment");
+      for (const name of ["migration", "api", "worker"]) {
+        assert.deepEqual(
+          environment.find((row) => row.name === name),
+          {
+            name,
+            event: "environment",
+            databaseUrl: name === "migration" ? migrationUrl || runtimeUrl : runtimeUrl,
+            migrationUrlPresent: false,
+          },
+        );
+      }
+      assert.doesNotMatch(fixture.output(), /postgresql:\/\//);
+    },
+  );
+}
