@@ -1,8 +1,8 @@
 import { Module } from "@nestjs/common";
-import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { APP_INTERCEPTOR } from "@nestjs/core";
 import { ClsModule } from "nestjs-cls";
 import { LoggerModule } from "nestjs-pino";
-import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { type Env } from "@aureus/shared";
 import { ConfigModule, ENV } from "./config/config.module";
 import { buildLoggerParams } from "./common/logging/logger.config";
@@ -70,13 +70,6 @@ import { HealthModule } from "./health/health.module";
     NotificationsModule,
     HealthModule,
   ],
-  providers: [
-    { provide: APP_INTERCEPTOR, useClass: SensitiveFieldsInterceptor },
-    // Global rate limiting on EVERY route (security audit S5). The default
-    // throttler covers reads/lists/reports; @Throttle(AUTH/MONEY) on auth + money
-    // routes tightens those further. Previously the guard was unregistered, so
-    // only explicitly-decorated routes were limited.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-  ],
+  providers: [{ provide: APP_INTERCEPTOR, useClass: SensitiveFieldsInterceptor }],
 })
 export class AppModule {}

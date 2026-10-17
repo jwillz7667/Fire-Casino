@@ -15,6 +15,7 @@ import {
 export const IS_PUBLIC_KEY = "auth:isPublic";
 export const AUDIENCE_KEY = "auth:audience";
 export const PERMISSIONS_KEY = "auth:permissions";
+export const ANY_PERMISSIONS_KEY = "auth:anyPermissions";
 export const SCOPE_CHECK_KEY = "auth:scopeCheck";
 export const ALLOW_MFA_ENROLLMENT_KEY = "auth:allowMfaEnrollment";
 
@@ -37,6 +38,11 @@ export const Auth = (audience: Audience): MethodDecorator & ClassDecorator =>
 /** Requires the caller to hold every listed permission (docs/04 §3). */
 export const RequirePermission = (...permissions: Permission[]): MethodDecorator & ClassDecorator =>
   SetMetadata(PERMISSIONS_KEY, permissions);
+
+/** Requires one of the listed abilities, while preserving any all-of requirements. */
+export const RequireAnyPermission = (
+  ...permissions: Permission[]
+): MethodDecorator & ClassDecorator => SetMetadata(ANY_PERMISSIONS_KEY, permissions);
 
 export interface ScopeCheckConfig {
   /** Route param/body/query keys carrying an operator id to subtree-check. */

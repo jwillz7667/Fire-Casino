@@ -1,31 +1,21 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
-import { type ConnectionOptions, type Job, Queue, Worker } from "bullmq";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from "@nestjs/common";
+import { type Job, Queue, Worker } from "bullmq";
 import { type Env } from "@aureus/shared";
 import { ENV } from "../config/config.module";
 import { RedisService } from "../redis/redis.service";
+import { bullConnection } from "../redis/bull-connection";
 import { ReconciliationService, type ReconResult } from "./reconciliation.service";
-
-/**
- * Build BullMQ connection options from REDIS_URL. Passing plain options (rather
- * than a shared ioredis instance) lets BullMQ create its own client with its
- * bundled ioredis, avoiding a cross-version type clash, and BullMQ requires
- * `maxRetriesPerRequest: null` on its blocking connections.
- */
-function bullConnection(redisUrl: string): ConnectionOptions {
-  const u = new URL(redisUrl);
-  return {
-    host: u.hostname,
-    port: u.port ? Number(u.port) : 6379,
-    username: u.username || undefined,
-    password: u.password || undefined,
-    db: u.pathname && u.pathname.length > 1 ? Number(u.pathname.slice(1)) : undefined,
-    maxRetriesPerRequest: null,
-  };
-}
 
 const QUEUE_NAME = "reconciliation";
 const JOB_NAME = "runAll";
 const INTERVAL_MS = 5 * 60_000; // run the integrity sweep every five minutes
+const SCHEDULE_REFRESH_MS = 60_000;
 /** Key the latest reconciliation result lands on for the Ledger Health page. */
 export const RECON_LAST_KEY = "recon:last";
 
@@ -41,6 +31,8 @@ export class ReconciliationProcessor implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ReconciliationProcessor.name);
   private queue?: Queue;
   private worker?: Worker;
+  private scheduleTimer?: ReturnType<typeof setInterval>;
+  private registering?: Promise<void>;
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -52,21 +44,56 @@ export class ReconciliationProcessor implements OnModuleInit, OnModuleDestroy {
     const connection = bullConnection(this.env.REDIS_URL);
     this.queue = new Queue(QUEUE_NAME, { connection });
     this.worker = new Worker(QUEUE_NAME, (job) => this.handle(job), { connection });
+    this.queue.on("error", (err: Error) =>
+      this.logger.error(`reconciliation queue error: ${err.message}`),
+    );
+    this.worker.on("error", (err: Error) =>
+      this.logger.error(`reconciliation worker error: ${err.message}`),
+    );
     this.worker.on("failed", (job, err) => {
       this.logger.error(`reconciliation job ${job?.id ?? "?"} failed: ${err.message}`);
     });
 
-    // Idempotent: re-adding the same repeatable key just keeps one schedule.
-    await this.queue.add(
-      JOB_NAME,
-      {},
-      { repeat: { every: INTERVAL_MS }, jobId: JOB_NAME, removeOnComplete: true, removeOnFail: 100 },
-    );
+    // Free Redis instances can restart with an empty dataset while this process
+    // stays alive. Re-register periodically so losing the repeat key cannot
+    // silently disable ledger checks until the next application deployment.
+    this.scheduleTimer = setInterval(() => {
+      void this.ensureSchedule().catch((err: unknown) => {
+        this.logger.error(
+          `reconciliation schedule refresh failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }, SCHEDULE_REFRESH_MS);
+    this.scheduleTimer.unref();
+    await this.ensureSchedule();
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (this.scheduleTimer) clearInterval(this.scheduleTimer);
     await this.worker?.close();
     await this.queue?.close();
+  }
+
+  private ensureSchedule(): Promise<void> {
+    if (this.registering) return this.registering;
+    if (!this.queue) return Promise.resolve();
+    // Idempotent: re-adding the same repeatable key just keeps one schedule.
+    this.registering = this.queue
+      .add(
+        JOB_NAME,
+        {},
+        {
+          repeat: { every: INTERVAL_MS },
+          jobId: JOB_NAME,
+          removeOnComplete: true,
+          removeOnFail: 100,
+        },
+      )
+      .then(() => undefined)
+      .finally(() => {
+        this.registering = undefined;
+      });
+    return this.registering;
   }
 
   private async handle(_job: Job): Promise<ReconResult> {

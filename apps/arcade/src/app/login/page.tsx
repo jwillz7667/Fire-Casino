@@ -74,7 +74,7 @@ export default function LoginPage(): React.ReactElement {
 
   if (regionBlocked) return <RegionBlockedState />;
 
-  if (ageConfirmed === null || (ready && isAuthenticated && phase === "login")) {
+  if (!ready || ageConfirmed === null || (isAuthenticated && phase === "login")) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center">
         <BrandSpinner />

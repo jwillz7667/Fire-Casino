@@ -1,0 +1,125 @@
+# $0 compute and Redis. PostgreSQL is supplied from a Neon Free project.
+# Free Render Postgres expires after 30 days, so it is deliberately not created.
+services:
+  - type: keyvalue
+    name: fire-casino-redis
+    plan: free
+    region: oregon
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+
+  - type: web
+    name: fire-casino-api
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: node deploy/start-backend.mjs
+    autoDeployTrigger: "off"
+    healthCheckPath: /readyz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: fire-casino-redis
+          property: connectionString
+      - key: API_URL
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: PLATFORM_MODE
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: FRONTEND_PROXY_SECRET
+        generateValue: true
+      - key: COOKIE_DOMAIN
+        value: ""
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: lax
+      - key: CONSOLE_URL
+        sync: false
+      - key: ARCADE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_ASSETS
+        sync: false
+      - key: R2_BUCKET_KYC
+        sync: false
+
+  - type: web
+    name: fire-casino-console
+    runtime: node
+    plan: free
+    region: oregon
+    autoDeployTrigger: "off"
+    healthCheckPath: /login
+    buildCommand: corepack pnpm install --frozen-lockfile --prod=false && corepack pnpm turbo run build --filter=@aureus/console...
+    startCommand: corepack pnpm --filter @aureus/console exec next start -p "$PORT" -H 0.0.0.0
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_PUBLIC_API_PROXY
+        value: "true"
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXT_PUBLIC_PLATFORM_MODE
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: PLATFORM_MODE
+      - key: FRONTEND_PROXY_SECRET
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: FRONTEND_PROXY_SECRET
+
+  - type: web
+    name: fire-casino-arcade
+    runtime: node
+    plan: free
+    region: oregon
+    autoDeployTrigger: "off"
+    healthCheckPath: /login
+    buildCommand: corepack pnpm install --frozen-lockfile --prod=false && corepack pnpm turbo run build --filter=@aureus/arcade...
+    startCommand: corepack pnpm --filter @aureus/arcade exec next start -p "$PORT" -H 0.0.0.0
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_PUBLIC_API_PROXY
+        value: "true"
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXT_PUBLIC_PLATFORM_MODE
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: PLATFORM_MODE
+      - key: FRONTEND_PROXY_SECRET
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: FRONTEND_PROXY_SECRET

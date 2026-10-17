@@ -21,7 +21,7 @@ import {
   CurrentUser,
   Public,
 } from "../common/auth/auth.decorators";
-import { type OperatorPrincipal, type Principal } from "../common/auth/principal";
+import { type Audience, type OperatorPrincipal, type Principal } from "../common/auth/principal";
 import { UnauthorizedError } from "../common/errors/domain-error";
 import { regionFromRequest } from "../common/http/region";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
@@ -29,10 +29,18 @@ import { AUTH_RATE_LIMIT } from "../common/throttler/throttler.config";
 import { ComplianceService } from "../compliance/compliance.service";
 import { ENV } from "../config/config.module";
 import { type AuthContext, AuthService } from "./auth.service";
-import { REFRESH_COOKIE, refreshCookieOptions } from "./cookies";
+import { LEGACY_REFRESH_COOKIE, refreshCookieName, refreshCookieOptions } from "./cookies";
 
 function contextOf(req: Request): AuthContext {
   return { ip: req.ip, userAgent: req.headers["user-agent"] };
+}
+
+function audienceOf(req: Request): Audience {
+  const audience = req.headers["x-auth-audience"];
+  if (audience !== "operator" && audience !== "player") {
+    throw new UnauthorizedError("Session surface is required");
+  }
+  return audience;
 }
 
 @Controller("auth")
@@ -53,7 +61,8 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ accessToken: string; expiresIn: number; operator: OperatorSummary }> {
     const { refreshToken, ...rest } = await this.auth.operatorLogin(body, contextOf(req));
-    res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions(this.env));
+    res.clearCookie(LEGACY_REFRESH_COOKIE, refreshCookieOptions(this.env));
+    res.cookie(refreshCookieName("operator"), refreshToken, refreshCookieOptions(this.env));
     return rest;
   }
 
@@ -71,7 +80,8 @@ export class AuthController {
     // establishes a session. Fails closed via ComplianceService.assertRegionAllowed.
     await this.compliance.checkLogin(regionFromRequest(req));
     const { refreshToken, ...rest } = await this.auth.playerLogin(body, contextOf(req));
-    res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions(this.env));
+    res.clearCookie(LEGACY_REFRESH_COOKIE, refreshCookieOptions(this.env));
+    res.cookie(refreshCookieName("player"), refreshToken, refreshCookieOptions(this.env));
     return rest;
   }
 
@@ -83,24 +93,33 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ accessToken: string; expiresIn: number }> {
+    const audience = audienceOf(req);
     const current = (req.cookies as Record<string, string | undefined> | undefined)?.[
-      REFRESH_COOKIE
+      refreshCookieName(audience)
     ];
     if (!current) throw new UnauthorizedError("No session");
-    const { refreshToken, ...rest } = await this.auth.refresh(current, contextOf(req));
-    res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions(this.env));
+    const { refreshToken, ...rest } = await this.auth.refresh(current, contextOf(req), audience);
+    res.cookie(refreshCookieName(audience), refreshToken, refreshCookieOptions(this.env));
     return rest;
   }
 
-  @AllowMfaEnrollment()
+  @Public()
+  @Throttle(AUTH_RATE_LIMIT)
   @Post("logout")
   @HttpCode(204)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
+    const audience = audienceOf(req);
     const current = (req.cookies as Record<string, string | undefined> | undefined)?.[
-      REFRESH_COOKIE
+      refreshCookieName(audience)
     ];
-    if (current) await this.auth.logout(current);
-    res.clearCookie(REFRESH_COOKIE, refreshCookieOptions(this.env));
+    try {
+      // Logout is cookie-backed so an expired access token cannot prevent a
+      // user from ending the session. Origin protection still runs before it.
+      if (current) await this.auth.logout(current, audience);
+    } finally {
+      res.clearCookie(refreshCookieName(audience), refreshCookieOptions(this.env));
+      res.clearCookie(LEGACY_REFRESH_COOKIE, refreshCookieOptions(this.env));
+    }
   }
 
   @AllowMfaEnrollment()
@@ -117,7 +136,9 @@ export class AuthController {
   @Auth("operator")
   @Post("operator/mfa/enable")
   @HttpCode(200)
-  mfaEnable(@CurrentUser() user: OperatorPrincipal): Promise<{ secret: string; otpauthUrl: string }> {
+  mfaEnable(
+    @CurrentUser() user: OperatorPrincipal,
+  ): Promise<{ secret: string; otpauthUrl: string }> {
     return this.auth.mfaEnable(user);
   }
 

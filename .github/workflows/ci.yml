@@ -64,6 +64,9 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Test deployment supervisor
+        run: pnpm test:deploy
+
       - name: Apply database migrations
         run: pnpm --filter @aureus/db exec prisma migrate deploy
 

@@ -19,6 +19,7 @@ import {
   ConflictError,
   NotFoundError,
   OutOfScopeError,
+  ValidationError,
 } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA, PRISMA_SYSTEM } from "../prisma/prisma.module";
@@ -43,7 +44,11 @@ interface RedemptionRow {
   status: string;
   method: string | null;
   payoutRef: string | null;
+  proofUrl: string | null;
+  proofOperatorId: string | null;
   holdTxId: string | null;
+  approvedPayableCents: number | null;
+  approvedPayableOperatorId: string | null;
   settleTxId: string | null;
   rejectionReason: string | null;
   reviewedByUserId: string | null;
@@ -96,17 +101,18 @@ export class RedemptionsService {
     });
     if (!owner) throw new NotFoundError("Owning operator not found");
 
-    // Soft-reserve: redeemable balance minus already-pending requests must cover
-    // this amount (docs/03 §4.5). Approved requests already left the wallet.
-    const balance = await this.ledger.getBalance({ kind: "player", playerId: player.playerId, currency });
-    const pending = await this.sumPending(player.playerId);
-    if (input.amountMinor > balance - pending) {
-      throw new ConflictError("Amount exceeds redeemable balance net of pending redemptions");
-    }
-
     const approver = await this.resolveApprover(owner, input.amountMinor);
 
-    const created = await this.system.$transaction(async (tx) => {
+    const created = await this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${player.playerId} FOR UPDATE`;
+      const wallet = await tx.ledgerAccount.findFirst({
+        where: { ownerType: "PLAYER", playerId: player.playerId, currency },
+        select: { balanceMinor: true },
+      });
+      const pending = await this.sumPending(player.playerId, tx);
+      if (input.amountMinor > (wallet?.balanceMinor ?? 0n) - pending) {
+        throw new ConflictError("Amount exceeds redeemable balance net of pending redemptions");
+      }
       const redemption = await tx.redemptionRequest.create({
         data: {
           playerId: player.playerId,
@@ -174,21 +180,25 @@ export class RedemptionsService {
 
   /** Player withdraws their own still-pending request (no credits moved). */
   async withdraw(player: PlayerPrincipal, id: string, input: CancelRedemptionInput, ctx: ActionContext) {
-    const redemption = await this.system.redemptionRequest.findUnique({ where: { id } });
-    if (!redemption || redemption.playerId !== player.playerId) throw new NotFoundError("Redemption not found");
-    if (redemption.status !== "PENDING") {
-      throw new ConflictError("Only a pending request can be withdrawn");
-    }
-    const updated = await this.markCancelled(id, input.reason ?? "Withdrawn by player", redemption.playerId, null);
-    await this.audit.record({
-      ...auditActor(player),
-      action: "redemption.withdraw",
-      targetType: "RedemptionRequest",
-      targetId: id,
-      after: { status: "CANCELLED" },
-      ...ctx,
+    return this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM redemption_requests WHERE id = ${id} FOR UPDATE`;
+      const redemption = await tx.redemptionRequest.findUnique({ where: { id } });
+      if (!redemption || redemption.playerId !== player.playerId) throw new NotFoundError("Redemption not found");
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${redemption.playerId} FOR UPDATE`;
+      if (redemption.status !== "PENDING") {
+        throw new ConflictError("Only a pending request can be withdrawn");
+      }
+      const updated = await this.markCancelled(id, input.reason ?? "Withdrawn by player", redemption.playerId, null, tx);
+      await this.audit.record({
+        ...auditActor(player),
+        action: "redemption.withdraw",
+        targetType: "RedemptionRequest",
+        targetId: id,
+        after: { status: "CANCELLED" },
+        ...ctx,
+      }, tx);
+      return this.toDto(updated);
     });
-    return this.toDto(updated);
   }
 
   // ---- operator surface ------------------------------------------------------
@@ -234,168 +244,211 @@ export class RedemptionsService {
 
   /** Approve: burn redeemable credits into the clearing account (docs/03 §4.5 step 2). */
   async approve(caller: OperatorPrincipal, id: string, ctx: ActionContext) {
-    const redemption = await this.loadInScope(caller, id);
-    // Idempotent at the workflow level (mirrors OrdersService.issue): a retry on an
-    // already-approved request returns it without a second hold/payable/audit.
-    if (redemption.status === "APPROVED") return this.toDto(redemption);
-    if (redemption.status !== "PENDING") throw new ConflictError("Redemption is not pending approval");
+    return this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM redemption_requests WHERE id = ${id} FOR UPDATE`;
+      const redemption = await this.loadInScope(caller, id, tx);
+      // Idempotent at the workflow level (mirrors OrdersService.issue): a retry on an
+      // already-approved request returns it without a second hold/payable/audit.
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${redemption.playerId} FOR UPDATE`;
+      if (redemption.status === "APPROVED") return this.toDto(redemption);
+      if (redemption.status !== "PENDING") throw new ConflictError("Redemption is not pending approval");
 
-    await this.operators.assertOperatorActionable(caller.operatorId);
-    // Re-run the compliance gate at decision time (KYC threshold + open AML).
-    await this.compliance.checkRedeem(redemption.playerId, redemption.amountMinor);
+      await this.operators.assertOperatorActionable(caller.operatorId, tx);
+      // Re-run the compliance gate at decision time (KYC threshold + open AML).
+      await this.compliance.forTransaction(tx).checkRedeem(redemption.playerId, redemption.amountMinor);
 
-    const currency = redemption.currency;
-    const result = await this.ledger.post({
-      type: "REDEEM_HOLD",
-      currency,
-      idempotencyKey: `redeem:${id}:hold`,
-      actor: { userId: caller.userId, playerId: redemption.playerId },
-      ref: { type: "RedemptionRequest", id },
-      legs: [
-        { account: { kind: "player", playerId: redemption.playerId, currency }, direction: "DEBIT", amountMinor: redemption.amountMinor },
-        { account: { kind: "system", systemKey: "REDEMPTION_CLEARING", currency }, direction: "CREDIT", amountMinor: redemption.amountMinor },
-      ],
-    });
+      const currency = redemption.currency;
+      const result = await this.ledger.postInTransaction(tx, {
+        type: "REDEEM_HOLD",
+        currency,
+        idempotencyKey: `redeem:${id}:hold`,
+        actor: { userId: caller.userId, playerId: redemption.playerId },
+        ref: { type: "RedemptionRequest", id },
+        legs: [
+          { account: { kind: "player", playerId: redemption.playerId, currency }, direction: "DEBIT", amountMinor: redemption.amountMinor },
+          { account: { kind: "system", systemKey: "REDEMPTION_CLEARING", currency }, direction: "CREDIT", amountMinor: redemption.amountMinor },
+        ],
+      });
 
-    const updated = await this.system.$transaction(async (tx) => {
-      const r = await tx.redemptionRequest.update({
+      const payable = await this.recordPayable(redemption, tx);
+      const updated = await tx.redemptionRequest.update({
         where: { id },
-        data: { status: "APPROVED", holdTxId: result.transactionId, reviewedByUserId: caller.userId, decidedAt: new Date() },
+        data: {
+          status: "APPROVED", holdTxId: result.transactionId, reviewedByUserId: caller.userId, decidedAt: new Date(),
+          approvedPayableCents: payable.cents, approvedPayableOperatorId: payable.operatorId,
+        },
       });
       await this.emit(tx, id, "APPROVED", redemption.playerId);
-      return r;
+      await this.audit.record({
+        ...auditActor(caller),
+        action: "redemption.approve",
+        targetType: "RedemptionRequest",
+        targetId: id,
+        after: { status: "APPROVED", holdTxId: result.transactionId, amountMinor: redemption.amountMinor.toString(), payableCents: payable.cents, payableOperatorId: payable.operatorId },
+        ...ctx,
+      }, tx);
+      return this.toDto(updated);
     });
-
-    await this.recordPayable(redemption);
-    await this.audit.record({
-      ...auditActor(caller),
-      action: "redemption.approve",
-      targetType: "RedemptionRequest",
-      targetId: id,
-      after: { status: "APPROVED", holdTxId: result.transactionId, amountMinor: redemption.amountMinor.toString() },
-      ...ctx,
-    });
-    return this.toDto(updated);
   }
 
   async reject(caller: OperatorPrincipal, id: string, input: RejectRedemptionInput, ctx: ActionContext) {
-    const redemption = await this.loadInScope(caller, id);
-    if (redemption.status !== "PENDING") {
-      throw new ConflictError("Only a pending redemption can be rejected; use cancel to reverse an approved hold");
-    }
-    const updated = await this.system.$transaction(async (tx) => {
-      const r = await tx.redemptionRequest.update({
+    return this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM redemption_requests WHERE id = ${id} FOR UPDATE`;
+      const redemption = await this.loadInScope(caller, id, tx);
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${redemption.playerId} FOR UPDATE`;
+      if (redemption.status !== "PENDING") {
+        throw new ConflictError("Only a pending redemption can be rejected; use cancel to reverse an approved hold");
+      }
+      const updated = await tx.redemptionRequest.update({
         where: { id },
         data: { status: "REJECTED", rejectionReason: input.reason, reviewedByUserId: caller.userId, decidedAt: new Date() },
       });
       await this.emit(tx, id, "REJECTED", redemption.playerId);
-      return r;
+      await this.audit.record({
+        ...auditActor(caller),
+        action: "redemption.reject",
+        targetType: "RedemptionRequest",
+        targetId: id,
+        after: { status: "REJECTED", reason: input.reason },
+        ...ctx,
+      }, tx);
+      return this.toDto(updated);
     });
-    await this.audit.record({
-      ...auditActor(caller),
-      action: "redemption.reject",
-      targetType: "RedemptionRequest",
-      targetId: id,
-      after: { status: "REJECTED", reason: input.reason },
-      ...ctx,
-    });
-    return this.toDto(updated);
   }
 
   /** Settle: offline cash paid; drain clearing → mint (credits leave circulation). */
   async settle(caller: OperatorPrincipal, id: string, input: SettleRedemptionInput, ctx: ActionContext) {
-    const redemption = await this.loadInScope(caller, id);
-    if (redemption.status !== "APPROVED") throw new ConflictError("Redemption must be approved before settling");
+    return this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM redemption_requests WHERE id = ${id} FOR UPDATE`;
+      const redemption = await this.loadInScope(caller, id, tx);
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${redemption.playerId} FOR UPDATE`;
+      if (redemption.status === "PAID") return this.toDto(redemption);
+      if (redemption.status !== "APPROVED") throw new ConflictError("Redemption must be approved before settling");
+      if (input.proofUrl) this.proofKey(input.proofUrl, caller.operatorId);
 
-    const currency = redemption.currency;
-    const result = await this.ledger.post({
-      type: "REDEEM_SETTLE",
-      currency,
-      idempotencyKey: `redeem:${id}:settle`,
-      allowNegative: ["MINT"],
-      actor: { userId: caller.userId, playerId: redemption.playerId },
-      ref: { type: "RedemptionRequest", id },
-      legs: [
-        { account: { kind: "system", systemKey: "REDEMPTION_CLEARING", currency }, direction: "DEBIT", amountMinor: redemption.amountMinor },
-        { account: { kind: "system", systemKey: "MINT", currency }, direction: "CREDIT", amountMinor: redemption.amountMinor },
-      ],
-    });
-
-    const updated = await this.system.$transaction(async (tx) => {
-      const r = await tx.redemptionRequest.update({
-        where: { id },
-        data: { status: "PAID", settleTxId: result.transactionId, payoutRef: input.payoutRef, settledAt: new Date() },
-      });
-      await this.emit(tx, id, "PAID", redemption.playerId);
-      return r;
-    });
-    await this.audit.record({
-      ...auditActor(caller),
-      action: "redemption.settle",
-      targetType: "RedemptionRequest",
-      targetId: id,
-      after: { status: "PAID", settleTxId: result.transactionId, payoutRef: input.payoutRef },
-      ...ctx,
-    });
-    return this.toDto(updated);
-  }
-
-  /** Operator cancel: reverse an approved hold back to the player, or void a pending request. */
-  async cancel(caller: OperatorPrincipal, id: string, input: CancelRedemptionInput, ctx: ActionContext) {
-    const redemption = await this.loadInScope(caller, id);
-    if (redemption.status === "APPROVED") {
       const currency = redemption.currency;
-      const result = await this.ledger.post({
-        type: "REDEEM_CANCEL",
+      const result = await this.ledger.postInTransaction(tx, {
+        type: "REDEEM_SETTLE",
         currency,
-        idempotencyKey: `redeem:${id}:cancel`,
+        idempotencyKey: `redeem:${id}:settle`,
+        allowNegative: ["MINT"],
         actor: { userId: caller.userId, playerId: redemption.playerId },
         ref: { type: "RedemptionRequest", id },
         legs: [
           { account: { kind: "system", systemKey: "REDEMPTION_CLEARING", currency }, direction: "DEBIT", amountMinor: redemption.amountMinor },
-          { account: { kind: "player", playerId: redemption.playerId, currency }, direction: "CREDIT", amountMinor: redemption.amountMinor },
+          { account: { kind: "system", systemKey: "MINT", currency }, direction: "CREDIT", amountMinor: redemption.amountMinor },
         ],
       });
-      const updated = await this.markCancelled(id, input.reason ?? "Cancelled after approval", redemption.playerId, caller.userId);
+
+      const updated = await tx.redemptionRequest.update({
+        where: { id },
+        data: {
+          status: "PAID", settleTxId: result.transactionId, payoutRef: input.payoutRef, settledAt: new Date(),
+          proofUrl: input.proofUrl, proofOperatorId: input.proofUrl ? caller.operatorId : undefined,
+        },
+      });
+      await this.emit(tx, id, "PAID", redemption.playerId);
+      await this.audit.record({
+        ...auditActor(caller),
+        action: "redemption.settle",
+        targetType: "RedemptionRequest",
+        targetId: id,
+        after: { status: "PAID", settleTxId: result.transactionId, payoutRef: input.payoutRef },
+        ...ctx,
+      }, tx);
+      return this.toDto(updated);
+    });
+  }
+
+  /** Operator cancel: reverse an approved hold back to the player, or void a pending request. */
+  async cancel(caller: OperatorPrincipal, id: string, input: CancelRedemptionInput, ctx: ActionContext) {
+    return this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM redemption_requests WHERE id = ${id} FOR UPDATE`;
+      const redemption = await this.loadInScope(caller, id, tx);
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${redemption.playerId} FOR UPDATE`;
+      if (redemption.status === "CANCELLED") return this.toDto(redemption);
+      if (redemption.status === "APPROVED") {
+        if (redemption.approvedPayableCents === null || redemption.approvedPayableOperatorId === null) {
+          throw new ConflictError("Historical redemption payable must be reviewed and backfilled before cancellation");
+        }
+        const currency = redemption.currency;
+        const result = await this.ledger.postInTransaction(tx, {
+          type: "REDEEM_CANCEL",
+          currency,
+          idempotencyKey: `redeem:${id}:cancel`,
+          actor: { userId: caller.userId, playerId: redemption.playerId },
+          ref: { type: "RedemptionRequest", id },
+          legs: [
+            { account: { kind: "system", systemKey: "REDEMPTION_CLEARING", currency }, direction: "DEBIT", amountMinor: redemption.amountMinor },
+            { account: { kind: "player", playerId: redemption.playerId, currency }, direction: "CREDIT", amountMinor: redemption.amountMinor },
+          ],
+        });
+        if (redemption.approvedPayableCents > 0) {
+          const reversed = await tx.settlement.updateMany({
+            where: {
+              operatorId: redemption.approvedPayableOperatorId,
+              counterpartyId: redemption.playerId,
+              currency,
+            },
+            data: { netCents: { increment: redemption.approvedPayableCents }, lastEventAt: new Date() },
+          });
+          if (reversed.count !== 1) throw new ConflictError("Original redemption payable is missing; review is required");
+        }
+        const updated = await this.markCancelled(id, input.reason ?? "Cancelled after approval", redemption.playerId, caller.userId, tx);
+        await this.audit.record({
+          ...auditActor(caller),
+          action: "redemption.cancel",
+          targetType: "RedemptionRequest",
+          targetId: id,
+          after: { status: "CANCELLED", reversalTxId: result.transactionId, reversedPayableCents: redemption.approvedPayableCents },
+          ...ctx,
+        }, tx);
+        return this.toDto(updated);
+      }
+      if (redemption.status !== "PENDING") throw new ConflictError("Redemption can no longer be cancelled");
+      const updated = await this.markCancelled(id, input.reason ?? "Cancelled", redemption.playerId, caller.userId, tx);
       await this.audit.record({
         ...auditActor(caller),
         action: "redemption.cancel",
         targetType: "RedemptionRequest",
         targetId: id,
-        after: { status: "CANCELLED", reversalTxId: result.transactionId },
+        after: { status: "CANCELLED" },
         ...ctx,
-      });
+      }, tx);
       return this.toDto(updated);
-    }
-    if (redemption.status !== "PENDING") throw new ConflictError("Redemption can no longer be cancelled");
-    const updated = await this.markCancelled(id, input.reason ?? "Cancelled", redemption.playerId, caller.userId);
-    await this.audit.record({
-      ...auditActor(caller),
-      action: "redemption.cancel",
-      targetType: "RedemptionRequest",
-      targetId: id,
-      after: { status: "CANCELLED" },
-      ...ctx,
     });
-    return this.toDto(updated);
   }
 
   /** Presign an upload URL for offline payout proof attached at settle time. */
   presignProof(caller: OperatorPrincipal, filename: string) {
-    return this.storage.presignUpload("assets", `redemptions/${caller.operatorId}`, filename);
+    return this.storage.presignUpload("kyc", `redemptions/${caller.operatorId}`, filename);
+  }
+
+  async proofDocument(caller: OperatorPrincipal, id: string, ctx: ActionContext) {
+    const redemption = await this.loadInScope(caller, id);
+    if (!redemption.proofUrl || !redemption.proofOperatorId) throw new NotFoundError("Payout proof not found");
+    const key = this.proofKey(redemption.proofUrl, redemption.proofOperatorId);
+    await this.audit.record({ ...auditActor(caller), action: "redemption.proof_view", targetType: "RedemptionRequest", targetId: id, ...ctx });
+    return { url: this.storage.presignDownload("kyc", key), expiresInSeconds: 300 };
+  }
+
+  private proofKey(url: string, operatorId: string): string {
+    const key = this.storage.keyFromFileUrl("kyc", url);
+    if (!key || !key.startsWith(`redemptions/${operatorId}/`)) {
+      throw new ValidationError(undefined, "Payout proof must be uploaded to this operator's private proof folder");
+    }
+    return key;
   }
 
   // ---- internals -------------------------------------------------------------
 
-  private async markCancelled(id: string, reason: string, playerId: string, userId: string | null) {
-    return this.system.$transaction(async (tx) => {
-      const r = await tx.redemptionRequest.update({
-        where: { id },
-        data: { status: "CANCELLED", rejectionReason: reason, reviewedByUserId: userId ?? undefined, decidedAt: new Date() },
-      });
-      await this.emit(tx, id, "CANCELLED", playerId);
-      return r;
+  private async markCancelled(id: string, reason: string, playerId: string, userId: string | null, tx: Prisma.TransactionClient) {
+    const r = await tx.redemptionRequest.update({
+      where: { id },
+      data: { status: "CANCELLED", rejectionReason: reason, reviewedByUserId: userId ?? undefined, decidedAt: new Date() },
     });
+    await this.emit(tx, id, "CANCELLED", playerId);
+    return r;
   }
 
   private async emit(tx: Prisma.TransactionClient, requestId: string, status: string, playerId: string): Promise<void> {
@@ -409,8 +462,8 @@ export class RedemptionsService {
     });
   }
 
-  private async sumPending(playerId: string): Promise<bigint> {
-    const agg = await this.system.redemptionRequest.aggregate({
+  private async sumPending(playerId: string, client: Pick<PrismaClient, "redemptionRequest"> = this.system): Promise<bigint> {
+    const agg = await client.redemptionRequest.aggregate({
       where: { playerId, status: "PENDING" },
       _sum: { amountMinor: true },
     });
@@ -465,19 +518,21 @@ export class RedemptionsService {
   }
 
   /** Record the off-ledger cash the owning agent owes the player (docs/03 §4.5). */
-  private async recordPayable(redemption: RedemptionRow): Promise<void> {
-    const player = await this.system.player.findUnique({
+  private async recordPayable(redemption: RedemptionRow, tx: Prisma.TransactionClient): Promise<{ cents: number; operatorId: string }> {
+    const player = await tx.player.findUnique({
       where: { id: redemption.playerId },
       select: { operatorId: true, operator: { select: { sellUnitPriceCents: true } } },
     });
-    if (!player) return;
+    if (!player) throw new NotFoundError("Player not found");
     const unitCents = player.operator.sellUnitPriceCents ?? 0;
-    if (unitCents <= 0) return;
+    if (unitCents <= 0) return { cents: 0, operatorId: player.operatorId };
     // Multiply before dividing so fractional credits aren't truncated away
     // (hard rule #1): 1.5 credits × 100¢ = 150¢, not 100¢. Final ÷MINOR floors to cents.
-    const payoutCents = Number((redemption.amountMinor * BigInt(unitCents)) / MINOR);
-    if (payoutCents <= 0) return;
-    await this.system.settlement.upsert({
+    const payoutCentsBig = (redemption.amountMinor * BigInt(unitCents)) / MINOR;
+    if (payoutCentsBig > 2_147_483_647n) throw new ValidationError(undefined, "Redemption payable exceeds the supported range");
+    const payoutCents = Number(payoutCentsBig);
+    if (payoutCents <= 0) return { cents: 0, operatorId: player.operatorId };
+    await tx.settlement.upsert({
       where: {
         operatorId_counterpartyId_currency: {
           operatorId: player.operatorId,
@@ -490,10 +545,11 @@ export class RedemptionsService {
       update: { netCents: { decrement: payoutCents }, lastEventAt: new Date() },
       create: { operatorId: player.operatorId, counterpartyId: redemption.playerId, currency: redemption.currency, netCents: -payoutCents },
     });
+    return { cents: payoutCents, operatorId: player.operatorId };
   }
 
-  private async loadInScope(caller: OperatorPrincipal, id: string): Promise<RedemptionRow> {
-    const redemption = await this.system.redemptionRequest.findUnique({
+  private async loadInScope(caller: OperatorPrincipal, id: string, client: Pick<PrismaClient, "redemptionRequest"> = this.system): Promise<RedemptionRow> {
+    const redemption = await client.redemptionRequest.findUnique({
       where: { id },
       include: { player: { select: { operator: { select: { path: true } } } } },
     });
@@ -518,6 +574,7 @@ export class RedemptionsService {
       status: r.status,
       method: r.method,
       payoutRef: r.payoutRef,
+      hasProof: Boolean(r.proofUrl),
       holdTxId: r.holdTxId,
       settleTxId: r.settleTxId,
       rejectionReason: r.rejectionReason,

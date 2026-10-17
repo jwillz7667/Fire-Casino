@@ -212,3 +212,131 @@ describe("RedemptionsService (docs/09 Phase 8)", () => {
     await assertInvariants();
   });
 });
+
+describe("RedemptionsService — concurrent decisions", () => {
+  it("concurrent approve retries create one hold, payable, and audit", async () => {
+    const { store, playerId } = await setup({ kyc: true });
+    await testPrisma.operator.update({ where: { id: store.operatorId }, data: { sellUnitPriceCents: 100 } });
+    const caller = storePrincipal(store);
+    const request = await redemptions.request(playerPrincipal(playerId, store), { amountMinor: 1500n, method: "cash" }, ctx);
+    const results = await Promise.all(Array.from({ length: 12 }, () => redemptions.approve(caller, request.id, ctx)));
+    expect(new Set(results.map((r) => r.holdTxId)).size).toBe(1);
+    expect(await prizeBalance(playerId)).toBe(998_500n);
+    expect(await clearingBalance()).toBe(1500n);
+    expect(await testPrisma.settlement.findFirst({ where: { counterpartyId: playerId } })).toMatchObject({ netCents: -150 });
+    expect(await testPrisma.auditLog.count({ where: { action: "redemption.approve", targetId: request.id } })).toBe(1);
+    await assertInvariants();
+  });
+
+  it("settle versus cancel consumes only this request's hold, preserving another hold", async () => {
+    const { store, playerId } = await setup({ kyc: true });
+    const caller = storePrincipal(store);
+    const player = playerPrincipal(playerId, store);
+    const first = await redemptions.request(player, { amountMinor: 100_000n, method: "cash" }, ctx);
+    const other = await redemptions.request(player, { amountMinor: 200_000n, method: "cash" }, ctx);
+    await redemptions.approve(caller, first.id, ctx);
+    await redemptions.approve(caller, other.id, ctx);
+    const results = await Promise.allSettled([
+      redemptions.settle(caller, first.id, { payoutRef: "one-payment" }, ctx),
+      redemptions.cancel(caller, first.id, {}, ctx),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const final = await testPrisma.redemptionRequest.findUniqueOrThrow({ where: { id: first.id } });
+    expect(["PAID", "CANCELLED"]).toContain(final.status);
+    expect(await clearingBalance()).toBe(200_000n);
+    expect(await prizeBalance(playerId)).toBe(final.status === "PAID" ? 700_000n : 800_000n);
+    expect(await testPrisma.ledgerTransaction.count({ where: { refId: first.id, type: { in: ["REDEEM_SETTLE", "REDEEM_CANCEL"] } } })).toBe(1);
+    await redemptions.settle(caller, other.id, { payoutRef: "other-payment" }, ctx);
+    expect(await clearingBalance()).toBe(0n);
+    await assertInvariants();
+  });
+
+  it("concurrent requests cannot over-reserve a player's available wallet", async () => {
+    const { store, playerId } = await setup({ kyc: true, prize: 150_000n });
+    const player = playerPrincipal(playerId, store);
+    const results = await Promise.allSettled(Array.from({ length: 2 }, () => redemptions.request(player, { amountMinor: 100_000n, method: "cash" }, ctx)));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await testPrisma.redemptionRequest.count({ where: { playerId, status: "PENDING" } })).toBe(1);
+    await assertInvariants();
+  });
+});
+
+describe("RedemptionsService — original payable reversal", () => {
+  it("cancels once at the original price after the operator price changes", async () => {
+    const { store, playerId } = await setup({ kyc: true });
+    await testPrisma.operator.update({ where: { id: store.operatorId }, data: { sellUnitPriceCents: 100 } });
+    const caller = storePrincipal(store);
+    const request = await redemptions.request(playerPrincipal(playerId, store), { amountMinor: 1500n, method: "cash" }, ctx);
+    await Promise.all(Array.from({ length: 4 }, () => redemptions.approve(caller, request.id, ctx)));
+    await testPrisma.operator.update({ where: { id: store.operatorId }, data: { sellUnitPriceCents: 500 } });
+    await Promise.all(Array.from({ length: 4 }, () => redemptions.cancel(caller, request.id, {}, ctx)));
+    expect(await testPrisma.settlement.findFirst({ where: { counterpartyId: playerId } })).toMatchObject({ netCents: 0 });
+    expect(await testPrisma.redemptionRequest.findUniqueOrThrow({ where: { id: request.id } })).toMatchObject({ status: "CANCELLED", approvedPayableCents: 150, approvedPayableOperatorId: store.operatorId });
+    expect(await testPrisma.auditLog.count({ where: { action: "redemption.cancel", targetId: request.id } })).toBe(1);
+    expect(await clearingBalance()).toBe(0n);
+    expect(await prizeBalance(playerId)).toBe(1_000_000n);
+    await assertInvariants();
+  });
+
+  it("leaves an old unsnapshotted hold unchanged until its cash amount is reviewed", async () => {
+    const { store, playerId } = await setup({ kyc: true });
+    const caller = storePrincipal(store);
+    const request = await redemptions.request(playerPrincipal(playerId, store), { amountMinor: 100_000n, method: "cash" }, ctx);
+    await redemptions.approve(caller, request.id, ctx);
+    // Simulate an APPROVED row created before the additive migration.
+    await testPrisma.redemptionRequest.update({ where: { id: request.id }, data: { approvedPayableCents: null, approvedPayableOperatorId: null } });
+    await expect(redemptions.cancel(caller, request.id, {}, ctx)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await testPrisma.redemptionRequest.findUniqueOrThrow({ where: { id: request.id } })).toMatchObject({ status: "APPROVED" });
+    expect(await clearingBalance()).toBe(100_000n);
+    expect(await prizeBalance(playerId)).toBe(900_000n);
+    expect(await testPrisma.ledgerTransaction.count({ where: { type: "REDEEM_CANCEL", refId: request.id } })).toBe(0);
+    await assertInvariants();
+  });
+
+  it("transactional approval still blocks a newly opened AML flag", async () => {
+    const { store, playerId } = await setup({ kyc: true });
+    const caller = storePrincipal(store);
+    const request = await redemptions.request(playerPrincipal(playerId, store), { amountMinor: 100_000n, method: "cash" }, ctx);
+    await testPrisma.amlFlag.create({ data: { subjectType: "PLAYER", subjectId: playerId, ruleCode: "manual-review", severity: "HIGH", details: {} } });
+    await expect(redemptions.approve(caller, request.id, ctx)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await clearingBalance()).toBe(0n);
+    expect(await prizeBalance(playerId)).toBe(1_000_000n);
+    await assertInvariants();
+  });
+});
+
+describe("RedemptionsService — private payout receipt", () => {
+  it("stores the verified private receipt and signs an audited preview", async () => {
+    const { store, playerId } = await setup({ kyc: true });
+    const caller = storePrincipal(store);
+    const request = await redemptions.request(playerPrincipal(playerId, store), { amountMinor: 100_000n, method: "cash" }, ctx);
+    await redemptions.approve(caller, request.id, ctx);
+    const upload = redemptions.presignProof(caller, "payout.png");
+    const paid = await redemptions.settle(caller, request.id, { payoutRef: "cash-1", proofUrl: upload.fileUrl }, ctx);
+    expect(paid.hasProof).toBe(true);
+    expect(paid).not.toHaveProperty("proofUrl");
+    const preview = await redemptions.proofDocument(caller, request.id, ctx);
+    expect(preview.url).toContain("stub-download=true");
+    expect(preview.url).toContain(env.R2_BUCKET_KYC);
+    expect(preview.expiresInSeconds).toBe(300);
+    expect(await testPrisma.auditLog.count({ where: { action: "redemption.proof_view", targetId: request.id } })).toBe(1);
+    const outsider = await createOperator({ username: "outsider", tier: "STORE", pathSegment: 9 });
+    await expect(redemptions.proofDocument(storePrincipal(outsider), request.id, ctx)).rejects.toMatchObject({ code: "OUT_OF_SCOPE" });
+    await assertInvariants();
+  });
+
+  it("rejects a forged proof before any settlement movement", async () => {
+    const { store, playerId } = await setup({ kyc: true });
+    const caller = storePrincipal(store);
+    const request = await redemptions.request(playerPrincipal(playerId, store), { amountMinor: 100_000n, method: "cash" }, ctx);
+    await redemptions.approve(caller, request.id, ctx);
+    const publicUpload = storage.presignUpload("assets", `redemptions/${caller.operatorId}`, "public.png");
+    const otherUpload = storage.presignUpload("kyc", "redemptions/another-operator", "other.png");
+    for (const proofUrl of ["https://attacker.example/receipt.png", publicUpload.fileUrl, otherUpload.fileUrl]) {
+      await expect(redemptions.settle(caller, request.id, { payoutRef: "forged", proofUrl }, ctx)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    }
+    expect(await clearingBalance()).toBe(100_000n);
+    expect(await testPrisma.redemptionRequest.findUniqueOrThrow({ where: { id: request.id } })).toMatchObject({ status: "APPROVED", proofUrl: null });
+    await assertInvariants();
+  });
+});

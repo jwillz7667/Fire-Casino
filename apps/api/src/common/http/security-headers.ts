@@ -11,6 +11,9 @@ export function securityHeaders(_req: Request, res: Response, next: NextFunction
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
+  // Includes proxied auth/wallet responses: shared caches must never retain
+  // tokens or data from a previous account, including error responses.
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   // The API returns only JSON; deny every content source and any framing.
   res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");

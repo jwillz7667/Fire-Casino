@@ -37,7 +37,9 @@ export class StorageService {
     // (and drop) KYC PII uploads to a fake host. env validation already requires
     // R2_* in production; this is the last-line guard at the storage boundary.
     if (this.env.NODE_ENV === "production" && !this.creds) {
-      throw new Error("StorageService: R2 credentials are required in production (refusing the dev stub client)");
+      throw new Error(
+        "StorageService: R2 credentials are required in production (refusing the dev stub client)",
+      );
     }
   }
 
@@ -80,13 +82,33 @@ export class StorageService {
     } catch {
       return null;
     }
-    const ownHost =
-      parsed.hostname === "r2.stub.local" || parsed.hostname.endsWith(".r2.cloudflarestorage.com");
-    if (!ownHost) return null;
+    const ownHost = this.creds
+      ? `${this.creds.accountId}.r2.cloudflarestorage.com`
+      : "r2.stub.local";
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname !== ownHost ||
+      parsed.port ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    )
+      return null;
     const prefix = `/${this.bucketName(bucket)}/`;
     if (!parsed.pathname.startsWith(prefix)) return null;
-    const key = decodeURIComponent(parsed.pathname.slice(prefix.length));
-    return key.length > 0 ? key : null;
+    try {
+      const key = decodeURIComponent(parsed.pathname.slice(prefix.length));
+      if (
+        key.split("/").some((part) => !part || part === "." || part === "..") ||
+        key.includes("\\")
+      ) {
+        return null;
+      }
+      return key.length > 0 ? key : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Time-limited signed GET so privileged reviewers can view a private object (KYC docs). */

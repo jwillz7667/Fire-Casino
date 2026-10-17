@@ -420,8 +420,8 @@ export class OperatorsService {
   }
 
   /** Throw if the node or any ancestor is suspended (the freeze cascade, docs/04 §4). */
-  private async assertNotFrozen(path: string): Promise<void> {
-    const frozen = await this.system.operator.findFirst({
+  private async assertNotFrozen(path: string, client: Pick<PrismaClient, "operator"> = this.system): Promise<void> {
+    const frozen = await client.operator.findFirst({
       where: { path: { in: ancestorPaths(path) }, status: "SUSPENDED" },
       select: { id: true },
     });
@@ -448,13 +448,13 @@ export class OperatorsService {
   }
 
   /** Resolve the freeze check for an arbitrary operator id (used by credit flows). */
-  async assertOperatorActionable(operatorId: string): Promise<void> {
-    const operator = await this.system.operator.findUnique({
+  async assertOperatorActionable(operatorId: string, client: Pick<PrismaClient, "operator"> = this.system): Promise<void> {
+    const operator = await client.operator.findUnique({
       where: { id: operatorId },
       select: { path: true, status: true },
     });
     if (!operator) throw new NotFoundError("Operator not found");
     if (operator.status !== "ACTIVE") throw new ForbiddenError("Operator is not active");
-    await this.assertNotFrozen(operator.path);
+    await this.assertNotFrozen(operator.path, client);
   }
 }

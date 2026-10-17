@@ -1,5 +1,5 @@
 import { Global, Inject, Injectable, Module } from "@nestjs/common";
-import { type PrismaClient } from "@aureus/db";
+import { type Prisma, type PrismaClient } from "@aureus/db";
 import { type Env, type PlatformMode } from "@aureus/shared";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
@@ -29,9 +29,14 @@ export class PlatformSettingsProvider {
   private cachedAt = 0;
 
   constructor(
-    @Inject(PRISMA_SYSTEM) private readonly prisma: PrismaClient,
+    @Inject(PRISMA_SYSTEM) private readonly prisma: Pick<PrismaClient, "platformSetting">,
     @Inject(ENV) private readonly env: Env,
   ) {}
+
+  /** A short-lived view for transactional gates; no reads escape the transaction. */
+  forTransaction(tx: Prisma.TransactionClient): PlatformSettingsProvider {
+    return new PlatformSettingsProvider(tx, this.env);
+  }
 
   /** Drop the cache so the next read reflects a just-written setting. */
   invalidate(): void {

@@ -190,7 +190,7 @@ export interface CreditOrder {
 
 export interface PresignResult {
   uploadUrl: string;
-  publicUrl: string;
+  fileUrl: string;
   key?: string;
 }
 
@@ -222,6 +222,7 @@ export interface RedemptionDto {
   status: RedemptionStatus;
   method: string | null;
   payoutRef: string | null;
+  hasProof?: boolean;
   holdTxId: string | null;
   settleTxId: string | null;
   rejectionReason: string | null;
@@ -244,7 +245,12 @@ export interface PlayerComplianceState {
   kycStatus: KycStatus;
   kycLevel: number;
   openAmlFlags: number;
-  rgLimits: { type: RgLimitType; period: RgPeriod; valueMinor: string | null; minutes: number | null }[];
+  rgLimits: {
+    type: RgLimitType;
+    period: RgPeriod;
+    valueMinor: string | null;
+    minutes: number | null;
+  }[];
 }
 
 export interface RedemptionDetail extends RedemptionDto {

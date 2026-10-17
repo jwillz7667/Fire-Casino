@@ -126,7 +126,11 @@ export function WheelGodot({
         );
         void queryClient.invalidateQueries({ queryKey: qk.wallet });
         void queryClient.invalidateQueries({ queryKey: qk.walletHistory });
-        post("betResult", { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor }, reqId);
+        post(
+          "betResult",
+          { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor },
+          reqId,
+        );
       } catch (err) {
         post("betError", { message: messageForError(err) }, reqId);
       }
@@ -136,7 +140,13 @@ export function WheelGodot({
 
   useEffect(() => {
     function onMessage(e: MessageEvent): void {
-      if (GAME_ORIGIN !== "*" && e.origin !== GAME_ORIGIN) return;
+      if (
+        !iframeRef.current?.contentWindow ||
+        e.source !== iframeRef.current.contentWindow ||
+        GAME_ORIGIN === "*" ||
+        e.origin !== GAME_ORIGIN
+      )
+        return;
       const m = e.data as {
         source?: string;
         type?: string;

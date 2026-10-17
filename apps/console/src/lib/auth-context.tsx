@@ -10,13 +10,13 @@ import {
   useMemo,
   useState,
 } from "react";
-import type { OperatorLoginInput, OperatorSummary } from "@aureus/shared";
 import {
-  api,
-  refreshSession,
-  setAccessToken,
-  setSessionExpiredHandler,
-} from "./api";
+  operatorSummarySchema,
+  type OperatorLoginInput,
+  type OperatorSummary,
+} from "@aureus/shared";
+import { useQueryClient } from "@tanstack/react-query";
+import { api, refreshSession, setAccessToken, setSessionExpiredHandler } from "./api";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -39,11 +39,15 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }): ReactElement {
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [principal, setPrincipalState] = useState<OperatorSummary | null>(null);
 
   const loadMe = useCallback(async (): Promise<void> => {
     const me = await api.get<OperatorSummary>("/auth/me");
+    // A refresh cookie may belong to the player app; never hydrate the
+    // privileged shell from a player principal.
+    operatorSummarySchema.parse(me);
     setPrincipalState(me);
     setStatus("authenticated");
   }, []);
@@ -77,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   // bounces the user to /login.
   useEffect(() => {
     setSessionExpiredHandler(() => {
+      queryClient.clear();
       setPrincipalState(null);
       setStatus("unauthenticated");
     });
@@ -85,15 +90,20 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
         /* no-op */
       });
     };
-  }, []);
+  }, [queryClient]);
 
-  const login = useCallback(async (input: OperatorLoginInput): Promise<OperatorSummary> => {
-    const res = await api.post<OperatorLoginResponse>("/auth/operator/login", input);
-    setAccessToken(res.accessToken);
-    setPrincipalState(res.operator);
-    setStatus("authenticated");
-    return res.operator;
-  }, []);
+  const login = useCallback(
+    async (input: OperatorLoginInput): Promise<OperatorSummary> => {
+      const res = await api.post<OperatorLoginResponse>("/auth/operator/login", input);
+      // Drop cached balances, ledger rows and permissions from the previous user.
+      queryClient.clear();
+      setAccessToken(res.accessToken);
+      setPrincipalState(res.operator);
+      setStatus("authenticated");
+      return res.operator;
+    },
+    [queryClient],
+  );
 
   const logout = useCallback(async (): Promise<void> => {
     try {
@@ -102,9 +112,10 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       /* best-effort; clear local state regardless */
     }
     setAccessToken(null);
+    queryClient.clear();
     setPrincipalState(null);
     setStatus("unauthenticated");
-  }, []);
+  }, [queryClient]);
 
   const reload = useCallback(async (): Promise<void> => {
     await loadMe();

@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react";
 import { io, type Socket } from "socket.io-client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  playerRoom,
   type RealtimeEvent,
   realtimeEventSchema,
   type RealtimeTokenResponse,
@@ -12,8 +11,7 @@ import {
 import { api } from "./api";
 import { pushAnnouncement } from "./announcements";
 import { qk } from "./queries";
-
-const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+import { API_ORIGIN } from "./env";
 
 interface RealtimeOptions {
   enabled: boolean;
@@ -38,48 +36,57 @@ export function useRealtime({ enabled, playerId, onEvent }: RealtimeOptions): vo
 
     let socket: Socket | null = null;
     let cancelled = false;
+    let rooms: string[] = [];
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-    void (async () => {
-      let auth: RealtimeTokenResponse;
-      try {
-        auth = await api.post<RealtimeTokenResponse>("/realtime/token");
-      } catch {
-        // Realtime is optional; refetch-on-focus covers correctness.
-        return;
-      }
-      if (cancelled) return;
+    // The gateway disconnects sockets at token expiry. Mint again on EVERY
+    // handshake so a reconnect never loops with the old expired token.
+    const authProvider = (cb: (data: { token?: string }) => void): void => {
+      api
+        .post<RealtimeTokenResponse>("/realtime/token")
+        .then((auth) => {
+          if (cancelled) return;
+          rooms = auth.rooms;
+          cb({ token: auth.token });
+        })
+        .catch(() => {
+          if (!cancelled) cb({});
+        });
+    };
 
-      const rooms = auth.rooms.length > 0 ? auth.rooms : playerId ? [playerRoom(playerId)] : [];
+    socket = io(API_ORIGIN, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+      auth: authProvider,
+      reconnection: true,
+      reconnectionDelay: 1_000,
+    });
 
-      socket = io(SOCKET_URL, {
-        transports: ["websocket"],
-        withCredentials: true,
-        auth: { token: auth.token },
-        reconnection: true,
-      });
+    socket.on("connect", () => {
+      if (rooms.length > 0) socket?.emit("subscribe", { rooms });
+      // Refetch every affected screen after any connection, including recovery
+      // from a deliberate server disconnect (not covered by Manager reconnect).
+      void queryClient.invalidateQueries();
+    });
 
-      const subscribe = (): void => {
-        if (rooms.length > 0) socket?.emit("subscribe", { rooms });
-      };
+    socket.on("disconnect", (reason) => {
+      if (reason !== "io server disconnect" || cancelled) return;
+      reconnectTimer = setTimeout(() => {
+        if (!cancelled) socket?.connect();
+      }, 1_000);
+    });
 
-      socket.on("connect", subscribe);
-      socket.io.on("reconnect", () => {
-        subscribe();
-        // A dropped/restored socket may have missed events — reconcile.
-        void queryClient.invalidateQueries({ queryKey: qk.wallet });
-      });
-
-      socket.onAny((event: string, payload: unknown) => {
-        const parsed = realtimeEventSchema.safeParse(event);
-        if (!parsed.success) return;
-        handleEvent(parsed.data, queryClient);
-        if (parsed.data === "announcement") captureAnnouncement(payload);
-        onEventRef.current?.(parsed.data, payload);
-      });
-    })();
+    socket.onAny((event: string, payload: unknown) => {
+      const parsed = realtimeEventSchema.safeParse(event);
+      if (!parsed.success) return;
+      handleEvent(parsed.data, queryClient);
+      if (parsed.data === "announcement") captureAnnouncement(payload);
+      onEventRef.current?.(parsed.data, payload);
+    });
 
     return () => {
       cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       socket?.removeAllListeners();
       socket?.disconnect();
     };
@@ -90,15 +97,16 @@ function captureAnnouncement(payload: unknown): void {
   if (payload && typeof payload === "object" && "id" in payload && "title" in payload) {
     const p = payload as { id: unknown; title: unknown; body?: unknown };
     if (typeof p.id === "string" && typeof p.title === "string") {
-      pushAnnouncement({ id: p.id, title: p.title, body: typeof p.body === "string" ? p.body : undefined });
+      pushAnnouncement({
+        id: p.id,
+        title: p.title,
+        body: typeof p.body === "string" ? p.body : undefined,
+      });
     }
   }
 }
 
-function handleEvent(
-  event: RealtimeEvent,
-  queryClient: ReturnType<typeof useQueryClient>,
-): void {
+function handleEvent(event: RealtimeEvent, queryClient: ReturnType<typeof useQueryClient>): void {
   switch (event) {
     case "balance.changed":
     case "session.round":

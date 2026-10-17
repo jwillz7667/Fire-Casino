@@ -18,7 +18,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactElement {
   const router = useRouter();
   const { status, principal } = useAuth();
 
-  useRealtime(status === "authenticated");
+  useRealtime(status === "authenticated" && principal?.requiresMfaEnrollment === false);
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");

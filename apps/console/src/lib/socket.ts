@@ -19,7 +19,15 @@ export type RealtimeHandler = (event: RealtimeEvent, payload: Record<string, unk
 // an optimization: on reconnect we refetch everything so a dropped event never
 // leaves the UI stale (docs/05 §11 — "refetch wins").
 const INVALIDATION: Record<RealtimeEvent, string[]> = {
-  "balance.changed": ["self-balance", "ledger-drawer", "operator", "operators", "player", "players", "reports"],
+  "balance.changed": [
+    "self-balance",
+    "ledger-drawer",
+    "operator",
+    "operators",
+    "player",
+    "players",
+    "reports",
+  ],
   "order.updated": ["orders", "order", "reports", "notifications"],
   "recharge.requested": ["notifications", "reports", "players"],
   "player.created": ["players", "notifications"],
@@ -51,6 +59,8 @@ export function useRealtime(enabled: boolean, onEvent?: RealtimeHandler): void {
     if (!enabled) return;
     let socket: Socket | null = null;
     let rooms: string[] = [];
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Mint a FRESH token for every (re)connection attempt. The server disconnects
     // a socket when its access token expires, so reusing a stale token would loop;
@@ -61,10 +71,13 @@ export function useRealtime(enabled: boolean, onEvent?: RealtimeHandler): void {
       api
         .post<RealtimeTokenResponse>("/realtime/token")
         .then((res) => {
+          if (cancelled) return;
           rooms = res.rooms;
           cb({ token: res.token });
         })
-        .catch(() => { cb({}); });
+        .catch(() => {
+          if (!cancelled) cb({});
+        });
     };
 
     socket = io(API_ORIGIN, {
@@ -85,6 +98,15 @@ export function useRealtime(enabled: boolean, onEvent?: RealtimeHandler): void {
       void queryClient.invalidateQueries();
     });
 
+    // socket.io does not automatically retry a deliberate server disconnect,
+    // which the gateway uses when its access token expires.
+    socket.on("disconnect", (reason) => {
+      if (reason !== "io server disconnect" || cancelled) return;
+      reconnectTimer = setTimeout(() => {
+        if (!cancelled) socket?.connect();
+      }, 1_000);
+    });
+
     const events = Object.keys(INVALIDATION) as RealtimeEvent[];
     for (const event of events) {
       socket.on(event, (payload: Record<string, unknown>) => {
@@ -94,6 +116,8 @@ export function useRealtime(enabled: boolean, onEvent?: RealtimeHandler): void {
     }
 
     return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (socket) {
         socket.removeAllListeners();
         socket.disconnect();

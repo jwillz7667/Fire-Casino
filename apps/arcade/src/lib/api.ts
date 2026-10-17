@@ -9,7 +9,7 @@
  * login). Refreshes are single-flighted so concurrent 401s share one round-trip.
  */
 
-const API_BASE = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/v1`;
+import { API_BASE, API_ORIGIN } from "./env";
 
 export class ApiError extends Error {
   constructor(
@@ -24,8 +24,11 @@ export class ApiError extends Error {
 }
 
 let accessToken: string | null = null;
+// Explicit login/logout invalidates pending work from the previous session.
+let sessionVersion = 0;
 
 export function setAccessToken(token: string | null): void {
+  sessionVersion += 1;
   accessToken = token;
 }
 
@@ -57,15 +60,17 @@ let refreshInFlight: Promise<boolean> | null = null;
 /** Single-flighted refresh. Resolves true when a fresh access token was set. */
 export async function tryRefresh(): Promise<boolean> {
   refreshInFlight ??= (async () => {
+    const version = sessionVersion;
     try {
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: "POST",
+        headers: { "X-Auth-Audience": "player" },
         credentials: "include",
       });
       if (!res.ok) return false;
       const data = (await res.json()) as { accessToken?: string };
-      if (data.accessToken) {
-        setAccessToken(data.accessToken);
+      if (data.accessToken && version === sessionVersion) {
+        accessToken = data.accessToken;
         return true;
       }
       return false;
@@ -101,20 +106,27 @@ async function toApiError(res: Response, statusOverride?: number): Promise<ApiEr
 }
 
 async function request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<T> {
-  const url = new URL(`${API_BASE}${path}`);
+  const version = sessionVersion;
+  const url = new URL(`${API_BASE}${path}`, API_ORIGIN);
   if (opts.query) {
     for (const [key, value] of Object.entries(opts.query)) {
       if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
     }
   }
+  // Resolve queries consistently, but leave proxied requests relative so the
+  // browser sends first-party cookies to this frontend instead of the API host.
+  const requestUrl = API_BASE.startsWith("/") ? `${url.pathname}${url.search}` : url.toString();
 
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "X-Auth-Audience": "player",
+  };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
 
-  const res = await fetch(url.toString(), {
+  const res = await fetch(requestUrl, {
     method,
     headers,
     credentials: "include",
@@ -122,8 +134,15 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
     body: opts.body !== undefined ? JSON.stringify(opts.body, bigintReplacer) : undefined,
   });
 
-  if (res.status === 401 && !opts.skipAuthRetry && path !== "/auth/refresh") {
-    const refreshed = await tryRefresh();
+  if (
+    res.status === 401 &&
+    path !== "/auth/refresh" &&
+    !["/auth/operator/login", "/auth/player/login", "/auth/logout"].includes(path)
+  ) {
+    // An old request must never log out a newly signed-in account.
+    if (version !== sessionVersion) throw await toApiError(res);
+    const refreshed = !opts.skipAuthRetry && (await tryRefresh());
+    if (version !== sessionVersion) throw await toApiError(res);
     if (refreshed) return request<T>(method, path, { ...opts, skipAuthRetry: true });
     setAccessToken(null);
     authLostHandler?.();
@@ -134,7 +153,7 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
   if (res.status === 204) return undefined as T;
 
   const text = await res.text();
-  return (text ? (JSON.parse(text) as T) : (undefined as T));
+  return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
 export const api = {

@@ -13,7 +13,12 @@ import {
   type RejectOrderInput,
   rejectOrderSchema,
 } from "@aureus/shared";
-import { Auth, CurrentUser, RequirePermission } from "../common/auth/auth.decorators";
+import {
+  Auth,
+  CurrentUser,
+  RequireAnyPermission,
+  RequirePermission,
+} from "../common/auth/auth.decorators";
 import { type OperatorPrincipal } from "../common/auth/principal";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { MONEY_RATE_LIMIT } from "../common/throttler/throttler.config";
@@ -41,7 +46,7 @@ export class OrdersController {
 
   @Post("proof-url")
   @HttpCode(200)
-  @RequirePermission("order.request_up")
+  @RequireAnyPermission("order.request_up", "order.fulfill")
   proofUrl(
     @CurrentUser() caller: OperatorPrincipal,
     @Body(new ZodValidationPipe(presignProofSchema)) body: PresignProofInput,
@@ -64,10 +69,20 @@ export class OrdersController {
     return this.orders.get(caller, id);
   }
 
+  @Get(":id/proof")
+  @RequirePermission("order.view")
+  proof(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string, @Req() req: Request) {
+    return this.orders.proofDocument(caller, id, ctxOf(req));
+  }
+
   @Post(":id/awaiting-payment")
   @HttpCode(200)
   @RequirePermission("order.fulfill")
-  acknowledge(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string, @Req() req: Request) {
+  acknowledge(
+    @CurrentUser() caller: OperatorPrincipal,
+    @Param("id") id: string,
+    @Req() req: Request,
+  ) {
     return this.orders.acknowledge(caller, id, ctxOf(req));
   }
 

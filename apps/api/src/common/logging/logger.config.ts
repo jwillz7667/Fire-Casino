@@ -12,6 +12,7 @@ const REDACT_PATHS = [
   "req.headers.cookie",
   'req.headers["set-cookie"]',
   'res.headers["set-cookie"]',
+  'req.headers["x-firecasino-proxy-proof"]',
   "req.body.password",
   "req.body.currentPassword",
   "req.body.newPassword",

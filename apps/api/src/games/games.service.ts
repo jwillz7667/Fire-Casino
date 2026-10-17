@@ -151,8 +151,9 @@ export class GamesService {
     operatorId: string,
     playerId: string,
     defaultBps: number,
+    client: Pick<PrismaClient, "gameRtpOverride"> = this.prisma,
   ): Promise<number> {
-    const overrides = await this.prisma.gameRtpOverride.findMany({
+    const overrides = await client.gameRtpOverride.findMany({
       where: { gameId, operatorId, OR: [{ playerId }, { playerId: null }] },
       select: { playerId: true, rtpBps: true },
     });
@@ -342,76 +343,73 @@ export class GamesService {
     region?: string,
   ) {
     const betKey = `round:${sessionId}:${idemKey}`;
-
-    const existing = await this.prisma.gameRound.findUnique({ where: { idempotencyKey: betKey } });
-    const session = await this.loadOwnedSession(player, sessionId);
-
-    if (existing) {
-      return this.completeRound(player, session, existing);
-    }
-
-    const game = session.game;
-    if (game.status !== "ACTIVE") throw new ConflictError("Game is not available");
-    if (betMinor < game.minBetMinor || betMinor > game.maxBetMinor) {
-      throw new ValidationError(undefined, "Bet is outside the allowed range");
-    }
-    if (!game.supportedCurrencies.includes(session.currency)) {
-      throw new ValidationError(undefined, "Currency not supported by this game");
-    }
-    // Forward the bet so the WAGER/LOSS responsible-gaming limits are enforced
-    // (docs/03 §4.4, hard rule #7), not just account status + self-exclusion.
-    await this.compliance.checkPlay(player.playerId, { betMinor, region });
-
-    const balance = await this.ledger.getBalance({ kind: "player", playerId: player.playerId, currency: session.currency });
-    if (balance < betMinor) throw new ConflictError("Insufficient wallet balance");
-
-    // Reserve a unique nonce + the round shell, serialized by a session lock.
-    let round: RoundRow;
-    try {
-      round = await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM game_sessions WHERE id = ${sessionId} FOR UPDATE`;
-        const max = await tx.gameRound.aggregate({ where: { sessionId }, _max: { nonce: true } });
-        return tx.gameRound.create({
-          data: {
-            sessionId,
-            nonce: (max._max.nonce ?? 0) + 1,
-            betMinor,
-            winMinor: 0n,
-            // Stash the bet params on the pending shell so whichever request finalizes the
-            // round (incl. an idempotent retry) runs the engine with the SAME inputs.
-            outcome: { kind: "pending", params } as Prisma.InputJsonObject,
-            idempotencyKey: betKey,
-          },
-        });
-      });
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-        const again = await this.prisma.gameRound.findUnique({ where: { idempotencyKey: betKey } });
-        if (again) return this.completeRound(player, session, again);
+    const completed = await this.ledger.transaction(async (tx) => {
+      // Hold the session until the full bet/win commits. endSession takes this
+      // same lock, so its seed cannot be revealed while a bet is being accepted.
+      await tx.$queryRaw`SELECT id FROM game_sessions WHERE id = ${sessionId} FOR UPDATE`;
+      const session = await this.loadOwnedSession(player, sessionId, tx);
+      const existing = await tx.gameRound.findUnique({ where: { idempotencyKey: betKey } });
+      if (existing?.betTxId && (existing.outcome as { kind?: string } | null)?.kind !== "pending") {
+        return { round: existing, currency: session.currency };
       }
-      throw e;
-    }
-
-    return this.completeRound(player, session, round);
+      if (session.status !== "ACTIVE") throw new ConflictError("Session has ended");
+      // Serialize player decisions with redemption reservations and other bets,
+      // so responsible-gaming checks see the previous committed round's totals.
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${player.playerId} FOR UPDATE`;
+      const game = session.game;
+      if (existing) {
+        const legacyPost = await tx.ledgerTransaction.findFirst({
+          where: { idempotencyKey: { in: [`round:${existing.id}:bet`, `round:${existing.id}:win`] } },
+          select: { id: true },
+        });
+        if (existing.betTxId || existing.winTxId || legacyPost) {
+          throw new ConflictError("Historical incomplete round has posted credits and requires reconciliation before retry");
+        }
+      }
+      const stakeMinor = existing?.betMinor ?? betMinor;
+      if (game.status !== "ACTIVE") throw new ConflictError("Game is not available");
+      if (stakeMinor < game.minBetMinor || stakeMinor > game.maxBetMinor) {
+        throw new ValidationError(undefined, "Bet is outside the allowed range");
+      }
+      if (!game.supportedCurrencies.includes(session.currency)) {
+        throw new ValidationError(undefined, "Currency not supported by this game");
+      }
+      await this.compliance.forTransaction(tx).checkPlay(player.playerId, { betMinor: stakeMinor, region });
+      const max = existing ? null : await tx.gameRound.aggregate({ where: { sessionId }, _max: { nonce: true } });
+      const round = existing ?? await tx.gameRound.create({
+        data: {
+          sessionId,
+          nonce: (max?._max.nonce ?? 0) + 1,
+          betMinor,
+          winMinor: 0n,
+          outcome: { kind: "pending", params } as Prisma.InputJsonObject,
+          idempotencyKey: betKey,
+        },
+      });
+      return { round: await this.completeRound(tx, player, session, round), currency: session.currency };
+    });
+    return this.roundResponse(player, completed.currency, completed.round);
   }
 
   async endSession(player: PlayerPrincipal, sessionId: string) {
-    const session = await this.prisma.gameSession.findUnique({
-      where: { id: sessionId },
-      select: { id: true, playerId: true, status: true, serverSeed: true, serverSeedHash: true, clientSeed: true },
+    return this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM game_sessions WHERE id = ${sessionId} FOR UPDATE`;
+      const session = await tx.gameSession.findUnique({
+        where: { id: sessionId },
+        select: { id: true, playerId: true, status: true, serverSeed: true, serverSeedHash: true, clientSeed: true },
+      });
+      if (!session) throw new NotFoundError("Session not found");
+      if (session.playerId !== player.playerId) throw new ForbiddenError();
+      if (session.status === "ACTIVE") {
+        await tx.gameSession.update({ where: { id: sessionId }, data: { status: "ENDED", endedAt: new Date() } });
+      }
+      return {
+        sessionId: session.id,
+        serverSeed: session.serverSeed,
+        serverSeedHash: session.serverSeedHash,
+        clientSeed: session.clientSeed,
+      };
     });
-    if (!session) throw new NotFoundError("Session not found");
-    if (session.playerId !== player.playerId) throw new ForbiddenError();
-    if (session.status === "ACTIVE") {
-      await this.prisma.gameSession.update({ where: { id: sessionId }, data: { status: "ENDED", endedAt: new Date() } });
-    }
-    // Reveal the server seed for verification.
-    return {
-      sessionId: session.id,
-      serverSeed: session.serverSeed,
-      serverSeedHash: session.serverSeedHash,
-      clientSeed: session.clientSeed,
-    };
   }
 
   async getSession(player: PlayerPrincipal, sessionId: string) {
@@ -434,30 +432,25 @@ export class GamesService {
 
   // ---- internals -------------------------------------------------------------
 
-  private async loadOwnedSession(player: PlayerPrincipal, sessionId: string) {
-    const session = await this.prisma.gameSession.findUnique({
+  private async loadOwnedSession(player: PlayerPrincipal, sessionId: string, tx: Prisma.TransactionClient) {
+    const session = await tx.gameSession.findUnique({
       where: { id: sessionId },
       include: { game: true },
     });
     if (!session) throw new NotFoundError("Session not found");
     if (session.playerId !== player.playerId) throw new ForbiddenError();
-    if (session.status !== "ACTIVE") throw new ConflictError("Session has ended");
     return session;
   }
 
   /** Idempotently finish a round: post bet, run RGS, post win, finalize totals. */
   private async completeRound(
+    tx: Prisma.TransactionClient,
     player: PlayerPrincipal,
     session: Prisma.GameSessionGetPayload<{ include: { game: true } }>,
     round: RoundRow,
   ) {
-    const finalized = (round.outcome as { kind?: string }).kind !== "pending";
-    if (finalized && round.betTxId) {
-      return this.roundResponse(player, session.currency, round);
-    }
-
     const currency = session.currency;
-    const betResult = await this.ledger.post({
+    const betResult = await this.ledger.postInTransaction(tx, {
       type: "GAME_BET",
       currency,
       idempotencyKey: `round:${round.id}:bet`,
@@ -496,12 +489,13 @@ export class GamesService {
       player.operatorId,
       player.playerId,
       session.game.rtpBps,
+      tx,
     );
     const winMinor = scaleWinForRtp(result.winMinor, effectiveRtpBps, session.game.rtpBps);
 
     let winTxId: string | undefined;
     if (winMinor > 0n) {
-      const winResult = await this.ledger.post({
+      const winResult = await this.ledger.postInTransaction(tx, {
         type: "GAME_WIN",
         currency,
         idempotencyKey: `round:${round.id}:win`,
@@ -516,34 +510,30 @@ export class GamesService {
       winTxId = winResult.transactionId;
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const r = await tx.gameRound.update({
-        where: { id: round.id },
-        data: {
-          betTxId: betResult.transactionId,
-          winTxId,
-          winMinor,
-          // RGS-1: persist the override provenance so the paid win is verifiable
-          // end-to-end. grossWinMinor recomputes from the seed; baseRtpBps snapshots
-          // the round-time certified RTP (game.rtpBps is mutable) so winMinor ===
-          // floor(grossWinMinor * effectiveRtpBps / baseRtpBps) holds for all time
-          // (truncating BigInt division — see scaleWinForRtp).
-          grossWinMinor: result.winMinor,
-          effectiveRtpBps,
-          baseRtpBps: session.game.rtpBps,
-          outcome: result.outcome as Prisma.InputJsonObject,
-        },
-      });
-      await tx.gameSession.update({
-        where: { id: round.sessionId },
-        // MONEY-2: session totals must track the SCALED win actually credited to the
-        // ledger (winMinor), not the gross engine win (result.winMinor).
-        data: { totalBetMinor: { increment: round.betMinor }, totalWinMinor: { increment: winMinor } },
-      });
-      return r;
+    const r = await tx.gameRound.update({
+      where: { id: round.id },
+      data: {
+        betTxId: betResult.transactionId,
+        winTxId,
+        winMinor,
+        // RGS-1: persist the override provenance so the paid win is verifiable
+        // end-to-end. grossWinMinor recomputes from the seed; baseRtpBps snapshots
+        // the round-time certified RTP (game.rtpBps is mutable) so winMinor ===
+        // floor(grossWinMinor * effectiveRtpBps / baseRtpBps) holds for all time
+        // (truncating BigInt division — see scaleWinForRtp).
+        grossWinMinor: result.winMinor,
+        effectiveRtpBps,
+        baseRtpBps: session.game.rtpBps,
+        outcome: result.outcome as Prisma.InputJsonObject,
+      },
     });
-
-    return this.roundResponse(player, currency, updated);
+    await tx.gameSession.update({
+      where: { id: round.sessionId },
+      // MONEY-2: session totals must track the SCALED win actually credited to the
+      // ledger (winMinor), not the gross engine win (result.winMinor).
+      data: { totalBetMinor: { increment: round.betMinor }, totalWinMinor: { increment: winMinor } },
+    });
+    return r;
   }
 
   private async roundResponse(player: PlayerPrincipal, currency: Currency, round: RoundRow) {

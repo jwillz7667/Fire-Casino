@@ -14,5 +14,5 @@ export async function uploadViaPresign(presignPath: string, file: File): Promise
     body: file,
   });
   if (!res.ok) throw new Error("Upload failed");
-  return presign.publicUrl;
+  return presign.fileUrl;
 }

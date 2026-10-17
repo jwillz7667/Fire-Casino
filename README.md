@@ -10,11 +10,11 @@ A credit-based gaming platform. The operator issues credits and sells them down 
 
 Three deployable surfaces over one backend:
 
-| Surface | App | Who uses it | What it does |
-|---|---|---|---|
+| Surface     | App            | Who uses it                                                        | What it does                                                                                                                                            |
+| ----------- | -------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Console** | `apps/console` | Super admin, admins, distributors, sub-distributors, stores/agents | Manage the distribution tree, issue and transfer credits, create and recharge players, approve redemptions, run reports, configure games and compliance |
-| **Arcade** | `apps/arcade` | Players | Log in, see balance, browse the game lobby (placeholder games), play, request a recharge from their agent, request a redemption |
-| **API** | `apps/api` | The two apps above | NestJS backend: REST + Socket.io + background workers |
+| **Arcade**  | `apps/arcade`  | Players                                                            | Log in, see balance, browse the game lobby (placeholder games), play, request a recharge from their agent, request a redemption                         |
+| **API**     | `apps/api`     | The two apps above                                                 | NestJS backend: REST + Socket.io + background workers                                                                                                   |
 
 The console serves every operator tier from the same app, gated by role and subtree scope. A "distributor" is just an operator whose view is scoped to its own branch of the tree. This mirrors how these platforms actually run: one back-office terminal, different permission scopes.
 
@@ -50,7 +50,7 @@ The console serves every operator tier from the same app, gated by role and subt
 
 Credits cascade **down**. Winnings/redemptions settle **up**. The key facts:
 
-- **One credit is one credit everywhere in the ledger.** Transferring 1000 credits down moves exactly 1000 credits. Nobody marks up the *credit count*.
+- **One credit is one credit everywhere in the ledger.** Transferring 1000 credits down moves exactly 1000 credits. Nobody marks up the _credit count_.
 - **Profit lives in the cash price, not the ledger.** A distributor buys credits at, say, $0.008 each and sells them to an agent at $0.010 each. That spread is the distributor's margin, and it changes hands **off-platform**. The platform records the agreed unit price on each order so reports can show margin, but the ledger only moves raw credit units. This separation keeps the money model clean and auditable.
 - **No payment processor.** When an operator buys credits, they pay their upline by whatever offline method they arranged. The system records a `CreditOrder` with the amount, agreed unit price, payment method, reference, and proof, and the upline marks it paid before credits are issued. Same idea when a player buys credits from an agent: the player hands over cash, the agent recharges their wallet.
 - **Redemption is the reverse.** A player asks to cash out. Their agent (or an upline, depending on config) approves it, the player's prize balance is burned, a payable is recorded, and the agent pays the player cash off-platform, then marks it settled.
@@ -154,16 +154,47 @@ Health: `GET http://localhost:4000/healthz` (liveness), `/readyz` (DB + Redis).
 
 The API image runs as **two processes** that share the same code:
 
-| Process | Entry | Responsibility |
-|---|---|---|
-| web | `pnpm --filter @aureus/api start` (`dist/main.js`) | REST + Socket.io gateway |
-| worker | `pnpm --filter @aureus/api start:worker` (`dist/worker.js`) | outbox → realtime relay, scheduled ledger reconciliation (BullMQ) |
+| Process | Entry                                                       | Responsibility                                                    |
+| ------- | ----------------------------------------------------------- | ----------------------------------------------------------------- |
+| web     | `pnpm --filter @aureus/api start` (`dist/main.js`)          | REST + Socket.io gateway                                          |
+| worker  | `pnpm --filter @aureus/api start:worker` (`dist/worker.js`) | outbox → realtime relay, scheduled ledger reconciliation (BullMQ) |
 
 Both must run in production. The web process attaches the Socket.io Redis adapter; the worker publishes relayed events over Redis so they reach clients on any web instance, and runs the reconciliation sweep every 5 minutes (results land on the **Ledger Health** page).
 
 ### Deployment
 
-Target stack: **Railway** (web + worker + managed Postgres + Redis), **Cloudflare R2** (object storage for KYC docs / payment proofs), **Vercel** (the two Next.js apps, one project each). Cross-site auth: set `ALLOWED_ORIGINS` to the exact frontend origins, `COOKIE_SECURE=true`, and the refresh cookie to `SameSite=None` in production.
+The backend uses PostgreSQL, Redis, and **Cloudflare R2** (KYC documents / payment proofs). The free setup below also hosts the console and arcade as separate Render Node web services. Set `NEXT_PUBLIC_API_URL` to the backend's HTTPS origin and `NEXT_PUBLIC_API_PROXY=true` on **both** frontend services, then rebuild. Next.js forwards `/api/v1/*` to that fixed upstream while Socket.io connects directly to it. The browser stores refresh cookies on each frontend's own host, so browsers blocking third-party cookies can restore sessions without a paid custom domain. Configure exact frontend origins in backend `ALLOWED_ORIGINS`, `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`, and an empty `COOKIE_DOMAIN`.
+
+Configure the same strong **server-only** `FRONTEND_PROXY_SECRET` on the API and both Render frontends. The Blueprint generates it once and references that value from both frontends. Render's Cloudflare ingress overwrites `CF-Connecting-IP`; frontend middleware validates that single address, strips caller-supplied assertion headers, and authenticates its forwarded address to the public API. This keeps rate limits and audit IPs tied to the browser client. The API ignores invalid assertions and keeps its normal one-hop proxy policy. See [Render's header guidance](https://render.com/articles/host-pocketbase-on-render). Never use a `NEXT_PUBLIC_` name for this secret, and rotate all three services together. Other frontend providers need their own documented trusted-ingress adapter before enabling authenticated client-IP forwarding.
+
+Direct HTTP calls remain available with `NEXT_PUBLIC_API_PROXY=false` (the default). If frontends and backend are on different sites, direct mode requires `COOKIE_SAMESITE=none` and browsers that permit third-party cookies. Only switch the backend to `lax` after both deployed frontends use the proxy; existing direct callers otherwise lose refresh sessions.
+
+#### Free Render + Neon deployment
+
+The [Render Blueprint](./render.yaml) creates three free web services (API/worker, console, arcade) and a free Key Value instance for Redis. PostgreSQL runs on [Neon Free](https://neon.com/pricing), which has no expiration or card requirement. All four Render resources explicitly use `plan: free`; no paid worker or expiring Render Postgres database is created.
+
+[Deploy Fire Casino to Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fjwillz7667%2FFire-Casino%2Ftree%2Fcodex%2Ffree-backend-hosting-20261017)
+
+1. Create a Neon Free PostgreSQL 16 project, preferably near Render's Oregon region. Use its SSL connection URL as `DATABASE_URL`. For a small instance, add `connect_timeout=15`, `connection_limit=5`, and `pool_timeout=15` query parameters alongside `sslmode=require`. A direct URL works for both startup migrations and the runtime; separate credentials are recommended below.
+2. Open the deploy link and sign in to Render with GitHub. Supply the prompted runtime values: the Neon URL, existing platform mode and JWT secrets, frontend URLs/allowed origins, and real R2 credentials and bucket names. Preserve both JWT secrets when importing existing users, especially `JWT_REFRESH_SECRET`, which protects MFA secrets. A fresh setup needs independently generated secrets of at least 32 characters.
+3. Review the Blueprint's four **Free** resources, then deploy. Redis is private and configured with `noeviction`; its connection URL is wired automatically. `API_URL` references Render's own public HTTPS URL, both frontend API origins reference it, and the proxy secret is shared through service references. Keep credentials in the providers' secret stores.
+4. Set backend `CONSOLE_URL`, `ARCADE_URL`, and `ALLOWED_ORIGINS` to the exact generated frontend HTTPS URLs. Check `/readyz`, both API/worker logs, and each frontend's `/login`. The frontend commands install development build tools explicitly and start Next on Render's supplied `PORT`. Provision the initial administrator securely for a fresh database; the development seed also creates demo accounts.
+
+[Render's free limits](https://render.com/docs/free) include **750 web-service hours shared by the entire workspace per month**, with sleep after 15 minutes without traffic. Three continuously active web services would exceed that allowance; idle sleep makes this suitable for low-use/demo workloads. Sleep also pauses the worker; the next request wakes a service and can take about a minute. Free Redis has 25 MB of memory and no disk persistence: the worker restores its recurring reconciliation schedule automatically within a minute of Redis recovering. `/readyz` checks connections, not the job schedule. Render advertises no-card free hosting but may request account verification for some users.
+
+Neon Free currently includes 1 GB of storage and 100 compute-unit hours per project per month. The worker's database polling consumes compute while the backend is awake, so monitor that allowance. This is a free setup for small/test workloads within the providers' limits; it does not promise uninterrupted production service.
+
+The combined command applies pending Prisma migrations before starting either process, forwards shutdown signals to both, and exits if either process stops unexpectedly so the host can restart the complete backend. Test this supervisor with `pnpm test:deploy`.
+
+For least-privilege database access, keep the owner's **direct** Neon URL in the optional Render secret `MIGRATION_DATABASE_URL`, and put a separate runtime role's URL in `DATABASE_URL`. Only the migration subprocess receives the owner URL as its `DATABASE_URL`; the API and worker retain the runtime URL and do not inherit `MIGRATION_DATABASE_URL`. Without an override, startup migrations use `DATABASE_URL` as before. The supervisor and hosting account still hold the owner secret, so restrict access to deployment settings.
+
+After applying migrations as the database owner, [deploy/runtime-role.sql](./deploy/runtime-role.sql) creates a new runtime role and limits its permissions: normal tables allow application reads/writes, financial and audit history allow only reads/inserts, and the migration table and schema DDL remain owner-only. Run it with `psql "$MIGRATION_DATABASE_URL" -v runtime_role=firecasino_runtime -f deploy/runtime-role.sql`, then use psql's interactive `\password firecasino_runtime` to set the password without saving it in source. Configure both URLs in Render's secret store. The script is for a dedicated application database and deliberately refuses existing role names. Future table migrations must explicitly grant any required update/delete permissions to the runtime role.
+
+For a fresh production database, use `pnpm --filter @aureus/db db:bootstrap-admin` after migrations. Supply `DATABASE_URL` and `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_EMAIL`, and `BOOTSTRAP_ADMIN_PASSWORD` through a secure one-time environment or secret manager; never put credentials in shell arguments, source, or chat. The password must be randomly generated, 20–128 characters long, with at least ten distinct characters. The command creates exactly one `SUPER_ADMIN`, a zero-balance CREDIT account, and an audit record in one transaction. It refuses any database that already contains users or operators, and leaves settings, game data, and other accounts untouched. Complete MFA enrollment on first sign-in and remove the bootstrap credentials from the execution environment afterward. `db:seed` creates development/demo data and is refused when `NODE_ENV=production`.
+
+To retain existing users and balances, first restore a full PostgreSQL backup (schema, data, triggers, custom indexes, and `_prisma_migrations`) into the new database and preserve the existing JWT secrets, especially `JWT_REFRESH_SECRET`, which also protects stored MFA secrets. Stop old web/worker writes for the final transfer and run all five Ledger Health checks before switching traffic. For a fresh database, provision the initial administrator securely: the development seed also creates demo operator/player accounts.
+
+Before switching a restored historical database to the atomic workflows, run the read-only checks in [deploy/financial-workflow-review.sql](./deploy/financial-workflow-review.sql). Approved redemptions with no approval-time payable snapshot require evidence-based metadata backfill before cancellation. Incomplete game rounds with an already-posted bet or win require finance reconciliation; retries deliberately refuse to guess historical payouts or RTP. Old public payment receipts must be replaced with uploads to the private KYC bucket and their public copies retired under the operator's retention policy.
 
 ### Backup & restore (Postgres)
 
@@ -186,13 +217,13 @@ On Railway, enable automated daily Postgres backups and periodically test a rest
 
 ### Commands
 
-| Command | What it does |
-|---|---|
-| `pnpm dev` | run api + console + arcade |
-| `pnpm --filter @aureus/api dev` | run one app (`@aureus/console` / `@aureus/arcade`) |
-| `pnpm build` / `lint` / `typecheck` / `test` | workspace-wide via Turborepo |
-| `pnpm db:migrate` / `db:seed` / `db:studio` | database (Prisma) |
-| `pnpm format` | Prettier write |
+| Command                                      | What it does                                       |
+| -------------------------------------------- | -------------------------------------------------- |
+| `pnpm dev`                                   | run api + console + arcade                         |
+| `pnpm --filter @aureus/api dev`              | run one app (`@aureus/console` / `@aureus/arcade`) |
+| `pnpm build` / `lint` / `typecheck` / `test` | workspace-wide via Turborepo                       |
+| `pnpm db:migrate` / `db:seed` / `db:studio`  | database (Prisma)                                  |
+| `pnpm format`                                | Prettier write                                     |
 
 ### Environment
 

@@ -1,7 +1,16 @@
 import { type CookieOptions } from "express";
 import { type Env } from "@aureus/shared";
+import { type Audience } from "../common/auth/principal";
 
-export const REFRESH_COOKIE = "fc_refresh";
+export const LEGACY_REFRESH_COOKIE = "fc_refresh";
+export const REFRESH_COOKIES = {
+  operator: "fc_operator_refresh",
+  player: "fc_player_refresh",
+} as const;
+
+export function refreshCookieName(audience: Audience): string {
+  return REFRESH_COOKIES[audience];
+}
 
 /**
  * httpOnly cookie for the rotating refresh token. SameSite + domain are env-

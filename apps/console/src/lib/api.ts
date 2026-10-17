@@ -33,8 +33,11 @@ export function isApiError(value: unknown): value is ApiError {
 // ---- in-memory token store ---------------------------------------------------
 
 let accessToken: string | null = null;
+// Explicit login/logout invalidates pending work from the previous session.
+let sessionVersion = 0;
 
 export function setAccessToken(token: string | null): void {
+  sessionVersion += 1;
   accessToken = token;
 }
 
@@ -56,14 +59,16 @@ export function setSessionExpiredHandler(handler: SessionExpiredHandler): void {
 let refreshInFlight: Promise<boolean> | null = null;
 
 async function doRefresh(): Promise<boolean> {
+  const version = sessionVersion;
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
+      headers: { "X-Auth-Audience": "operator" },
       credentials: "include",
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { accessToken?: string };
-    if (!data.accessToken) return false;
+    if (!data.accessToken || version !== sessionVersion) return false;
     accessToken = data.accessToken;
     return true;
   } catch {
@@ -94,7 +99,8 @@ async function toApiError(res: Response): Promise<ApiError> {
   try {
     const data: unknown = await res.json();
     if (data && typeof data === "object" && "error" in data) {
-      const err = (data as { error?: { code?: string; message?: string; details?: unknown } }).error;
+      const err = (data as { error?: { code?: string; message?: string; details?: unknown } })
+        .error;
       if (err?.code) code = err.code;
       if (err?.message) message = err.message;
       details = err?.details;
@@ -106,7 +112,8 @@ async function toApiError(res: Response): Promise<ApiError> {
 }
 
 async function request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = {};
+  const version = sessionVersion;
+  const headers: Record<string, string> = { "X-Auth-Audience": "operator" };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
@@ -119,10 +126,17 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
     signal: opts.signal,
   });
 
-  if (res.status === 401 && !opts.retry && path !== "/auth/refresh") {
-    const refreshed = await refreshSession();
+  if (
+    res.status === 401 &&
+    path !== "/auth/refresh" &&
+    !["/auth/operator/login", "/auth/player/login", "/auth/logout"].includes(path)
+  ) {
+    // An old request must never log out a newly signed-in account.
+    if (version !== sessionVersion) throw await toApiError(res);
+    const refreshed = !opts.retry && (await refreshSession());
+    if (version !== sessionVersion) throw await toApiError(res);
     if (refreshed) return request<T>(method, path, { ...opts, retry: true });
-    accessToken = null;
+    setAccessToken(null);
     sessionExpiredHandler();
     throw await toApiError(res);
   }

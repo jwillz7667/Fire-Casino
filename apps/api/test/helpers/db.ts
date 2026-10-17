@@ -1,10 +1,12 @@
 import { hash } from "@node-rs/argon2";
 import { type OperatorTier, type Prisma, PrismaClient } from "@aureus/db";
 
-const url =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://aureus:aureus@localhost:5432/aureus_test";
+const url = process.env.TEST_DATABASE_URL;
+if (!url) {
+  throw new Error(
+    "Integration tests require an explicit TEST_DATABASE_URL pointing to an isolated test database (fixtures TRUNCATE all tables)",
+  );
+}
 
 /** A dedicated Prisma client bound to the test database. */
 export const testPrisma = new PrismaClient({ datasourceUrl: url });
@@ -31,9 +33,18 @@ export async function createOperator(args: {
   pathSegment: number;
   password?: string;
   settings?: Record<string, unknown>;
-}): Promise<{ id: string; operatorId: string; userId: string; username: string; path: string; depth: number }> {
+}): Promise<{
+  id: string;
+  operatorId: string;
+  userId: string;
+  username: string;
+  path: string;
+  depth: number;
+}> {
   const passwordHash = await hashTestPassword(args.password ?? "Passw0rd!Test");
-  const path = args.parent ? `${args.parent.path}.${String(args.pathSegment)}` : String(args.pathSegment);
+  const path = args.parent
+    ? `${args.parent.path}.${String(args.pathSegment)}`
+    : String(args.pathSegment);
   const depth = args.parent ? args.parent.depth + 1 : 0;
   const op = await testPrisma.operator.create({
     data: {

@@ -17,7 +17,12 @@ import {
   type SettleRedemptionInput,
   settleRedemptionSchema,
 } from "@aureus/shared";
-import { Auth, CurrentPlayer, CurrentUser, RequirePermission } from "../common/auth/auth.decorators";
+import {
+  Auth,
+  CurrentPlayer,
+  CurrentUser,
+  RequirePermission,
+} from "../common/auth/auth.decorators";
 import { type OperatorPrincipal, type PlayerPrincipal } from "../common/auth/principal";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { MONEY_RATE_LIMIT } from "../common/throttler/throttler.config";
@@ -92,6 +97,13 @@ export class RedemptionsController {
   @RequirePermission("redemption.view")
   get(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string) {
     return this.redemptions.get(caller, id);
+  }
+
+  @Get(":id/proof")
+  @Auth("operator")
+  @RequirePermission("redemption.view")
+  proof(@CurrentUser() caller: OperatorPrincipal, @Param("id") id: string, @Req() req: Request) {
+    return this.redemptions.proofDocument(caller, id, ctxOf(req));
   }
 
   @Post(":id/approve")

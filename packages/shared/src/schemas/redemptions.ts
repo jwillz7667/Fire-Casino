@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { zMinorPositive } from "../money";
 import { redemptionStatusSchema } from "../enums";
+import { proofUrlSchema } from "./orders";
 
 /**
  * Redemption (cashout) request/response contracts — docs/05 §7, docs/03 §4.5.
@@ -37,7 +38,7 @@ export type RejectRedemptionInput = z.infer<typeof rejectRedemptionSchema>;
 
 export const settleRedemptionSchema = z.object({
   payoutRef: z.string().min(1).max(120),
-  proofUrl: z.string().url().max(500).optional(),
+  proofUrl: proofUrlSchema.optional(),
 });
 export type SettleRedemptionInput = z.infer<typeof settleRedemptionSchema>;
 

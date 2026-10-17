@@ -29,21 +29,16 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }): React.Re
     mutationFn: async (): Promise<void> => {
       if (!file) throw new Error("Add a photo of your ID.");
 
-      // 1) Presign a private upload slot (R2). In dev the storage provider is a
-      //    stub that returns a fake URL; the PUT is a no-op there, real R2 PUT
-      //    succeeds with the same flow (docs/01 §8, docs/07 §2.7).
+      // Record a submission only after object storage confirms the upload.
       const presignBody = presignKycDocSchema.parse({ filename: file.name });
       const presigned = await api.post<PresignedUpload>("/compliance/kyc/doc-url", presignBody);
 
-      try {
-        await fetch(presigned.uploadUrl, {
-          method: "PUT",
-          body: file,
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-        });
-      } catch {
-        // Stub storage in dev; the document URL is still recorded server-side.
-      }
+      const uploaded = await fetch(presigned.uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+      });
+      if (!uploaded.ok) throw new Error("Your ID could not be uploaded. Please try again.");
 
       // 2) Record the KYC submission referencing the stored object.
       const submitBody = kycSubmitSchema.parse({
@@ -74,8 +69,8 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }): React.Re
         <CheckCircle2 className="h-10 w-10 text-success" />
         <div className="text-base font-semibold text-text-hi">Under review</div>
         <p className="max-w-xs text-sm text-text-mid">
-          Thanks! We&apos;ll let you know once your identity is verified. You can keep playing in the
-          meantime.
+          Thanks! We&apos;ll let you know once your identity is verified. You can keep playing in
+          the meantime.
         </p>
       </Card>
     );
@@ -106,7 +101,9 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }): React.Re
       <Field label="Photo of your ID">
         <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-hairline-strong bg-surface-2 px-4 py-6 text-center transition-colors hover:border-lumen/50">
           <Camera className="h-6 w-6 text-text-mid" />
-          <span className="text-sm text-text-hi">{file ? file.name : "Tap to upload or take a photo"}</span>
+          <span className="text-sm text-text-hi">
+            {file ? file.name : "Tap to upload or take a photo"}
+          </span>
           <span className="text-xs text-text-lo">JPG, PNG, or PDF</span>
           <input
             type="file"

@@ -121,7 +121,11 @@ export function FlamingKirinGodot({
         );
         void queryClient.invalidateQueries({ queryKey: qk.wallet });
         void queryClient.invalidateQueries({ queryKey: qk.walletHistory });
-        post("betResult", { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor }, reqId);
+        post(
+          "betResult",
+          { outcome: result.round.outcome, balanceAfterMinor: result.balanceAfterMinor },
+          reqId,
+        );
       } catch (err) {
         post("betError", { message: messageForError(err) }, reqId);
       }
@@ -131,8 +135,19 @@ export function FlamingKirinGodot({
 
   useEffect(() => {
     function onMessage(e: MessageEvent): void {
-      if (GAME_ORIGIN !== "*" && e.origin !== GAME_ORIGIN) return;
-      const m = e.data as { source?: string; type?: string; reqId?: string; payload?: { betMinor?: number } };
+      if (
+        !iframeRef.current?.contentWindow ||
+        e.source !== iframeRef.current.contentWindow ||
+        GAME_ORIGIN === "*" ||
+        e.origin !== GAME_ORIGIN
+      )
+        return;
+      const m = e.data as {
+        source?: string;
+        type?: string;
+        reqId?: string;
+        payload?: { betMinor?: number };
+      };
       if (!m || m.source !== "flaming-kirin-game") return;
       if (m.type === "requestInit") {
         sendInit();
@@ -155,6 +170,11 @@ export function FlamingKirinGodot({
   }
 
   return (
-    <GameViewport ref={iframeRef} src={GAME_URL} title="Legend of the Flaming Kirin" onLoad={sendInit} />
+    <GameViewport
+      ref={iframeRef}
+      src={GAME_URL}
+      title="Legend of the Flaming Kirin"
+      onLoad={sendInit}
+    />
   );
 }

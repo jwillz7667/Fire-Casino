@@ -10,13 +10,11 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import {
-  type PlatformMode,
-  type PlayerLoginInput,
-  type PlayerSummary,
-} from "@aureus/shared";
+import { useQueryClient } from "@tanstack/react-query";
+import { type PlatformMode, type PlayerLoginInput, type PlayerSummary } from "@aureus/shared";
 import { api, setAccessToken, setAuthLostHandler, tryRefresh } from "./api";
 import { detectMode } from "./mode";
+import { dismissAnnouncement } from "./announcements";
 
 interface AuthContextValue {
   player: PlayerSummary | null;
@@ -53,13 +51,15 @@ function isPlayerSummary(value: OperatorOrPlayer): value is PlayerSummary {
 type OperatorOrPlayer = PlayerSummary | { userId: string };
 
 export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
+  const queryClient = useQueryClient();
   const [player, setPlayer] = useState<PlayerSummary | null>(null);
   const [ready, setReady] = useState(false);
   const router = useRouter();
 
   const refreshMe = useCallback(async () => {
     const me = await api.get<OperatorOrPlayer>("/auth/me");
-    if (isPlayerSummary(me)) setPlayer(me);
+    if (!isPlayerSummary(me)) throw new Error("A player session is required.");
+    setPlayer(me);
   }, []);
 
   // Restore the session on mount via the refresh cookie, then load /auth/me.
@@ -70,9 +70,11 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
       if (ok) {
         try {
           const me = await api.get<OperatorOrPlayer>("/auth/me");
-          if (active && isPlayerSummary(me)) setPlayer(me);
+          if (!isPlayerSummary(me)) throw new Error("A player session is required.");
+          if (active) setPlayer(me);
         } catch {
-          // No valid session; fall through to unauthenticated.
+          setAccessToken(null);
+          // No valid player session; fall through to unauthenticated.
         }
       }
       if (active) setReady(true);
@@ -87,6 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
   useEffect(() => {
     setAuthLostHandler(() => {
       setAccessToken(null);
+      queryClient.clear();
+      dismissAnnouncement();
       setPlayer(null);
       if (typeof window !== "undefined" && window.location.pathname !== "/login") {
         router.replace("/login");
@@ -95,14 +99,19 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
     return () => {
       setAuthLostHandler(null);
     };
-  }, [router]);
+  }, [queryClient, router]);
 
-  const login = useCallback(async (input: PlayerLoginInput) => {
-    const res = await api.post<PlayerLoginResponse>("/auth/player/login", input);
-    setAccessToken(res.accessToken);
-    setPlayer(res.player);
-    return res.player;
-  }, []);
+  const login = useCallback(
+    async (input: PlayerLoginInput) => {
+      const res = await api.post<PlayerLoginResponse>("/auth/player/login", input);
+      queryClient.clear();
+      dismissAnnouncement();
+      setAccessToken(res.accessToken);
+      setPlayer(res.player);
+      return res.player;
+    },
+    [queryClient],
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -111,9 +120,11 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
       // Best-effort; clear local state regardless.
     }
     setAccessToken(null);
+    queryClient.clear();
+    dismissAnnouncement();
     setPlayer(null);
     router.replace("/login");
-  }, [router]);
+  }, [queryClient, router]);
 
   // Force a re-login after a long background. We only DECIDE on return: never log out
   // merely on `hidden` (the player may be switching back immediately). A background of

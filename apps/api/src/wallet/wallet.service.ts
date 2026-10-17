@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { type PrismaClient } from "@aureus/db";
+import { type Prisma, type PrismaClient } from "@aureus/db";
 import {
   bps,
   type Currency,
@@ -12,13 +12,13 @@ import {
   type WalletHistoryQuery,
 } from "@aureus/shared";
 import { type OperatorPrincipal, type PlayerPrincipal } from "../common/auth/principal";
-import { NotFoundError, OutOfScopeError } from "../common/errors/domain-error";
+import { ConflictError, NotFoundError, OutOfScopeError } from "../common/errors/domain-error";
 import { ENV } from "../config/config.module";
 import { PRISMA_SYSTEM } from "../prisma/prisma.module";
 import { AuditService, auditActor } from "../audit/audit.service";
 import { ComplianceService } from "../compliance/compliance.service";
 import { LedgerService } from "../ledger/ledger.service";
-import { type PostGroup } from "../ledger/ledger.types";
+import { type PostGroup, type PostResult } from "../ledger/ledger.types";
 import { OperatorsService } from "../operators/operators.service";
 
 interface ActionContext {
@@ -50,78 +50,94 @@ export class WalletService {
     idempotencyKey: string,
     ctx: ActionContext,
   ) {
-    const player = await this.prisma.player.findUnique({
-      where: { id: input.playerId },
-      select: { id: true, operatorId: true, operator: { select: { path: true } } },
-    });
-    if (!player) throw new NotFoundError("Player not found");
-    // Defense-in-depth: a credit-moving op must verify subtree ownership itself,
-    // not lean only on the controller ScopeGuard (docs/04 §7 — two layers). The
-    // Prisma read extension filters reads, not this write path.
-    if (!isInSubtree(caller.path, player.operator.path)) throw new OutOfScopeError();
-
-    await this.operators.assertOperatorActionable(caller.operatorId);
-    // Pass the amount so the DEPOSIT responsible-gaming limit is actually enforced
-    // (CR3 — it was previously called without an amount and silently skipped).
-    await this.compliance.checkDeposit(player.id, { amountMinor: input.amountMinor });
-
-    const keyBase = `recharge:${caller.operatorId}:${idempotencyKey}`;
-
-    if (this.env.PLATFORM_MODE !== "COMPLIANCE") {
-      const currency: Currency = "CREDIT";
-      const result = await this.ledger.post({
-        type: "RECHARGE",
-        currency,
-        idempotencyKey: keyBase,
-        actor: { userId: caller.userId },
-        ref: { type: "Recharge", id: player.id },
-        memo: input.note,
-        legs: [
-          { account: { kind: "operator", operatorId: caller.operatorId, currency }, direction: "DEBIT", amountMinor: input.amountMinor },
-          { account: { kind: "player", playerId: player.id, currency }, direction: "CREDIT", amountMinor: input.amountMinor },
-        ],
+    return this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${input.playerId} FOR UPDATE`;
+      const player = await tx.player.findUnique({
+        where: { id: input.playerId },
+        select: { id: true, operatorId: true, operator: { select: { path: true } } },
       });
-      await this.recordRecharge(caller, input, "CREDIT", 0n, result.transactionId, ctx);
-      return { mode: "OPERATOR", transactionId: result.transactionId, prizeBonusMinor: "0" };
-    }
+      if (!player) throw new NotFoundError("Player not found");
+      // Defense-in-depth: a credit-moving op must verify subtree ownership itself,
+      // not lean only on the controller ScopeGuard (docs/04 §7 — two layers). The
+      // Prisma read extension filters reads, not this write path.
+      if (!isInSubtree(caller.path, player.operator.path)) throw new OutOfScopeError();
 
-    // COMPLIANCE mode: PLAY purchase + PRIZE bonus, atomic.
-    const bonusBps = this.prizeBonusBps(caller);
-    const prizeBonus = bps(input.amountMinor, bonusBps);
-    const groups: PostGroup[] = [
-      {
-        type: "RECHARGE",
-        currency: "PLAY",
-        idempotencyKey: `${keyBase}:play`,
-        legs: [
-          { account: { kind: "operator", operatorId: caller.operatorId, currency: "PLAY" }, direction: "DEBIT", amountMinor: input.amountMinor },
-          { account: { kind: "player", playerId: player.id, currency: "PLAY" }, direction: "CREDIT", amountMinor: input.amountMinor },
-        ],
-      },
-    ];
-    if (prizeBonus > 0n) {
-      groups.push({
-        type: "PROMO_GRANT",
-        currency: "PRIZE",
-        idempotencyKey: `${keyBase}:prize`,
-        allowNegative: ["PROMO"],
-        legs: [
-          { account: { kind: "system", systemKey: "PROMO", currency: "PRIZE" }, direction: "DEBIT", amountMinor: prizeBonus },
-          { account: { kind: "player", playerId: player.id, currency: "PRIZE" }, direction: "CREDIT", amountMinor: prizeBonus },
-        ],
-      });
-    }
-    const results = await this.ledger.postBatch(groups, {
-      actor: { userId: caller.userId },
-      ref: { type: "Recharge", id: player.id },
-      memo: input.note,
+      await this.operators.assertOperatorActionable(caller.operatorId, tx);
+      const keyBase = `recharge:${caller.operatorId}:${idempotencyKey}`;
+      const replay = await this.replayedRecharge(tx, keyBase);
+      if (replay) return replay;
+      // Pass the amount so the DEPOSIT responsible-gaming limit is actually enforced
+      // (CR3 — it was previously called without an amount and silently skipped).
+      await this.compliance.forTransaction(tx).checkDeposit(player.id, { amountMinor: input.amountMinor });
+
+
+
+      if (this.env.PLATFORM_MODE !== "COMPLIANCE") {
+        const currency: Currency = "CREDIT";
+        const result = await this.ledger.postInTransaction(tx, {
+          type: "RECHARGE",
+          currency,
+          idempotencyKey: keyBase,
+          actor: { userId: caller.userId },
+          ref: { type: "Recharge", id: player.id },
+          memo: input.note,
+          legs: [
+            { account: { kind: "operator", operatorId: caller.operatorId, currency }, direction: "DEBIT", amountMinor: input.amountMinor },
+            { account: { kind: "player", playerId: player.id, currency }, direction: "CREDIT", amountMinor: input.amountMinor },
+          ],
+        });
+        if (!result.replayed) await this.recordRecharge(caller, input, "CREDIT", 0n, result.transactionId, ctx, tx);
+        return { mode: "OPERATOR", transactionId: result.transactionId, prizeBonusMinor: "0" };
+      }
+
+      // COMPLIANCE mode: PLAY purchase + PRIZE bonus, atomic.
+      const bonusBps = this.prizeBonusBps(caller);
+      const prizeBonus = bps(input.amountMinor, bonusBps);
+      const groups: PostGroup[] = [
+        {
+          type: "RECHARGE",
+          currency: "PLAY",
+          idempotencyKey: `${keyBase}:play`,
+          legs: [
+            { account: { kind: "operator", operatorId: caller.operatorId, currency: "PLAY" }, direction: "DEBIT", amountMinor: input.amountMinor },
+            { account: { kind: "player", playerId: player.id, currency: "PLAY" }, direction: "CREDIT", amountMinor: input.amountMinor },
+          ],
+        },
+      ];
+      if (prizeBonus > 0n) {
+        groups.push({
+          type: "PROMO_GRANT",
+          currency: "PRIZE",
+          idempotencyKey: `${keyBase}:prize`,
+          allowNegative: ["PROMO"],
+          legs: [
+            { account: { kind: "system", systemKey: "PROMO", currency: "PRIZE" }, direction: "DEBIT", amountMinor: prizeBonus },
+            { account: { kind: "player", playerId: player.id, currency: "PRIZE" }, direction: "CREDIT", amountMinor: prizeBonus },
+          ],
+        });
+      }
+      const results: PostResult[] = [];
+      for (const group of groups) {
+        const result = await this.ledger.postInTransaction(tx, {
+          ...group,
+          actor: { userId: caller.userId },
+          ref: { type: "Recharge", id: player.id },
+          memo: input.note,
+        });
+        if (result.replayed) {
+          const replay = results.length === 0 ? await this.replayedRecharge(tx, keyBase) : null;
+          if (replay) return replay;
+          throw new ConflictError("Incomplete historical recharge requires reconciliation before retry");
+        }
+        results.push(result);
+      }
+      await this.recordRecharge(caller, input, "PLAY", prizeBonus, results[0]?.transactionId ?? "", ctx, tx);
+      return {
+        mode: "COMPLIANCE",
+        transactionId: results[0]?.transactionId,
+        prizeBonusMinor: prizeBonus.toString(),
+      };
     });
-    await this.recordRecharge(caller, input, "PLAY", prizeBonus, results[0]?.transactionId ?? "", ctx);
-    return {
-      mode: "COMPLIANCE",
-      transactionId: results[0]?.transactionId,
-      prizeBonusMinor: prizeBonus.toString(),
-    };
   }
 
   /**
@@ -140,49 +156,52 @@ export class WalletService {
     idempotencyKey: string,
     ctx: ActionContext,
   ) {
-    const player = await this.prisma.player.findUnique({
-      where: { id: input.playerId },
-      select: { id: true, operatorId: true, operator: { select: { path: true } } },
-    });
-    if (!player) throw new NotFoundError("Player not found");
-    // Defense-in-depth subtree check on the write path (docs/04 §7), matching recharge.
-    if (!isInSubtree(caller.path, player.operator.path)) throw new OutOfScopeError();
+    return this.ledger.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM players WHERE id = ${input.playerId} FOR UPDATE`;
+      const player = await tx.player.findUnique({
+        where: { id: input.playerId },
+        select: { id: true, operatorId: true, operator: { select: { path: true } } },
+      });
+      if (!player) throw new NotFoundError("Player not found");
+      // Defense-in-depth subtree check on the write path (docs/04 §7), matching recharge.
+      if (!isInSubtree(caller.path, player.operator.path)) throw new OutOfScopeError();
 
-    await this.operators.assertOperatorActionable(caller.operatorId);
+      await this.operators.assertOperatorActionable(caller.operatorId, tx);
 
-    const currency: Currency = operatorCurrency(this.env.PLATFORM_MODE);
-    const result = await this.ledger.post({
-      type: "CREDIT_REMOVAL",
-      currency,
-      idempotencyKey: `remove:${caller.operatorId}:${idempotencyKey}`,
-      actor: { userId: caller.userId },
-      ref: { type: "CreditRemoval", id: player.id },
-      memo: input.reason,
-      legs: [
-        { account: { kind: "player", playerId: player.id, currency }, direction: "DEBIT", amountMinor: input.amountMinor },
-        { account: { kind: "system", systemKey: "SINK", currency }, direction: "CREDIT", amountMinor: input.amountMinor },
-      ],
-    });
-
-    await this.audit.record({
-      ...auditActor(caller),
-      action: "wallet.remove",
-      targetType: "Player",
-      targetId: input.playerId,
-      after: {
-        amountMinor: input.amountMinor.toString(),
+      const currency: Currency = operatorCurrency(this.env.PLATFORM_MODE);
+      const result = await this.ledger.postInTransaction(tx, {
+        type: "CREDIT_REMOVAL",
         currency,
-        reason: input.reason,
-        transactionId: result.transactionId,
-      },
-      ...ctx,
-    });
+        idempotencyKey: `remove:${caller.operatorId}:${idempotencyKey}`,
+        actor: { userId: caller.userId },
+        ref: { type: "CreditRemoval", id: player.id },
+        memo: input.reason,
+        legs: [
+          { account: { kind: "player", playerId: player.id, currency }, direction: "DEBIT", amountMinor: input.amountMinor },
+          { account: { kind: "system", systemKey: "SINK", currency }, direction: "CREDIT", amountMinor: input.amountMinor },
+        ],
+      });
 
-    return {
-      transactionId: result.transactionId,
-      removedMinor: input.amountMinor.toString(),
-      currency,
-    };
+      if (!result.replayed) await this.audit.record({
+        ...auditActor(caller),
+        action: "wallet.remove",
+        targetType: "Player",
+        targetId: input.playerId,
+        after: {
+          amountMinor: input.amountMinor.toString(),
+          currency,
+          reason: input.reason,
+          transactionId: result.transactionId,
+        },
+        ...ctx,
+      }, tx);
+
+      return {
+        transactionId: result.transactionId,
+        removedMinor: input.amountMinor.toString(),
+        currency,
+      };
+    });
   }
 
   /** Player asks their agent to load credits (no money moves; notifies the agent). */
@@ -267,6 +286,25 @@ export class WalletService {
 
   // ---- internals -------------------------------------------------------------
 
+  /** Return the original committed bonus, never recompute it from current settings. */
+  private async replayedRecharge(tx: Prisma.TransactionClient, keyBase: string) {
+    const complianceMode = this.env.PLATFORM_MODE === "COMPLIANCE";
+    const main = await tx.ledgerTransaction.findUnique({
+      where: { idempotencyKey: complianceMode ? `${keyBase}:play` : keyBase },
+      select: { id: true },
+    });
+    if (!complianceMode) {
+      return main ? { mode: "OPERATOR", transactionId: main.id, prizeBonusMinor: "0" } : null;
+    }
+    const prize = await tx.ledgerTransaction.findUnique({
+      where: { idempotencyKey: `${keyBase}:prize` },
+      select: { entries: { where: { direction: "CREDIT" }, select: { amountMinor: true } } },
+    });
+    if (prize && !main) throw new ConflictError("Incomplete historical recharge requires reconciliation before retry");
+    if (!main) return null;
+    return { mode: "COMPLIANCE", transactionId: main.id, prizeBonusMinor: (prize?.entries[0]?.amountMinor ?? 0n).toString() };
+  }
+
   private prizeBonusBps(caller: OperatorPrincipal): number {
     const configured = caller.settings.prizeBonusBps;
     return typeof configured === "number" && configured >= 0 ? configured : DEFAULT_PRIZE_BONUS_BPS;
@@ -279,6 +317,7 @@ export class WalletService {
     prizeBonus: bigint,
     transactionId: string,
     ctx: ActionContext,
+    tx: Prisma.TransactionClient,
   ): Promise<void> {
     await this.audit.record({
       ...auditActor(caller),
@@ -293,6 +332,6 @@ export class WalletService {
         transactionId,
       },
       ...ctx,
-    });
+    }, tx);
   }
 }

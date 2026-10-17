@@ -38,6 +38,12 @@ function isIdempotencyConflict(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
+function isLedgerUniqueConflict(error: unknown): boolean {
+  if (!isIdempotencyConflict(error)) return false;
+  const model = (error as Prisma.PrismaClientKnownRequestError).meta?.modelName;
+  return model === "LedgerAccount" || model === "LedgerTransaction";
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -85,42 +91,71 @@ export class LedgerService {
   async post(input: PostInput): Promise<PostResult> {
     assertBalanced(input.legs, input.currency);
     const refs = await this.resolveAccounts(input.legs);
-    const allowNegative = new Set(input.allowNegative ?? []);
-
     const run = (): Promise<PostResult> =>
       this.prisma.$transaction(
-        async (tx) => {
-          const dup = await tx.ledgerTransaction.findUnique({
-            where: { idempotencyKey: input.idempotencyKey },
-            select: { id: true },
-          });
-          if (dup) return { transactionId: dup.id, replayed: true };
-
-          const state = await this.lockAccounts(tx, this.idsOf(input.legs, refs));
-          const transaction = await tx.ledgerTransaction.create({
-            data: {
-              type: input.type,
-              currency: input.currency,
-              idempotencyKey: input.idempotencyKey,
-              actorUserId: input.actor?.userId,
-              actorPlayerId: input.actor?.playerId,
-              refType: input.ref?.type,
-              refId: input.ref?.id,
-              memo: input.memo,
-            },
-            select: { id: true },
-          });
-
-          await this.applyLegs(tx, transaction.id, input.legs, input.currency, refs, state, allowNegative);
-          await this.commitBalances(tx, state);
-          await this.writeBalanceOutbox(tx, state, refs);
-
-          return { transactionId: transaction.id, replayed: false };
-        },
+        (tx) => this.postResolved(tx, input, refs),
         { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 10_000 },
       );
 
     return this.runWithIdempotency(run, input.idempotencyKey);
+  }
+
+  /** Compose a workflow and its ledger movements in the same retriable transaction.
+   * Callbacks must contain database work only: a retry rolls back every write.
+   */
+  async transaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return withConflictRetry(async () => {
+      try {
+        return await this.prisma.$transaction(work, {
+          isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+          maxWait: 10_000,
+          timeout: 15_000,
+        });
+      } catch (error) {
+        // Concurrent first-use account creation or an idempotency-key insertion
+        // aborts PostgreSQL's transaction. Retry the whole workflow, never just
+        // its ledger part, so status, audit, and settlement remain atomic.
+        if (isLedgerUniqueConflict(error)) throw versionConflict();
+        throw error;
+      }
+    });
+  }
+
+  /** Post through the ledger inside a caller-owned workflow transaction. */
+  async postInTransaction(tx: Prisma.TransactionClient, input: PostInput): Promise<PostResult> {
+    assertBalanced(input.legs, input.currency);
+    const refs = await this.resolveAccounts(input.legs, tx);
+    return this.postResolved(tx, input, refs);
+  }
+
+  private async postResolved(
+    tx: Prisma.TransactionClient,
+    input: PostInput,
+    refs: AccountRefs,
+  ): Promise<PostResult> {
+    const dup = await tx.ledgerTransaction.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+      select: { id: true },
+    });
+    if (dup) return { transactionId: dup.id, replayed: true };
+    const state = await this.lockAccounts(tx, this.idsOf(input.legs, refs));
+    const transaction = await tx.ledgerTransaction.create({
+      data: {
+        type: input.type,
+        currency: input.currency,
+        idempotencyKey: input.idempotencyKey,
+        actorUserId: input.actor?.userId,
+        actorPlayerId: input.actor?.playerId,
+        refType: input.ref?.type,
+        refId: input.ref?.id,
+        memo: input.memo,
+      },
+      select: { id: true },
+    });
+    await this.applyLegs(tx, transaction.id, input.legs, input.currency, refs, state, new Set(input.allowNegative ?? []));
+    await this.commitBalances(tx, state);
+    await this.writeBalanceOutbox(tx, state, refs);
+    return { transactionId: transaction.id, replayed: false };
   }
 
   /**
@@ -360,32 +395,32 @@ export class LedgerService {
     return selector?.kind === "system" && allowNegative.has(selector.systemKey);
   }
 
-  private async resolveAccounts(legs: Leg[]): Promise<AccountRefs> {
+  private async resolveAccounts(legs: Leg[], client: Pick<PrismaClient, "ledgerAccount"> = this.prisma): Promise<AccountRefs> {
     const idByKey = new Map<string, string>();
     const selectorById = new Map<string, AccountSelector>();
     for (const leg of legs) {
       const key = selectorKey(leg.account);
       if (idByKey.has(key)) continue;
-      const id = await this.getOrCreateAccount(leg.account);
+      const id = await this.getOrCreateAccount(leg.account, client);
       idByKey.set(key, id);
       selectorById.set(id, leg.account);
     }
     return { idByKey, selectorById };
   }
 
-  private async getOrCreateAccount(selector: AccountSelector): Promise<string> {
+  private async getOrCreateAccount(selector: AccountSelector, client: Pick<PrismaClient, "ledgerAccount">): Promise<string> {
     const where = this.selectorWhere(selector);
-    const existing = await this.prisma.ledgerAccount.findFirst({ where, select: { id: true } });
+    const existing = await client.ledgerAccount.findFirst({ where, select: { id: true } });
     if (existing) return existing.id;
     try {
-      const created = await this.prisma.ledgerAccount.create({
+      const created = await client.ledgerAccount.create({
         data: this.selectorCreate(selector),
         select: { id: true },
       });
       return created.id;
     } catch (error) {
-      if (isIdempotencyConflict(error)) {
-        const again = await this.prisma.ledgerAccount.findFirst({ where, select: { id: true } });
+      if (client === this.prisma && isIdempotencyConflict(error)) {
+        const again = await client.ledgerAccount.findFirst({ where, select: { id: true } });
         if (again) return again.id;
       }
       throw error;
