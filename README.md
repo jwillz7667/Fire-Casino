@@ -165,17 +165,20 @@ Both must run in production. The web process attaches the Socket.io Redis adapte
 
 The backend uses PostgreSQL, Redis, and **Cloudflare R2** (KYC documents / payment proofs). The two Next.js apps can stay on **Vercel**, one project each. Cross-site auth requires exact frontend origins in `ALLOWED_ORIGINS`, `COOKIE_SECURE=true`, `COOKIE_SAMESITE=none`, and an empty `COOKIE_DOMAIN` for a host-only API cookie.
 
-#### Northflank Sandbox
+#### Free Render + Neon deployment
 
-[Northflank Sandbox](https://northflank.com/pricing) includes two always-on services and one database. A payment method is required for verification, and Northflank describes the free tier as suitable for hobby projects and testing. Confirm the selected resources are included in Sandbox before deploying; the regular compute plans, extra disks, and networking have separate prices.
+The [Render Blueprint](./render.yaml) creates a free web service for the API/worker and a free Key Value instance for Redis. PostgreSQL runs on [Neon Free](https://neon.com/pricing), which has no expiration or card requirement. Both Render resources explicitly use `plan: free`; no paid worker or expiring Render Postgres database is created.
 
-Use the service slots for the combined API/worker and Redis, and the database slot for PostgreSQL 16:
+[Deploy the backend to Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fjwillz7667%2FFire-Casino%2Ftree%2Fcodex%2Ffree-backend-hosting-20261017)
 
-1. Create a Sandbox project and a PostgreSQL addon. Link its connection secret as `DATABASE_URL` on the backend service.
-2. Create a private service from `redis:8.2`, listening on TCP port 6379. Configure a strong Redis password and the `noeviction` policy. Set the backend's `REDIS_URL` to its private connection URL. An ordinary Redis service has ephemeral storage; PostgreSQL remains the ledger's durable system of record. After any Redis reset, restart the combined backend to register its recurring reconciliation job again; `/readyz` checks connections, not the job schedule.
-3. Create a combined build/deploy service from this repository, with `/Dockerfile` and `/` as its build context. Override its command with `node deploy/start-backend.mjs`. Expose HTTP port 4000, including WebSockets, and use `/readyz` as the readiness check. Select an included Sandbox resource size; the API and worker share its memory limit.
-4. Configure runtime secrets: `NODE_ENV=production`, both JWT secrets (at least 32 characters), the real `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and distinct `R2_BUCKET_ASSETS` / `R2_BUCKET_KYC`. Set `API_URL`, `CONSOLE_URL`, `ARCADE_URL`, `ALLOWED_ORIGINS`, and the cookie values above for the actual domains. Keep secrets in the provider's secret store.
-5. Deploy and check `/readyz` and both web/worker startup logs. Update both frontends' `NEXT_PUBLIC_API_URL` to the new API URL and rebuild them when switching traffic.
+1. Create a Neon Free PostgreSQL 16 project, preferably near Render's Oregon region. Use its **direct** SSL connection URL as `DATABASE_URL` so both Prisma migrations and the runtime can use the same URL. For a small instance, add `connect_timeout=15`, `connection_limit=5`, and `pool_timeout=15` query parameters alongside `sslmode=require`.
+2. Open the deploy link and sign in to Render with GitHub. Supply the prompted runtime values: the Neon URL, existing platform mode and JWT secrets, frontend URLs/allowed origins, and real R2 credentials and bucket names. Preserve both JWT secrets when importing existing users, especially `JWT_REFRESH_SECRET`, which protects MFA secrets. A fresh setup needs independently generated secrets of at least 32 characters.
+3. Review the Blueprint's two **Free** resources, then deploy. Redis is private and configured with `noeviction`; its connection URL is wired automatically. `API_URL` references Render's own public HTTPS URL, and secure cross-site cookies are configured in the Blueprint. Keep credentials in the providers' secret stores.
+4. Check `/readyz` and both API/worker startup logs. Update both frontends' `NEXT_PUBLIC_API_URL` to the new API URL and rebuild them when switching traffic. Provision the initial administrator securely for a fresh database; the development seed also creates demo accounts.
+
+[Render's free limits](https://render.com/docs/free) include 750 web-service hours per workspace per month and sleep after 15 minutes without traffic. Sleep also pauses the worker; the next request wakes the backend and can take about a minute. Free Redis has 25 MB of memory and no disk persistence: after a Redis reset, restart the backend to register its recurring reconciliation job again. `/readyz` checks connections, not the job schedule. Render advertises no-card free hosting but may request account verification for some users.
+
+Neon Free currently includes 1 GB of storage and 100 compute-unit hours per project per month. The worker's database polling consumes compute while the backend is awake, so monitor that allowance. This is a free setup for small/test workloads within the providers' limits; it does not promise uninterrupted production service.
 
 The combined command applies pending Prisma migrations before starting either process, forwards shutdown signals to both, and exits if either process stops unexpectedly so the host can restart the complete backend. Test this supervisor with `pnpm test:deploy`.
 
