@@ -18,7 +18,6 @@ services:
     dockerCommand: node deploy/start-backend.mjs
     autoDeployTrigger: "off"
     healthCheckPath: /readyz
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: NODE_ENV
         value: production

@@ -116,6 +116,11 @@ export async function runBackend({ migration, services, graceMs = 25_000 }) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // Render supplies the public origin after creating the service. Preserve an
+  // explicitly configured custom domain while avoiding localhost launch URLs.
+  if (!process.env.API_URL && process.env.RENDER_EXTERNAL_URL) {
+    process.env.API_URL = process.env.RENDER_EXTERNAL_URL;
+  }
   try {
     process.exitCode = await runBackend(deploymentCommands());
   } catch {

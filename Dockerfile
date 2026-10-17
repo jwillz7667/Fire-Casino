@@ -37,10 +37,11 @@ RUN pnpm --filter @aureus/db db:generate \
 # ---- runtime ----------------------------------------------------------------
 # Carry the built workspace + node_modules (incl. the generated Prisma client,
 # the Prisma CLI, and the migrations) so both `node dist/*.js` and
-# `prisma migrate deploy` work. The web service starts main.js; the worker
-# service overrides the start command to worker.js (see railway.worker.toml).
+# `prisma migrate deploy` work. The default command supervises API + worker on
+# one service. Hosts with separate services can override it with main.js or
+# worker.js (see railway.toml and railway.worker.toml).
 FROM base AS runtime
 ENV NODE_ENV=production
 COPY --from=build /app ./
 EXPOSE 4000
-CMD ["node", "apps/api/dist/main.js"]
+CMD ["node", "deploy/start-backend.mjs"]
