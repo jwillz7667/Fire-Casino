@@ -163,7 +163,23 @@ Both must run in production. The web process attaches the Socket.io Redis adapte
 
 ### Deployment
 
-Target stack: **Railway** (web + worker + managed Postgres + Redis), **Cloudflare R2** (object storage for KYC docs / payment proofs), **Vercel** (the two Next.js apps, one project each). Cross-site auth: set `ALLOWED_ORIGINS` to the exact frontend origins, `COOKIE_SECURE=true`, and the refresh cookie to `SameSite=None` in production.
+The backend uses PostgreSQL, Redis, and **Cloudflare R2** (KYC documents / payment proofs). The two Next.js apps can stay on **Vercel**, one project each. Cross-site auth requires exact frontend origins in `ALLOWED_ORIGINS`, `COOKIE_SECURE=true`, `COOKIE_SAMESITE=none`, and an empty `COOKIE_DOMAIN` for a host-only API cookie.
+
+#### Northflank Sandbox
+
+[Northflank Sandbox](https://northflank.com/pricing) includes two always-on services and one database. A payment method is required for verification, and Northflank describes the free tier as suitable for hobby projects and testing. Confirm the selected resources are included in Sandbox before deploying; the regular compute plans, extra disks, and networking have separate prices.
+
+Use the service slots for the combined API/worker and Redis, and the database slot for PostgreSQL 16:
+
+1. Create a Sandbox project and a PostgreSQL addon. Link its connection secret as `DATABASE_URL` on the backend service.
+2. Create a private service from `redis:8.2`, listening on TCP port 6379. Configure a strong Redis password and the `noeviction` policy. Set the backend's `REDIS_URL` to its private connection URL. An ordinary Redis service has ephemeral storage; PostgreSQL remains the ledger's durable system of record. After any Redis reset, restart the combined backend to register its recurring reconciliation job again; `/readyz` checks connections, not the job schedule.
+3. Create a combined build/deploy service from this repository, with `/Dockerfile` and `/` as its build context. Override its command with `node deploy/start-backend.mjs`. Expose HTTP port 4000, including WebSockets, and use `/readyz` as the readiness check. Select an included Sandbox resource size; the API and worker share its memory limit.
+4. Configure runtime secrets: `NODE_ENV=production`, both JWT secrets (at least 32 characters), the real `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and distinct `R2_BUCKET_ASSETS` / `R2_BUCKET_KYC`. Set `API_URL`, `CONSOLE_URL`, `ARCADE_URL`, `ALLOWED_ORIGINS`, and the cookie values above for the actual domains. Keep secrets in the provider's secret store.
+5. Deploy and check `/readyz` and both web/worker startup logs. Update both frontends' `NEXT_PUBLIC_API_URL` to the new API URL and rebuild them when switching traffic.
+
+The combined command applies pending Prisma migrations before starting either process, forwards shutdown signals to both, and exits if either process stops unexpectedly so the host can restart the complete backend. Test this supervisor with `pnpm test:deploy`.
+
+To retain existing users and balances, first restore a full PostgreSQL backup (schema, data, triggers, custom indexes, and `_prisma_migrations`) into the new database and preserve the existing JWT secrets, especially `JWT_REFRESH_SECRET`, which also protects stored MFA secrets. Stop old web/worker writes for the final transfer and run all five Ledger Health checks before switching traffic. For a fresh database, provision the initial administrator securely: the development seed also creates demo operator/player accounts.
 
 ### Backup & restore (Postgres)
 
