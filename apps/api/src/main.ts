@@ -11,6 +11,7 @@ import { RedisIoAdapter } from "./realtime/redis-io.adapter";
 import { securityHeaders } from "./common/http/security-headers";
 import { stripUntrustedGeoHeaders } from "./common/http/strip-untrusted-geo";
 import { authOriginProtection } from "./common/http/auth-origin";
+import { trustedFrontendIp } from "./common/http/trusted-frontend-ip";
 
 async function bootstrap(): Promise<void> {
   loadDotenv();
@@ -32,6 +33,7 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix("api/v1", { exclude: ["healthz", "readyz"] });
 
   app.use(securityHeaders);
+  app.use(trustedFrontendIp(env.FRONTEND_PROXY_SECRET));
   app.use(cookieParser());
   app.use("/api/v1/auth", authOriginProtection(env.ALLOWED_ORIGINS));
   // GEO-1: drop client-forged CF-IPCountry/X-Vercel-IP-Country unless the request

@@ -39,6 +39,8 @@ services:
         sync: false
       - key: JWT_REFRESH_SECRET
         sync: false
+      - key: FRONTEND_PROXY_SECRET
+        generateValue: true
       - key: COOKIE_DOMAIN
         value: ""
       - key: COOKIE_SECURE
@@ -61,3 +63,63 @@ services:
         sync: false
       - key: R2_BUCKET_KYC
         sync: false
+
+  - type: web
+    name: fire-casino-console
+    runtime: node
+    plan: free
+    region: oregon
+    autoDeployTrigger: "off"
+    healthCheckPath: /login
+    buildCommand: corepack pnpm install --frozen-lockfile --prod=false && corepack pnpm turbo run build --filter=@aureus/console...
+    startCommand: corepack pnpm --filter @aureus/console exec next start -p "$PORT" -H 0.0.0.0
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_PUBLIC_API_PROXY
+        value: "true"
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXT_PUBLIC_PLATFORM_MODE
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: PLATFORM_MODE
+      - key: FRONTEND_PROXY_SECRET
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: FRONTEND_PROXY_SECRET
+
+  - type: web
+    name: fire-casino-arcade
+    runtime: node
+    plan: free
+    region: oregon
+    autoDeployTrigger: "off"
+    healthCheckPath: /login
+    buildCommand: corepack pnpm install --frozen-lockfile --prod=false && corepack pnpm turbo run build --filter=@aureus/arcade...
+    startCommand: corepack pnpm --filter @aureus/arcade exec next start -p "$PORT" -H 0.0.0.0
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_PUBLIC_API_PROXY
+        value: "true"
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXT_PUBLIC_PLATFORM_MODE
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: PLATFORM_MODE
+      - key: FRONTEND_PROXY_SECRET
+        fromService:
+          type: web
+          name: fire-casino-api
+          envVarKey: FRONTEND_PROXY_SECRET

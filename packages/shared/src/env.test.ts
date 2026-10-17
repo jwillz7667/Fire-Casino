@@ -38,6 +38,16 @@ describe("env schema", () => {
     expect(() => loadEnv({ ...base, TRUST_PROXY_HOPS: "99" })).toThrow();
   });
 
+  it("keeps authenticated frontend forwarding optional and requires a strong configured secret", () => {
+    expect(loadEnv(base).FRONTEND_PROXY_SECRET).toBeUndefined();
+    expect(() => loadEnv({ ...base, FRONTEND_PROXY_SECRET: "short" })).toThrow(
+      /FRONTEND_PROXY_SECRET/,
+    );
+    expect(
+      loadEnv({ ...base, FRONTEND_PROXY_SECRET: "p".repeat(32) }).FRONTEND_PROXY_SECRET,
+    ).toHaveLength(32);
+  });
+
   it("rejects KYC bucket equal to the public assets bucket in production (SECRETS)", () => {
     expect(() =>
       loadEnv({
